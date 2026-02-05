@@ -11,9 +11,7 @@
 
 <br />
 
-[Getting Started](#getting-started) •
-[Commands](#commands) •
-[Architecture](#architecture) •
+[Getting Started](#getting-started) • [Commands](#commands) • [Architecture](#architecture) •
 [License](#license)
 
 </div>
@@ -36,14 +34,14 @@ yarn build
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `yarn build` | Build all packages and apps |
-| `yarn test` | Run tests across the monorepo |
-| `yarn lint` | Lint all packages |
-| `yarn typecheck` | TypeScript type checking |
-| `yarn format` | Format code with Biome |
-| `yarn check` | Run lint, typecheck, and test |
+| Command          | Description                   |
+| ---------------- | ----------------------------- |
+| `yarn build`     | Build all packages and apps   |
+| `yarn test`      | Run tests across the monorepo |
+| `yarn lint`      | Lint all packages             |
+| `yarn typecheck` | TypeScript type checking      |
+| `yarn format`    | Format code with Biome        |
+| `yarn check`     | Run lint, typecheck, and test |
 
 ### Working with packages
 

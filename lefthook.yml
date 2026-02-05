@@ -5,6 +5,10 @@ pre-commit:
       glob: "*.{js,jsx,ts,tsx,json}"
       run: yarn biome check --write --staged --no-errors-on-unmatched {staged_files}
       stage_fixed: true
+    format-markdown:
+      glob: "*.md"
+      run: yarn prettier --write {staged_files}
+      stage_fixed: true
 
 commit-msg:
   commands:
