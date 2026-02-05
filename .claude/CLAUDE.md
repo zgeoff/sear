@@ -4,7 +4,63 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**sear** - A TypeScript/Rust monorepo using Yarn Berry workspaces.
+**sear** — A real-time screen OCR and computer vision framework for Windows.
+
+A modular, job-driven pipeline for capturing window/screen content and running OCR and CV analysis jobs. Designed for DX-first development.
+
+- **Stack:** TypeScript, Electron, React, Zustand, Tesseract.js, OpenCV.js
+- **Monorepo:** Yarn Berry workspaces
+
+## Setup
+
+- Node.js: 24.13.0 (see `.nvmrc`, `.node-version`, `.tool-versions`)
+- Yarn: 4.12.0 (managed via corepack)
+
+```bash
+corepack enable
+yarn install
+```
+
+## Architecture
+
+### Directory Structure
+
+- `packages/` - Shared libraries and utilities
+- `apps/` - Applications (Electron-based inspector, etc.)
+- `docs/` - Technical specs and design documents
+
+<!-- TODO: Add ## Documentation section with format guidelines, templates, etc. -->
+
+### Package Namespace
+
+All packages use the `@sear/` npm scope.
+
+### Planned Packages
+
+| Package | Description | Status |
+|---------|-------------|--------|
+| `@sear/core` | Pipeline, scheduler, job management | Planned |
+| `@sear/tesseractjs` | Tesseract.js wrapper for OCR | Planned |
+| `@sear/opencvjs` | OpenCV.js wrapper for CV/template matching | Planned |
+| `@sear/utils` | Shared utilities (e.g., `createStableTextTracker`) | Planned |
+
+### Workspace References
+
+Packages can reference each other using workspace protocol:
+```json
+{
+  "dependencies": {
+    "@sear/core": "workspace:*"
+  }
+}
+```
+
+### Package Configuration
+
+Each package should have:
+- `package.json` with `name`, `main`, `types`, and scripts
+- `tsconfig.json` extending root config: `"extends": "../../tsconfig.json"`
+- `vitest.config.ts` if tests are needed
 
 ## Build Commands
 
@@ -32,31 +88,6 @@ yarn turbo run build --filter=<package-name>  # Build single package with deps
 yarn turbo run build --filter=...<package>    # Build package and dependents
 ```
 
-## Architecture
-
-### Directory Structure
-
-- `packages/` - Shared libraries and utilities
-- `apps/` - Applications (web, CLI, etc.)
-
-### Workspace References
-
-Packages can reference each other using workspace protocol:
-```json
-{
-  "dependencies": {
-    "@sear/core": "workspace:*"
-  }
-}
-```
-
-### Package Configuration
-
-Each package should have:
-- `package.json` with `name`, `main`, `types`, and scripts
-- `tsconfig.json` extending root config: `"extends": "../../tsconfig.json"`
-- `vitest.config.ts` if tests are needed
-
 ## Testing
 
 ### Vitest
@@ -79,7 +110,6 @@ This repo uses Yarn Plug'n'Play (PnP) with Zero Installs enabled:
 
 - No `node_modules` folder
 - Dependencies are stored in `.yarn/cache` and committed to git
-- `.pnp.cjs` is committed, so cloning the repo is enough to run code (no `yarn install` needed)
 - IDE integration: Run `yarn dlx @yarnpkg/sdks vscode` for VS Code support
 
 **After adding/updating dependencies**, commit the changes to `.yarn/cache` and `.pnp.cjs`.
@@ -129,13 +159,96 @@ All commits must follow the conventional commits format:
 - `chore: update dependencies`
 - `refactor(core): simplify error handling logic`
 
-## Node/Yarn Versions
+## Naming Conventions
 
-- Node.js: 24.13.0 (see `.nvmrc`, `.node-version`, `.tool-versions`)
-- Yarn: 4.12.0 (managed via corepack)
+### Acronym Casing
+Acronyms and initialisms should be **uppercase** in both type names and property names:
 
-To set up:
-```bash
-corepack enable
-yarn install
+```ts
+type ROIConfig = { ... };
+type CVConfig = { templateID: string };
+const jobID = 'abc';
+const roiID = 'def';
 ```
+
+### Function Naming
+
+**Core actions:**
+```ts
+getUser(userId)                 // retrieve existing data (no side effects)
+createUser(userInput)           // persist/allocate/register (changes the world)
+buildUserEntity(userDto)        // assemble in-memory object (pure, no I/O)
+parseAuthHeader(header)         // raw input -> structured data
+validateRunConfig(runConfig)    // enforce constraints (no mutation)
+updateUser(userId, patch)       // mutate existing persisted state
+deleteUser(userId)              // remove persisted state
+executeModelRun(runId)          // orchestrate workflow (side effects likely)
+```
+
+**Predicates:**
+```ts
+isAdmin(user)                   // factual classification / property
+canDelete(user, post)           // capability check (given permissions/state)
+shouldScrubKey(key)             // policy decision / heuristic gate
+```
+
+**Transformers:**
+```ts
+transformQueryParams(params)    // structural input -> output mapping (pure)
+scrubQueryString(url)           // remove/replace sensitive values (privacy/security)
+serializeRunConfig(runConfig)   // convert structured -> string/JSON (format transform)
+```
+
+## Code Style
+
+### Pattern Matching
+Prefer `ts-pattern` over switch statements for discriminated unions:
+
+```ts
+import { match } from 'ts-pattern';
+
+// Preferred
+match(event)
+  .with({ type: 'health.updated' }, (e) => handleHealth(e.data))
+  .with({ type: 'mana.updated' }, (e) => handleMana(e.data))
+  .exhaustive();
+
+// Avoid
+switch (event.type) {
+  case 'health.updated': ...
+  case 'mana.updated': ...
+}
+```
+
+### Function Arguments
+Never use inline types for function arguments. Always define named types:
+
+```ts
+// Preferred
+type BBox = { x: number; y: number; w: number; h: number };
+function getROIFromBBox(bbox: BBox): ROIConfig { ... }
+
+// Avoid
+function getROIFromBBox(bbox: { x: number; y: number; w: number; h: number }): ROIConfig { ... }
+```
+
+## Terminology
+
+| Term | Definition |
+|------|------------|
+| **ROI** | Region of Interest — a rectangular area of a captured frame to analyze |
+| **CV** | Computer Vision — image analysis techniques (template matching, object detection) |
+| **OCR** | Optical Character Recognition — extracting text from images |
+| **Job** | A scheduled unit of work that analyzes an ROI (either OCR or CV) |
+
+## References
+
+- [Yarn Berry (v4)](https://yarnpkg.com/) — Package manager with PnP
+- [Turborepo](https://turbo.build/repo) — Monorepo build orchestration
+- [Biome](https://biomejs.dev/) — Linting and formatting
+- [Vitest](https://vitest.dev/) — Testing framework
+- [ts-pattern](https://github.com/gvergnaud/ts-pattern) — Pattern matching for TypeScript
+- [Lefthook](https://github.com/evilmartians/lefthook) — Git hooks manager
+- [Zustand](https://zustand-demo.pmnd.rs/) — State management
+- [Tesseract.js](https://tesseract.projectnaptha.com/) — OCR engine
+- [OpenCV.js](https://docs.opencv.org/4.x/d5/d10/tutorial_js_root.html) — Computer vision
