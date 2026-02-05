@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(corepack enable:*)",
+      "Bash(yarn set:*)",
+      "Bash(node --version:*)",
+      "Bash(yarn format:*)",
+      "Bash(yarn biome:*)",
+      "Bash(npm view:*)",
+      "Bash(yarn install:*)",
+      "Bash(yarn check:*)",
+      "Bash(yarn tsc:*)",
+      "Bash(yarn vitest:*)",
+      "Bash(yarn lefthook:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
