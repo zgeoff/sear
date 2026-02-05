@@ -31,6 +31,7 @@ const RAW_RUNTIME_STATE =
           ["@biomejs/biome", "npm:2.3.14"],\
           ["@sear/monorepo", "workspace:."],\
           ["lefthook", "npm:2.1.0"],\
+          ["prettier", "npm:3.8.1"],\
           ["turbo", "npm:2.8.3"],\
           ["typescript", "patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"],\
           ["vitest", "virtual:a542e2fc97469416e913c3eb807eeb739832f4ba6cd9f983b73bb303239e993726c7b484c23acb31aa0cebfec9d5cdf70e4465c05000b0b17f49dc5ab44d6f73#npm:4.0.18"]\
@@ -655,6 +656,7 @@ const RAW_RUNTIME_STATE =
           ["@biomejs/biome", "npm:2.3.14"],\
           ["@sear/monorepo", "workspace:."],\
           ["lefthook", "npm:2.1.0"],\
+          ["prettier", "npm:3.8.1"],\
           ["turbo", "npm:2.8.3"],\
           ["typescript", "patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"],\
           ["vitest", "virtual:a542e2fc97469416e913c3eb807eeb739832f4ba6cd9f983b73bb303239e993726c7b484c23acb31aa0cebfec9d5cdf70e4465c05000b0b17f49dc5ab44d6f73#npm:4.0.18"]\
@@ -1474,6 +1476,15 @@ const RAW_RUNTIME_STATE =
           ["picocolors", "npm:1.1.1"],\
           ["postcss", "npm:8.5.6"],\
           ["source-map-js", "npm:1.2.1"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["prettier", [\
+      ["npm:3.8.1", {\
+        "packageLocation": "./.yarn/unplugged/prettier-npm-3.8.1-04022a855f/node_modules/prettier/",\
+        "packageDependencies": [\
+          ["prettier", "npm:3.8.1"]\
         ],\
         "linkType": "HARD"\
       }]\
