@@ -2,7 +2,7 @@
 title: Planner Agent
 version: 0.1.0
 last_updated: 2026-02-06
-status: review
+status: approved
 ---
 
 # Planner Agent
