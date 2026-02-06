@@ -213,7 +213,7 @@ Tasks are GitHub Issues with structured bodies and labels for status tracking.
 
 | Category | Labels |
 |----------|--------|
-| Type | `task`, `spec-amendment` |
+| Type | `task:implement`, `task:refinement`, `task:spec` |
 | Status | `status:pending`, `status:in-progress`, `status:blocked`, `status:needs-refinement`, `status:unblocked`, `status:review`, `status:needs-changes`, `status:approved` |
 | Priority | `priority:high`, `priority:medium`, `priority:low` |
 
@@ -274,7 +274,7 @@ The Plan is not a separate document — it's the live state of GitHub Issues.
 
 ```bash
 # All open tasks
-gh issue list --label "task" --state open
+gh issue list --label "task:implement" --state open
 
 # By status
 gh issue list --label "status:in-progress"
@@ -285,7 +285,7 @@ gh issue list --label "status:review"
 gh issue list --label "priority:high" --state open
 
 # Assigned to someone
-gh issue list --label "task" --assignee <username>
+gh issue list --label "task:implement" --assignee <username>
 
 # View specific task
 gh issue view <number>
@@ -725,7 +725,7 @@ Quality gates define what must be true before transitioning between phases. Tran
 | Spec status is `approved` | Check frontmatter |
 | All acceptance criteria are testable | Manual review |
 | Spec committed to repository | Git history |
-| No open spec-amendment issues for this spec | `gh issue list --label "spec-amendment"` |
+| No open `task:refinement` issues for this spec | `gh issue list --label "task:refinement"` |
 | Existing issues reviewed for relevance | Planner confirms |
 
 ### Plan → Implement
@@ -805,8 +805,9 @@ Quality gates define what must be true before transitioning between phases. Tran
 Create these labels in the repository:
 
 **Type:**
-- `task` — Implementation work
-- `spec-amendment` — Proposed spec change
+- `task:implement` — Implementation work
+- `task:refinement` — Spec clarification request
+- `task:spec` — Spec writing or revision
 
 **Status:**
 - `status:pending` — Not yet started
