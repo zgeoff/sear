@@ -164,6 +164,12 @@ gh issue list --label "task:refinement" --state open --limit 100 --json number,t
 gh issue list --label "task:implement" --state open --limit 100 --json number,title,labels,assignees
 ```
 
+### By spec reference
+
+```
+gh issue list --state open --search "in:body docs/specs/<name>.md" --limit 100 --json number,title,labels,body
+```
+
 ## Dependencies
 
 - `gh` CLI authenticated and on PATH
