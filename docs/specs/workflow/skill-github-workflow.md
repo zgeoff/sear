@@ -102,7 +102,7 @@ Label definitions (names, descriptions, colors) are maintained by `script-label-
 
 An issue must have exactly one label within each category:
 
-- **Type**: `task`, `spec-amendment`
+- **Type**: `task:implement`, `task:refinement`, `task:spec`
 - **Status**: all `status:*` labels
 - **Priority**: `priority:high`, `priority:medium`, `priority:low`
 
@@ -131,19 +131,19 @@ Common query patterns for the workflow.
 
 #### Find Tasks by Status
 
-- `gh issue list --label "task" --label "status:<status>" --state open --limit 100 --json number,title,labels,assignees`
+- `gh issue list --label "task:implement" --label "status:<status>" --state open --limit 100 --json number,title,labels,assignees`
 
 #### Find Tasks by Priority
 
-- `gh issue list --label "task" --label "priority:<level>" --state open --limit 100 --json number,title,labels,assignees`
+- `gh issue list --label "task:implement" --label "priority:<level>" --state open --limit 100 --json number,title,labels,assignees`
 
-#### Find Spec-Amendment Issues
+#### Find Refinement Issues
 
-- `gh issue list --label "spec-amendment" --state open --limit 100 --json number,title,labels,body`
+- `gh issue list --label "task:refinement" --state open --limit 100 --json number,title,labels,body`
 
 #### Find All Open Tasks
 
-- `gh issue list --label "task" --state open --limit 100 --json number,title,labels,assignees`
+- `gh issue list --label "task:implement" --state open --limit 100 --json number,title,labels,assignees`
 
 ## Acceptance Criteria
 
@@ -174,7 +174,7 @@ Common query patterns for the workflow.
 ### Query Patterns
 - [ ] Given the agent needs to find tasks by status, when it queries issues, then it receives structured output filtered by the specified status label
 - [ ] Given the agent needs to find tasks by priority, when it queries issues, then it receives structured output filtered by the specified priority label
-- [ ] Given the agent needs to find spec-amendment issues, when it queries issues, then it receives structured output filtered to spec-amendment type
+- [ ] Given the agent needs to find refinement issues, when it queries issues, then it receives structured output filtered to `task:refinement` type
 
 ### General
 - [ ] Given any GitHub operation performed through this skill, when inspected, then it uses the `gh` CLI
