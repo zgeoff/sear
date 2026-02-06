@@ -50,11 +50,17 @@ done
 # Resolve the private key — either inline PEM content or a file path
 if [[ "$GH_APP_PRIVATE_KEY" == "-----BEGIN"* ]]; then
   PRIVATE_KEY="$GH_APP_PRIVATE_KEY"
-elif [[ -f "$GH_APP_PRIVATE_KEY" ]]; then
-  PRIVATE_KEY=$(cat "$GH_APP_PRIVATE_KEY")
 else
-  echo "Error: GH_APP_PRIVATE_KEY is not valid PEM content and file does not exist: $GH_APP_PRIVATE_KEY" >&2
-  exit 1
+  # Resolve relative paths from the script's own directory
+  if [[ "$GH_APP_PRIVATE_KEY" != /* ]]; then
+    GH_APP_PRIVATE_KEY="$SCRIPT_DIR/$GH_APP_PRIVATE_KEY"
+  fi
+  if [[ -f "$GH_APP_PRIVATE_KEY" ]]; then
+    PRIVATE_KEY=$(cat "$GH_APP_PRIVATE_KEY")
+  else
+    echo "Error: GH_APP_PRIVATE_KEY is not valid PEM content and file does not exist: $GH_APP_PRIVATE_KEY" >&2
+    exit 1
+  fi
 fi
 
 # Generate JWT
