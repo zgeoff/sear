@@ -2,7 +2,7 @@
 title: GitHub Workflow Skill
 version: 0.3.0
 last_updated: 2026-02-07
-status: review
+status: approved
 ---
 
 # GitHub Workflow Skill
@@ -25,7 +25,7 @@ Internal agent skill that guides workflow agents (Planner, Implementor, Reviewer
 #### Create Issue
 
 - `gh issue create --title "<title>" --body "<body>" --label "<label>" --label "<label>" ...`
-- Issue body template is defined in the Planner agent spec (`agent-planner.md`)
+- Issue body templates (task and refinement) are defined in the skill's templates reference
 
 #### Read Issue
 
@@ -123,7 +123,7 @@ An issue must have exactly one label within each category:
 
 ### Comment Templates
 
-Blocker and escalation comment templates are defined in the Implementor agent spec (`agent-implementor.md`).
+Blocker and escalation comment templates are defined in the skill's templates reference.
 
 ### Query Patterns
 
