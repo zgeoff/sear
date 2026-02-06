@@ -64,7 +64,7 @@ The `.env.local` file must not be committed to version control. It must be liste
 The `GH_APP_PRIVATE_KEY` variable supports two formats:
 
 1. **Inline PEM** -- If the value starts with `-----BEGIN`, it is treated as PEM key content directly.
-2. **File path** -- Otherwise, the value is treated as a file path. If the file exists, its contents are read as the PEM key. If the file does not exist, the script prints an error naming the path to stderr and exits with code `1`.
+2. **File path** -- Otherwise, the value is treated as a file path. Relative paths are resolved from the script's own directory (`scripts/workflow/`). If the file exists, its contents are read as the PEM key. If the file does not exist, the script prints an error naming the path to stderr and exits with code `1`.
 
 ### JWT Generation
 
