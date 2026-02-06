@@ -35,7 +35,7 @@ The Planner receives as input the path(s) to the spec file(s) that were committe
 The Planner reads the following before producing any output:
 
 1. **Spec file(s):** The committed or updated spec(s) in `docs/specs/`. The Planner reads the full spec content including frontmatter, acceptance criteria, and dependencies.
-2. **Spec diff:** The git diff of the spec change to understand what was added, modified, or removed.
+2. **Spec diff:** The diff between the two most recent commits that touched the spec file, to understand what was added, modified, or removed. If only one commit exists (new spec), the entire spec is treated as new content.
 3. **Existing GitHub Issues:** All open issues in the repository, including their labels, bodies, and linked spec references. Fetched via `gh issue list`.
 4. **Codebase state:** The current state of files referenced by the spec's scope, to assess what work is already done vs. what remains.
 
