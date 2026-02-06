@@ -35,6 +35,31 @@ Anything the agent needs beyond the spec.
 What the agent must NOT do.
 ```
 
+## Refinement Issue Body Template (Planner)
+
+Used when the Planner encounters ambiguity, contradiction, or a gap in a spec.
+
+```markdown
+## Ambiguity
+
+What is ambiguous, contradictory, or missing in the spec.
+
+## Spec Reference
+- Spec: `docs/specs/<name>.md`
+- Section(s): <relevant sections>
+- Quote: "<relevant text from spec>"
+
+## Options
+1. **Option A** -- description and trade-offs
+2. **Option B** -- description and trade-offs
+
+## Recommendation
+Which option and why.
+
+## Blocked Tasks
+Tasks that cannot be created until this is resolved.
+```
+
 ## Blocker Comment Template (Implementor)
 
 Post on the task issue when work is blocked.
