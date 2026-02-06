@@ -1,7 +1,7 @@
 ---
 title: GitHub Workflow Skill
-version: 0.2.0
-last_updated: 2026-02-06
+version: 0.3.0
+last_updated: 2026-02-07
 status: review
 ---
 
@@ -145,6 +145,10 @@ Common query patterns for the workflow.
 
 - `gh issue list --label "task:implement" --state open --limit 100 --json number,title,labels,assignees`
 
+#### Find Issues by Spec Reference
+
+- `gh issue list --state open --search "in:body docs/specs/<name>.md" --limit 100 --json number,title,labels,body`
+
 ## Acceptance Criteria
 
 ### Issue Operations
@@ -175,6 +179,7 @@ Common query patterns for the workflow.
 - [ ] Given the agent needs to find tasks by status, when it queries issues, then it receives structured output filtered by the specified status label
 - [ ] Given the agent needs to find tasks by priority, when it queries issues, then it receives structured output filtered by the specified priority label
 - [ ] Given the agent needs to find refinement issues, when it queries issues, then it receives structured output filtered to `task:refinement` type
+- [ ] Given the agent needs to find all issues referencing a specific spec, when it queries issues, then it receives structured output filtered to issues whose body contains the spec file path
 
 ### General
 - [ ] Given any GitHub operation performed through this skill, when inspected, then it uses the `gh` CLI
