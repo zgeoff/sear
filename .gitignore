@@ -23,6 +23,10 @@ coverage/
 .env
 .env.local
 .env.*.local
+scripts/workflow/.env.local
+
+# Secret keys
+*.pem
 
 # IDE
 .idea/
@@ -34,6 +38,7 @@ coverage/
 # OS
 .DS_Store
 Thumbs.db
+*:Zone.Identifier
 
 # Python
 __pycache__/
