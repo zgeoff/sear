@@ -1,8 +1,8 @@
 ---
 title: Label Setup Script
-version: 0.1.0
-last_updated: 2026-02-06
-status: review
+version: 0.1.1
+last_updated: 2026-02-07
+status: approved
 ---
 
 # Label Setup Script
@@ -63,14 +63,14 @@ If the token script fails (missing credentials, bad key, API error), it prints d
 | `status:unblocked` | Previously blocked, ready to resume | `c2e0c6` |
 | `status:review` | PR submitted, awaiting review | `006b75` |
 | `status:needs-changes` | Review rejected | `e99695` |
-| `status:approved` | Ready to merge | `0e8a16` |
+| `status:approved` | Ready to merge | `2ea44f` |
 
 #### Priority Labels
 
 | Label | Description | Color |
 | --- | --- | --- |
 | `priority:high` | Do first | `b60205` |
-| `priority:medium` | Default | `fbca04` |
+| `priority:medium` | Default | `e4e669` |
 | `priority:low` | Do when capacity allows | `c5def5` |
 
 ### Script Behavior
