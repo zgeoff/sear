@@ -1,6 +1,6 @@
 ---
 title: Implementor Agent
-version: 0.3.0
+version: 0.3.1
 last_updated: 2026-02-07
 status: approved
 ---
@@ -210,7 +210,7 @@ The agent must only modify files listed in the task issue's "In Scope" section, 
 
    Changes that do **not** qualify as incidental include: adding a new function, modifying control flow, changing default values, or adding new test cases for behavior that doesn't yet exist.
 
-If the agent determines that changes outside the declared scope are needed and do not qualify as incidental, it must treat this as a blocker (type: `technical-constraint` or `scope-conflict`) and escalate rather than modifying out-of-scope files.
+If the agent determines that changes outside the declared scope are needed and do not qualify as incidental, it must not modify the out-of-scope files. If the out-of-scope change blocks progress, treat it as a blocker (type: `technical-constraint`). If it does not block progress, post an escalation (type: `scope-conflict`) and continue working.
 
 ### Status Transitions
 
