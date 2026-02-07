@@ -7,6 +7,7 @@
   "types": "src/index.ts",
   "scripts": {
     "start": "tsx src/index.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,6 +21,8 @@
     "zustand": "5.0.11"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "@types/node": "22.15.32",
+    "typescript": "5.9.3",
+    "vitest": "4.0.18"
   }
 }
