@@ -136,9 +136,10 @@ Use `--merge`, `--squash`, or `--rebase` for merge strategy.
 ### Review
 
 ```
-gh pr review <number> --approve --body "<comment>"
-gh pr review <number> --request-changes --body "<comment>"
+gh pr review <number> --comment --body "<comment>"
 ```
+
+All PR reviews use `--comment` because the workflow operates under a single GitHub App identity, and GitHub prevents self-review (`--approve` / `--request-changes`) on self-authored PRs. The canonical verdict is the task issue's status label (`status:approved` or `status:needs-changes`), not the GitHub review state.
 
 ### CI Status
 
