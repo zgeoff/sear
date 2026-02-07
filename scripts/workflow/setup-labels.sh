@@ -41,7 +41,6 @@ labels=(
   # Type labels
   "task:implement|Implementation work|1d76db"
   "task:refinement|Spec clarification request|5319e7"
-  "task:spec|Spec writing or revision|d4c5f9"
   # Status labels
   "status:pending|Not yet started|bfd4f2"
   "status:in-progress|Actively being worked|0e8a16"

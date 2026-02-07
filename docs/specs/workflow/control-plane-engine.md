@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine
 version: 0.1.0
-last_updated: 2026-02-07
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -18,7 +18,7 @@ The engine is the core module of the control plane. It orchestrates independent 
 - Must not dispatch more than one agent per task issue at a time.
 - Must not auto-dispatch the Planner for specs without `status: approved` in frontmatter.
 - Must reset `status:in-progress` issues to `status:pending` when no agent is running for them (startup recovery and crash recovery).
-- Must use `@octokit/rest` for all GitHub API interactions.
+- Must use `@octokit/rest` with `@octokit/auth-app` as the authentication strategy for all GitHub API interactions.
 - Must use `@anthropic-ai/claude-agent-sdk` for all agent invocations.
 - Must detect spec changes remotely (via GitHub API), not from the local filesystem.
 - GitHub write operations are limited to recovery (status label resets). All other writes are performed by agents.
@@ -72,7 +72,7 @@ Monitors GitHub Issues for status label changes.
 
 **Poll cycle:**
 
-1. Query open issues with the `task:implement` label via `@octokit/rest`. Only `task:implement` issues are tracked — `task:refinement` and `task:spec` issues are outside the control plane's scope (they do not have status transitions that drive agent dispatch).
+1. Query open issues with the `task:implement` label via `@octokit/rest`. Only `task:implement` issues are tracked — `task:refinement` issues are outside the control plane's scope (they do not have status transitions that drive agent dispatch).
 2. For each issue, compare the current `status:*` label against the snapshot.
 3. For each change, emit `issueStatusChanged` with the issue number, old status, and new status.
 4. Update the snapshot.
@@ -162,8 +162,8 @@ The engine emits a notification event. No agent is dispatched.
 
 | Poller Event | Notification |
 |-------------|-------------|
-| `issueStatusChanged` to `status:needs-refinement` | Clipboard-ready CLI command for the Human to address the spec issue. `contextURL`: issue URL. |
-| `issueStatusChanged` to `status:blocked` | Notification with issue URL for the Human to investigate the blocker. `contextURL`: issue URL. |
+| `issueStatusChanged` to `status:needs-refinement` | Clipboard-ready CLI command for the Human to address the spec issue. Includes resolution guidance: "After amending the spec, change the label to `status:unblocked`." `contextURL`: issue URL. |
+| `issueStatusChanged` to `status:blocked` | Notification with issue URL for the Human to investigate the blocker. Includes resolution guidance: "After resolving the blocker, change the label to `status:unblocked`." `contextURL`: issue URL. |
 | `issueStatusChanged` to `status:approved` | Notification that the issue is ready for Human to merge. `contextURL`: PR URL (via async `getPRForIssue` lookup — same pattern as `agentCompleted` Implementor: issue URL initially, updated to PR URL when resolved). |
 
 **Clipboard command format** for `status:needs-refinement`:
@@ -299,9 +299,13 @@ The engine reads configuration from a TypeScript config file (`agentic-workflow.
 | Setting | Type | Description | Default |
 |---------|------|-------------|---------|
 | `repository` | `string` | GitHub repository in `owner/repo` format | Required |
-| `githubToken` | `string` | GitHub personal access token or App token for `@octokit/rest`. Must have `issues:write` (for recovery label resets) and `contents:read` (for tree/file access). | Required |
+| `githubAppID` | `number` | GitHub App numeric ID | Required |
+| `githubAppPrivateKeyPath` | `string` | Path to the PEM private key file | Required |
+| `githubAppInstallationID` | `number` | Installation ID for the target repository | Required |
 | `logLevel` | `string` | Logging verbosity (`debug`, `info`, `error`) | `info` |
 | `shutdownTimeout` | `number` | Seconds to wait for agents during shutdown | `300` |
+
+The engine uses `@octokit/auth-app` to create the `@octokit/rest` instance. This handles JWT creation, installation token exchange, and automatic token refresh — no manual token management is needed. The App must have `issues:write` (for recovery label resets) and `contents:read` (for tree/file access) permissions.
 
 #### IssuePoller
 
@@ -438,6 +442,9 @@ type NotificationEvent = {
   statusLabel: string;
   clipboardCommand?: string; // present for needs-refinement, absent for blocked and approved
   contextURL: string; // issue URL for needs-refinement/blocked; issue URL initially for approved (async PR URL update by TUI)
+  resolutionGuidance?: string; // present for blocked and needs-refinement, absent for approved
+  // blocked: "After resolving the blocker, change the label to status:unblocked."
+  // needs-refinement: "After amending the spec, change the label to status:unblocked."
 };
 
 type NotificationDismissedEvent = {
@@ -541,6 +548,33 @@ type SpecPollerBatchResult = {
 };
 ```
 
+#### Configuration
+
+```ts
+type EngineConfig = {
+  repository: string; // owner/repo format
+  githubAppID: number;
+  githubAppPrivateKeyPath: string;
+  githubAppInstallationID: number;
+  logLevel?: 'debug' | 'info' | 'error'; // default: 'info'
+  shutdownTimeout?: number; // seconds, default: 300
+  issuePoller?: {
+    pollInterval?: number; // seconds, default: 30
+  };
+  specPoller?: {
+    pollInterval?: number; // seconds, default: 60
+    specsDir?: string; // default: 'docs/specs/'
+    defaultBranch?: string; // default: 'main'
+  };
+  agents?: {
+    agentFilePlanner?: string; // default: '.claude/agents/planner.md'
+    agentFileImplementor?: string; // default: '.claude/agents/implementor.md'
+    agentFileReviewer?: string; // default: '.claude/agents/reviewer.md'
+    maxAgentDuration?: number; // seconds, default: 1800
+  };
+};
+```
+
 #### Engine Interface
 
 The public interface consumed by the TUI's `useEngine()` hook.
@@ -623,6 +657,7 @@ type Engine = {
 
 ## Dependencies
 
+- `@octokit/auth-app` — GitHub App authentication strategy for `@octokit/rest`. Handles JWT creation, installation token exchange, and automatic token refresh.
 - `@anthropic-ai/claude-agent-sdk` documentation — Required reading for implementing the Agent Manager. This spec assumes the SDK provides: session creation with a system prompt file path and working directory, a `session_id` returned in the init message, an async iterable message stream with typed content blocks, session cancellation, and `resume: sessionId` for resuming failed sessions. If the SDK API differs from these assumptions, the Agent Manager implementation must adapt accordingly.
 - `control-plane.md` — Parent architecture spec (dispatch tiers, worktree isolation, recovery policy)
 - `workflow.md` — Status transition table, quality gates, escalation protocol

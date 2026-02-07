@@ -1,7 +1,7 @@
 ---
 title: Reviewer Agent
 version: 0.3.0
-last_updated: 2026-02-07
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -200,7 +200,7 @@ Brief description of the review result. For approvals, confirm what was verified
 
 ## References
 
-- `docs/workflow-v0.md` -- Development Protocol (Reviewer role, Review Phase, Quality Gates for Review to Integrate)
+- `docs/specs/workflow/workflow.md` -- Development Protocol (Reviewer role, Review Phase, Quality Gates for Review to Integrate)
 - `docs/specs/workflow/skill-github-workflow.md` -- GitHub Workflow Skill spec (operations, label transitions, query patterns)
 - `docs/specs/workflow/github-cli-authentication.md` -- GitHub CLI authentication setup
 - `docs/specs/workflow/script-label-setup.md` -- Label definitions for the repository

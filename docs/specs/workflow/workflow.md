@@ -1,7 +1,7 @@
 ---
 title: Development Workflow
 version: 0.1.0
-last_updated: 2026-02-07
+last_updated: 2026-02-08
 status: draft
 ---
 
@@ -122,7 +122,7 @@ When an Implementor encounters a spec issue (ambiguity, contradiction, or gap) d
 3. Implementor adds a blocker comment to the task issue with the spec reference, options, and a recommendation.
 4. Implementor sets the task label to `status:needs-refinement`.
 5. Human is notified of the blocked task.
-6. Human reviews the blocker details and uses the `/spec-writing` skill to draft a spec amendment.
+6. Human reviews the blocker details and uses the `/spec-writing` skill to draft a spec amendment. The Human provides: (a) the spec file path from the blocker comment's Spec Reference, (b) the issue URL so the spec-writing session can read the blocker's Options and Recommendation, and (c) the specific section that needs amendment. The `/spec-writing` skill handles the structured authoring process; the Human's role is to supply the right context from the blocker.
 7. Human approves and commits the amended spec.
 8. Human sets the task label to `status:unblocked`.
 9. Implementor resumes from the draft PR with the updated spec.
@@ -205,6 +205,8 @@ Quality gates define what must be true before transitioning between phases. A tr
 - Priority label assigned
 - Blocking tasks (referenced as "Blocked by #X") are resolved
 
+> **Note:** Dependency resolution is the Human's responsibility. The control plane dispatches based on status labels, not dependency graphs. Before dispatching an Implementor, the Human should verify that tasks referenced as "Blocked by #X" are resolved. This is intentional — the system is a dispatch tool, not a project manager.
+
 #### Implement to Review
 
 - All acceptance criteria addressed
@@ -276,7 +278,7 @@ Task issues use three mutually exclusive label categories. An issue has exactly 
 
 | Category | Labels | Defined In |
 |----------|--------|-----------|
-| Type | `task:implement` (implementation work), `task:refinement` (spec clarification needed — created by Planner when spec is ambiguous), `task:spec` (spec writing or revision) | `script-label-setup.md` |
+| Type | `task:implement` (implementation work), `task:refinement` (spec clarification needed — created by Planner when spec is ambiguous) | `script-label-setup.md` |
 | Status | `status:pending`, `status:in-progress`, `status:blocked`, `status:needs-refinement`, `status:unblocked`, `status:review`, `status:needs-changes`, `status:approved` | `script-label-setup.md` |
 | Priority | `priority:high`, `priority:medium`, `priority:low` | `script-label-setup.md` |
 

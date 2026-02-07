@@ -185,4 +185,4 @@ gh issue list --state open --search "in:body docs/specs/<name>.md" --limit 100 -
 - `gh` CLI authenticated via `GH_TOKEN` and on PATH
 - GitHub CLI authentication script: `scripts/workflow/get-github-token.sh` (spec: `docs/specs/workflow/github-cli-authentication.md`)
 - Labels created per `docs/specs/workflow/script-label-setup.md`
-- Development protocol: `docs/workflow-v0.md`
+- Development protocol: `docs/specs/workflow/workflow.md`
