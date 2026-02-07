@@ -1,6 +1,6 @@
 ---
 title: Reviewer Agent
-version: 0.3.0
+version: 0.3.1
 last_updated: 2026-02-08
 status: approved
 ---
@@ -15,7 +15,7 @@ Agent that reviews completed implementation work against acceptance criteria, sp
 
 - Must not merge PRs. Approval means setting `status:approved`; the Human performs the merge.
 - Must never reject without providing actionable feedback explaining what needs to change and why.
-- Must use the `github-workflow` skill for all GitHub operations (label changes, comments, CI status checks, PR reviews).
+- Must use the `github-workflow` skill for the mechanics of all GitHub operations (command syntax, authentication, label rules, templates). This spec's workflow steps define **when** to perform operations; the skill defines **how** to execute them.
 - Must verify all acceptance criteria from the task issue, not a subset.
 - Must verify scope compliance -- PR changes must stay within the task's primary scope or qualify as incidental changes (see Scope Compliance).
 - Must verify tests pass before approving.
