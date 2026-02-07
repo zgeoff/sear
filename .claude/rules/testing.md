@@ -1,10 +1,14 @@
 ---
 paths:
-  - "*.test.ts"
-  - "*.test.tsx"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
 ---
 
 # Test File Rules
+
+## Never test TypeScript types
+
+Do not write tests that only verify type-level behavior (e.g., `expectTypeOf`, `type-fest` helpers, assignability checks). Types are validated by `tsc` — testing them adds no value.
 
 ## Use `test`, never `describe`/`it`
 
