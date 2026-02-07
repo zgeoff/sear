@@ -426,7 +426,7 @@ gh issue close <number>
 **Entry Criteria:**
 - Issue has `status:review` label
 - PR exists and is linked to issue
-- Tests pass in CI
+- CI has completed
 
 **Exit Criteria:**
 - All acceptance criteria verified
