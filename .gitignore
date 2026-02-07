@@ -28,6 +28,9 @@ scripts/workflow/.env.local
 # Secret keys
 *.pem
 
+# Claude Code
+.claude/settings.local.json
+
 # IDE
 .idea/
 .vscode/
