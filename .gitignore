@@ -16,6 +16,9 @@ build/
 # Turborepo
 .turbo/
 
+# Worktrees (agentic workflow agent isolation)
+.worktrees/
+
 # Test coverage
 coverage/
 
@@ -24,6 +27,8 @@ coverage/
 .env.local
 .env.*.local
 scripts/workflow/.env.local
+scripts/workflow/.token-cache
+scripts/workflow/.token-expiry
 
 # Secret keys
 *.pem

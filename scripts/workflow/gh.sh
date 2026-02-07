@@ -1,22 +1,76 @@
 #!/usr/bin/env bash
 #
-# Generates a GitHub App installation access token and prints it to stdout.
-# Reads credentials from .env.local in the script's own directory.
+# Authenticated gh CLI wrapper.
+# Generates a GitHub App installation access token (with caching),
+# exports it as GH_TOKEN, and forwards all arguments to `gh` via exec.
 #
 # Usage:
-#   ./scripts/workflow/get-github-token.sh          # prints token
-#   export GH_TOKEN=$(./scripts/workflow/get-github-token.sh)  # use with gh CLI
+#   scripts/workflow/gh.sh issue view 1
+#   scripts/workflow/gh.sh pr create --title "..." --body "..."
 #
-# Required .env.local variables:
-#   GH_APP_ID              - GitHub App ID
-#   GH_APP_PRIVATE_KEY     - Path to the PEM private key file, or the PEM content itself
-#   GH_APP_INSTALLATION_ID - Installation ID for the target repo/org
+# Credentials are read from scripts/workflow/.env.local.
+# See scripts/workflow/.env.example for the required variables.
 #
-# Dependencies: openssl, curl, jq
+# Dependencies: gh, openssl, curl, jq
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- Check dependencies ---------------------------------------------------
+
+for cmd in openssl curl jq gh; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "Error: $cmd is required but not installed." >&2
+    exit 1
+  fi
+done
+
+# --- Token caching ---------------------------------------------------------
+
+TOKEN_CACHE="$SCRIPT_DIR/.token-cache"
+TOKEN_EXPIRY="$SCRIPT_DIR/.token-expiry"
+CACHE_TTL=3300  # 55 minutes (5-minute buffer before 60-minute real expiry)
+
+read_cached_token() {
+  if [[ ! -f "$TOKEN_CACHE" ]] || [[ ! -f "$TOKEN_EXPIRY" ]]; then
+    return 1
+  fi
+
+  local expiry
+  expiry=$(<"$TOKEN_EXPIRY")
+  local now
+  now=$(date +%s)
+
+  if (( now >= expiry )); then
+    return 1
+  fi
+
+  local token
+  token=$(<"$TOKEN_CACHE")
+  if [[ -z "$token" ]]; then
+    return 1
+  fi
+
+  echo "$token"
+}
+
+write_cached_token() {
+  local token="$1"
+  local now
+  now=$(date +%s)
+  echo "$token" > "$TOKEN_CACHE"
+  echo $(( now + CACHE_TTL )) > "$TOKEN_EXPIRY"
+}
+
+# --- Try cache first -------------------------------------------------------
+
+if CACHED=$(read_cached_token); then
+  export GH_TOKEN="$CACHED"
+  exec gh "$@"
+fi
+
+# --- Cache miss — generate a fresh token -----------------------------------
 
 ENV_FILE="$SCRIPT_DIR/.env.local"
 
@@ -39,14 +93,6 @@ for var in GH_APP_ID GH_APP_PRIVATE_KEY GH_APP_INSTALLATION_ID; do
   fi
 done
 
-# Check dependencies
-for cmd in openssl curl jq; do
-  if ! command -v "$cmd" &>/dev/null; then
-    echo "Error: $cmd is required but not installed." >&2
-    exit 1
-  fi
-done
-
 # Resolve the private key — either inline PEM content or a file path
 if [[ "$GH_APP_PRIVATE_KEY" == "-----BEGIN"* ]]; then
   PRIVATE_KEY="$GH_APP_PRIVATE_KEY"
@@ -56,7 +102,7 @@ else
     GH_APP_PRIVATE_KEY="$SCRIPT_DIR/$GH_APP_PRIVATE_KEY"
   fi
   if [[ -f "$GH_APP_PRIVATE_KEY" ]]; then
-    PRIVATE_KEY=$(cat "$GH_APP_PRIVATE_KEY")
+    PRIVATE_KEY=$(<"$GH_APP_PRIVATE_KEY")
   else
     echo "Error: GH_APP_PRIVATE_KEY is not valid PEM content and file does not exist: $GH_APP_PRIVATE_KEY" >&2
     exit 1
@@ -94,4 +140,8 @@ if [[ -z "$TOKEN" ]]; then
   exit 1
 fi
 
-echo "$TOKEN"
+# Cache the fresh token
+write_cached_token "$TOKEN"
+
+export GH_TOKEN="$TOKEN"
+exec gh "$@"
