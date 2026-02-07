@@ -1,6 +1,6 @@
 ---
 title: Planner Agent
-version: 0.1.0
+version: 0.1.1
 last_updated: 2026-02-08
 status: approved
 ---
@@ -17,7 +17,7 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 - Must not modify code outside `docs/specs/` (reads specs, writes only GitHub Issues)
 - Must not create tasks for specs that are not `approved` status
 - Must review existing GitHub Issues before creating new ones to avoid duplicates
-- Must use the `gh` CLI (via the `github-workflow` skill) for all GitHub operations
+- Must use the `github-workflow` skill for the mechanics of all GitHub operations (command syntax, authentication, label rules, templates). This spec's workflow steps define **when** to perform operations; the skill defines **how** to execute them.
 - Must not make interpretive decisions about spec intent -- if a spec is ambiguous, the Planner creates a `task:refinement` issue instead of guessing
 - Each task must be hermetic: completable without real-time coordination with other agents
 - Must not reprioritize tasks created by previous planning runs unless the spec has changed
