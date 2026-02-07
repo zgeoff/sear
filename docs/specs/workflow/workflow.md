@@ -221,8 +221,8 @@ Quality gates define what must be true before transitioning between phases. A tr
 - All acceptance criteria verified by Reviewer
 - Code quality and spec conformance confirmed
 - No unresolved review comments
-- `status:approved` label applied
-- PR review approval submitted
+- `status:approved` label applied (canonical approval signal)
+- PR review comment submitted confirming the approval
 
 #### Integrate to Complete
 

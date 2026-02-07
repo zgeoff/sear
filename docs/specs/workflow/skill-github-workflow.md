@@ -1,6 +1,6 @@
 ---
 title: GitHub Workflow Skill
-version: 0.4.0
+version: 0.4.1
 last_updated: 2026-02-08
 status: approved
 ---
@@ -95,10 +95,11 @@ Assign or unassign users on an issue.
 
 #### Add PR Review
 
-Submit a formal PR review (shows as "Approved" or "Changes requested" on the PR):
+Post a review comment on the PR:
 
-- `gh pr review <number> --approve --body "<comment>"`
-- `gh pr review <number> --request-changes --body "<comment>"`
+- `gh pr review <number> --comment --body "<comment>"`
+
+> **Single-identity constraint:** The workflow uses a single GitHub App identity for all operations. Because GitHub prevents any identity from submitting `--approve` or `--request-changes` reviews on its own PRs, all PR reviews use `--comment`. The canonical approval or rejection signal is the `status:approved` or `status:needs-changes` label on the task issue, not the GitHub review state.
 
 #### Get CI Status
 
@@ -177,7 +178,7 @@ Common query patterns for the workflow.
 - [ ] Given the agent needs to see what changed in a PR, when it views the diff, then it receives the full PR diff
 - [ ] Given the agent needs to promote a draft PR, when it marks the PR as ready, then the PR is no longer a draft
 - [ ] Given the agent needs to integrate a PR, when it merges the PR, then a merge strategy is specified
-- [ ] Given the agent needs to submit a formal review verdict, when it reviews the PR, then the review is recorded as an approval or a request for changes with a comment
+- [ ] Given the agent needs to submit a review verdict, when it reviews the PR, then the review is posted as a comment and the verdict is conveyed via the task issue's status label (`status:approved` or `status:needs-changes`)
 - [ ] Given the agent needs to check CI results, when it queries PR checks, then it receives the status and conclusion of each check
 
 ### Label Management

@@ -1,6 +1,6 @@
 ---
 title: Reviewer Agent
-version: 0.3.1
+version: 0.3.2
 last_updated: 2026-02-08
 status: approved
 ---
@@ -133,14 +133,14 @@ If a modified file is neither in primary scope nor qualifies as an incidental ch
 
 When all review checklist steps pass (no findings recorded):
 
-1. Submit a PR review via the `github-workflow` skill (`gh pr review --approve`) with a summary comment confirming what was verified.
-2. Update the task issue label from `status:review` to `status:approved` (via the `github-workflow` skill).
+1. Submit a PR review comment via the `github-workflow` skill (`gh pr review --comment`) with a summary confirming what was verified.
+2. Update the task issue label from `status:review` to `status:approved` (via the `github-workflow` skill). The label is the canonical approval signal.
 
 ### Rejection Flow
 
 When one or more review checklist steps have findings:
 
-1. Submit a PR review via the `github-workflow` skill (`gh pr review --request-changes`) with actionable feedback structured by checklist category (CI results, unresolved comments, scope, acceptance criteria, spec conformance, code quality, PR conventions). Only categories with findings are included.
+1. Submit a PR review comment via the `github-workflow` skill (`gh pr review --comment`) with actionable feedback structured by checklist category (CI results, unresolved comments, scope, acceptance criteria, spec conformance, code quality, PR conventions). Only categories with findings are included.
 2. Each piece of feedback must include:
    - What is wrong (specific file, line, or criterion).
    - Why it is wrong (reference to spec, convention, or criterion).
@@ -184,10 +184,10 @@ Brief description of the review result. For approvals, confirm what was verified
 - [ ] Given a PR with unresolved review comments from any source (prior Reviewer runs, Human reviewers), when the agent reviews it, then it verifies each comment has been addressed and records unaddressed items as findings.
 - [ ] Given a PR that modifies files outside the task's "In Scope" list, when the modification qualifies as an incidental change (minimal, directly required, non-behavioral), then the Reviewer does not flag it as a scope violation.
 - [ ] Given a PR that modifies files outside the task's "In Scope" list, when the modification does not qualify as incidental, then the Reviewer rejects with the out-of-scope files listed and an explanation of why they don't qualify.
-- [ ] Given a PR that satisfies all checklist steps (CI passes, no unresolved comments, scope compliant, all acceptance criteria met, spec conformant, code quality approved, conventions followed), when the agent reviews it, then the task label is updated to `status:approved` and a PR review approval is submitted.
+- [ ] Given a PR that satisfies all checklist steps (CI passes, no unresolved comments, scope compliant, all acceptance criteria met, spec conformant, code quality approved, conventions followed), when the agent reviews it, then the task label is updated to `status:approved` and a PR review comment is submitted confirming the approval.
 - [ ] Given a PR that fails one or more acceptance criteria, when the agent reviews it, then the rejection feedback includes a per-criterion breakdown indicating which passed and which failed.
 - [ ] Given the agent rejects a PR, when the review is examined, then each piece of feedback includes what is wrong, why it is wrong, and what needs to change.
-- [ ] Given the agent rejects a PR, when the review is examined, then the task label is `status:needs-changes` and a PR review requesting changes has been submitted.
+- [ ] Given the agent rejects a PR, when the review is examined, then the task label is `status:needs-changes` and a PR review comment has been submitted with actionable feedback.
 - [ ] Given a PR with a spec deviation, when the agent rejects it, then the feedback references the specific spec file and section where the deviation was found.
 - [ ] Given any status transition performed by the agent, when reviewed, then it is either `status:review` to `status:approved` or `status:review` to `status:needs-changes`.
 - [ ] Given the agent finishes execution (any outcome), when reviewed, then it has returned a completion summary with the task number, outcome, PR reference, and summary of results.
