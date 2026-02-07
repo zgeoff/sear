@@ -13,6 +13,16 @@ description: >-
 
 Mechanics for GitHub Issue and PR operations using `gh` CLI. Agents decide when to use these operations and what content to include.
 
+## Authentication
+
+Set `GH_TOKEN` before any `gh` operation:
+
+```
+export GH_TOKEN=$(./scripts/workflow/get-github-token.sh)
+```
+
+The token is short-lived (up to 1 hour). Generate a fresh token at session start. Re-generate if `gh` commands fail with auth errors. If the script exits non-zero, abort — no `gh` operations will succeed.
+
 ## Issue Operations
 
 ### Create
@@ -172,6 +182,7 @@ gh issue list --state open --search "in:body docs/specs/<name>.md" --limit 100 -
 
 ## Dependencies
 
-- `gh` CLI authenticated and on PATH
+- `gh` CLI authenticated via `GH_TOKEN` and on PATH
+- GitHub CLI authentication script: `scripts/workflow/get-github-token.sh` (spec: `docs/specs/workflow/github-cli-authentication.md`)
 - Labels created per `docs/specs/workflow/script-label-setup.md`
 - Development protocol: `docs/workflow-v0.md`
