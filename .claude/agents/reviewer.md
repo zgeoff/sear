@@ -124,16 +124,16 @@ Compare the list of files modified in the PR diff against the task issue's scope
 
 #### Approval (all checklist steps pass -- no findings)
 
-1. Submit a PR review via the github-workflow skill:
-   `gh pr review <number> --approve --body "<summary>"`
+1. Submit a PR review comment via the github-workflow skill:
+   `gh pr review <number> --comment --body "<summary>"`
    The summary should confirm what was verified across all 7 checklist steps.
 2. Update the task issue label from `status:review` to `status:approved`:
    `gh issue edit <number> --remove-label "status:review" --add-label "status:approved"`
 
 #### Rejection (one or more checklist steps have findings)
 
-1. Submit a PR review via the github-workflow skill:
-   `gh pr review <number> --request-changes --body "<feedback>"`
+1. Submit a PR review comment via the github-workflow skill:
+   `gh pr review <number> --comment --body "<feedback>"`
    Structure the feedback by checklist category. Only include categories that have findings.
 2. Each piece of feedback MUST include:
    - **What is wrong:** Specific file, line, or criterion.
