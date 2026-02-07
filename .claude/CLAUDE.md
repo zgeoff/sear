@@ -90,13 +90,25 @@ yarn turbo run build --filter=...<package>    # Build package and dependents
 
 ## Testing
 
-### Vitest
+### Test orchestration
 
+Turborepo is the test orchestrator. Each package owns its own vitest instance — there is no root-level vitest or vitest workspace config.
+
+**Running tests:**
 ```bash
-yarn test                           # Run all tests
+yarn test                           # Run all tests (turbo run test)
 yarn workspace <pkg> test           # Run tests for single package
 yarn workspace <pkg> test --watch   # Watch mode
 ```
+
+Do not invoke `vitest` directly. Always go through `yarn test` or `yarn workspace`.
+
+**Package requirements:** Every package that has tests must have all three of:
+1. `vitest` in `devDependencies` (pinned, like all deps)
+2. `vitest.config.ts`
+3. `"test": "vitest run"` in `scripts`
+
+Packages without tests simply omit the `test` script — Turborepo skips them automatically.
 
 ### Never test TypeScript types
 
@@ -108,13 +120,29 @@ Do not write tests that only verify type-level behavior (e.g., `expectTypeOf`, `
 // Correct
 import { test, expect } from 'vitest';
 
-test('parses valid input', () => { ... });
-test('throws on empty string', () => { ... });
+test('it parses valid input', () => { ... });
+test('it throws on empty string', () => { ... });
 
 // Wrong — do not use describe or it
 describe('parser', () => {
   it('parses valid input', () => { ... });
 });
+```
+
+### Test naming
+
+Start every test name with "it" — each test reads as a behavioral sentence about the subject under test. Describe behavior and outcomes, not implementation details. Avoid method names, parameter names, or internal component names in the test string.
+
+```ts
+// Correct — behavioral, reads as "it ..."
+test('it returns an unsubscribe function from the event emitter', () => { ... });
+test('it invokes the cancel handler when the cancel command is received', () => { ... });
+test('it passes the full command object to the handler', () => { ... });
+
+// Wrong — implementation-focused, names internals
+test('on() returns an unsubscribe function', () => { ... });
+test('cancelPlanner command invokes the cancelPlanner handler', () => { ... });
+test('dispatcher passes full command object to handler', () => { ... });
 ```
 
 ### No `beforeEach`/`beforeAll` — use a `setupTest()` helper
@@ -127,7 +155,7 @@ function setupTest() {
   return { store, handler };
 }
 
-test('handler updates store', () => {
+test('it updates the store when an event is processed', () => {
   const { store, handler } = setupTest();
   handler.process(event);
   expect(store.getState().count).toBe(1);
