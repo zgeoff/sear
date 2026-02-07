@@ -1,6 +1,6 @@
 ---
 title: GitHub Workflow Skill
-version: 0.3.0
+version: 0.4.0
 last_updated: 2026-02-07
 status: approved
 ---
@@ -19,6 +19,18 @@ Internal agent skill that guides workflow agents (Planner, Implementor, Reviewer
 - The skill provides operation mechanics and templates; agents decide when to use them and what content to include
 
 ## Specification
+
+### Authentication
+
+All `gh` CLI operations require authentication via the `GH_TOKEN` environment variable. Agents must set `GH_TOKEN` before performing any `gh` operation.
+
+```bash
+export GH_TOKEN=$(./scripts/workflow/get-github-token.sh)
+```
+
+The token is short-lived (up to 1 hour). Agents should generate a fresh token at the start of each session rather than caching or reusing tokens. For long-running sessions, agents should re-generate the token if `gh` commands begin failing with authentication errors.
+
+If the authentication script exits with a non-zero code, the agent should abort — no `gh` operations will succeed without a valid token.
 
 ### Issue Operations
 
@@ -181,12 +193,17 @@ Common query patterns for the workflow.
 - [ ] Given the agent needs to find refinement issues, when it queries issues, then it receives structured output filtered to `task:refinement` type
 - [ ] Given the agent needs to find all issues referencing a specific spec, when it queries issues, then it receives structured output filtered to issues whose body contains the spec file path
 
+### Authentication
+- [ ] Given an agent begins a workflow session, when it sets up `gh` CLI authentication, then it sets the `GH_TOKEN` environment variable using the authentication script
+- [ ] Given the authentication script exits with a non-zero code, when the agent observes the failure, then it aborts without attempting `gh` operations
+
 ### General
 - [ ] Given any GitHub operation performed through this skill, when inspected, then it uses the `gh` CLI
 
 ## Dependencies
 
-- `gh` CLI (authenticated and available on PATH)
+- `gh` CLI (available on PATH, authenticated via `GH_TOKEN`)
+- GitHub CLI authentication script (`docs/specs/workflow/github-cli-authentication.md`)
 - Development protocol (`docs/workflow-v0.md`)
 - Label setup script (`docs/specs/workflow/script-label-setup.md`)
 - GitHub repository with labels created per protocol conventions
@@ -194,6 +211,7 @@ Common query patterns for the workflow.
 ## References
 
 - Development protocol: `docs/workflow-v0.md`
+- GitHub CLI authentication: `docs/specs/workflow/github-cli-authentication.md`
 - Label setup script: `docs/specs/workflow/script-label-setup.md`
 - Planner agent: `docs/specs/workflow/agent-planner.md`
 - Implementor agent: `docs/specs/workflow/agent-implementor.md`
