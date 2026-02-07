@@ -4,7 +4,8 @@
   "packageManager": "yarn@4.12.0",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "agentic-workflow"
   ],
   "scripts": {
     "build": "turbo run build",
@@ -14,6 +15,7 @@
     "format:check": "biome format . && prettier --check .",
     "check": "turbo run lint typecheck test",
     "typecheck": "turbo run typecheck",
+    "agentic-workflow": "yarn workspace @sear/agentic-workflow start",
     "prepare": "lefthook install"
   },
   "devDependencies": {
