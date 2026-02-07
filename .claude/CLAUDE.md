@@ -316,6 +316,28 @@ function getROIFromBBox(bbox: BBox): ROIConfig { ... }
 function getROIFromBBox(bbox: { x: number; y: number; w: number; h: number }): ROIConfig { ... }
 ```
 
+### Exports
+Always export inline at the declaration site. Never collect exports at the bottom of a file.
+
+```ts
+// Correct — inline exports
+export type EventHandler = (event: EngineEvent) => void;
+
+export type EventEmitter = {
+  on(handler: EventHandler): Unsubscribe;
+  emit(event: EngineEvent): void;
+};
+
+export function createEventEmitter(): EventEmitter {
+  // ...
+}
+
+// Wrong — barrel exports at the bottom
+function createEventEmitter(): EventEmitter { ... }
+export { createEventEmitter };
+export type { EventEmitter, EventHandler };
+```
+
 ## Terminology
 
 | Term | Definition |
