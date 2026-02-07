@@ -270,12 +270,12 @@ Any unresolved items, blocker references, or follow-up needed.
 ## Dependencies
 
 - `github-workflow` skill -- All GitHub operations (label changes, issue comments, PR creation and updates).
-- `gh` CLI -- Authenticated via `GH_TOKEN` (see `github-cli-authentication.md`).
+- `gh` CLI -- Authenticated via `scripts/workflow/gh.sh` wrapper (see `github-cli.md`).
 - Project testing framework -- Tests must be runnable locally via the commands defined in `CLAUDE.md`.
 - `CLAUDE.md` -- Code style, naming conventions, and patterns that the agent must conform to.
 
 ## References
 
 - `docs/specs/workflow/skill-github-workflow.md` -- GitHub Workflow Skill spec (operations, label transitions, query patterns)
-- `docs/specs/workflow/github-cli-authentication.md` -- GitHub CLI authentication setup
+- `docs/specs/workflow/github-cli.md` -- GitHub CLI wrapper spec
 - `docs/specs/workflow/script-label-setup.md` -- Label definitions for the repository

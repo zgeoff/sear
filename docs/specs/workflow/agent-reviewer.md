@@ -195,12 +195,12 @@ Brief description of the review result. For approvals, confirm what was verified
 ## Dependencies
 
 - `github-workflow` skill -- All GitHub operations (label changes, issue comments, CI status checks, PR reviews).
-- `gh` CLI -- Authenticated via `GH_TOKEN` (see `github-cli-authentication.md`).
+- `gh` CLI -- Authenticated via `scripts/workflow/gh.sh` wrapper (see `github-cli.md`).
 - `CLAUDE.md` -- Code style, naming conventions, and patterns that the agent checks against.
 
 ## References
 
 - `docs/specs/workflow/workflow.md` -- Development Protocol (Reviewer role, Review Phase, Quality Gates for Review to Integrate)
 - `docs/specs/workflow/skill-github-workflow.md` -- GitHub Workflow Skill spec (operations, label transitions, query patterns)
-- `docs/specs/workflow/github-cli-authentication.md` -- GitHub CLI authentication setup
+- `docs/specs/workflow/github-cli.md` -- GitHub CLI wrapper spec
 - `docs/specs/workflow/script-label-setup.md` -- Label definitions for the repository

@@ -327,7 +327,7 @@ Label definitions (names, descriptions, colors) and the setup script are specifi
 - `skill-github-workflow.md` — GitHub operations skill (issue CRUD, PR lifecycle, label management, query patterns)
 - `skill-spec-writing.md` — Spec authoring skill and template
 - `script-label-setup.md` — Label definitions and setup script
-- `github-cli-authentication.md` — GitHub CLI authentication via App token
+- `github-cli.md` — GitHub CLI wrapper (authentication, token caching, `gh` dispatch)
 - `CLAUDE.md` — Code style, naming conventions, and project patterns
 
 ## References
@@ -338,4 +338,4 @@ Label definitions (names, descriptions, colors) and the setup script are specifi
 - `docs/specs/workflow/skill-github-workflow.md`
 - `docs/specs/workflow/skill-spec-writing.md`
 - `docs/specs/workflow/script-label-setup.md`
-- `docs/specs/workflow/github-cli-authentication.md`
+- `docs/specs/workflow/github-cli.md`
