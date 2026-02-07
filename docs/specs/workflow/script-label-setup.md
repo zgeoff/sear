@@ -1,6 +1,6 @@
 ---
 title: Label Setup Script
-version: 0.1.1
+version: 0.1.2
 last_updated: 2026-02-07
 status: approved
 ---
@@ -139,7 +139,7 @@ At the end of execution, the script prints a blank line followed by a summary li
 Done: 3 created, 1 updated, 9 up-to-date, 0 failed
 ```
 
-The summary format is: `Done: <N> created, <N> updated, <N> up-to-date, <N> failed` where each `<N>` is the count for that action. The four counts must sum to the total number of defined labels (14).
+The summary format is: `Done: <N> created, <N> updated, <N> up-to-date, <N> failed` where each `<N>` is the count for that action. The four counts must sum to the total number of labels defined by the script.
 
 ### Exit Codes
 
@@ -167,12 +167,12 @@ The script is idempotent. Running it multiple times:
 ## Acceptance Criteria
 
 - [ ] Given the script file exists at `scripts/workflow/setup-labels.sh`, when inspected, then it is executable (`chmod +x`)
-- [ ] Given a repository with no workflow labels, when the script is run, then all 14 labels (3 type + 8 status + 3 priority) are created with correct names, descriptions, and colors
+- [ ] Given a repository with no workflow labels, when the script is run, then all defined labels are created with correct names, descriptions, and colors
 - [ ] Given all workflow labels already exist with correct configuration, when the script is run, then output shows `up-to-date` for every label and exit code is `0`
 - [ ] Given a label exists with an incorrect color, when the script is run, then the label is updated to the correct color and output shows `updated` for that label
 - [ ] Given a label exists with an incorrect description, when the script is run, then the label is updated to the correct description and output shows `updated` for that label
 - [ ] Given labels unrelated to the workflow exist in the repository, when the script is run, then those labels are not modified or deleted
-- [ ] Given the script has run, when the summary line is printed, then it matches the format `Done: <N> created, <N> updated, <N> up-to-date, <N> failed` and the four counts sum to 14
+- [ ] Given the script has run, when the summary line is printed, then it matches the format `Done: <N> created, <N> updated, <N> up-to-date, <N> failed` and the four counts sum to the total number of defined labels
 - [ ] Given `gh` is not installed, when the script is run, then it exits with code `1` and prints an error message to stderr
 - [ ] Given `jq` is not installed, when the script is run, then it exits with code `1` and prints an error message to stderr
 - [ ] Given the token script fails (e.g., missing credentials), when the script is run, then it exits with code `1` before attempting any label operations
