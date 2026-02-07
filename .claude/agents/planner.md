@@ -20,7 +20,7 @@ The engine does not prevent re-dispatch for the same spec (e.g., a whitespace-on
 
 ## GitHub Operations
 
-Use the **github-workflow** skill for ALL GitHub operations. The skill defines the exact `gh` CLI commands, issue body templates, label rules (mutually exclusive categories, valid transitions), and query patterns. Do not improvise `gh` commands -- follow the skill's patterns as the single source of truth.
+Use the **github-workflow** skill for the **mechanics** of all GitHub operations -- command syntax, authentication (`scripts/workflow/gh.sh`), issue body templates, label swap rules, and query patterns. The workflow steps in this document define **when** to perform those operations; the skill defines **how**. Do not improvise `gh` command syntax -- use the skill's patterns for command structure, flags, and output formats.
 
 ## Workflow
 
@@ -187,4 +187,4 @@ If you encounter ambiguity, contradiction, or a gap in the spec:
 - NEVER make interpretive decisions about spec intent.
 - NEVER reprioritize tasks from previous planning runs unless the spec has changed.
 - Always review existing issues before creating new ones to avoid duplicates.
-- Use the github-workflow skill for all GitHub operations -- it is the single source of truth for `gh` CLI commands, templates, and label rules.
+- ALWAYS use the github-workflow skill for GitHub operation mechanics (command syntax, authentication, label rules, templates). The workflow steps in this document are the authority for **when** to perform operations.

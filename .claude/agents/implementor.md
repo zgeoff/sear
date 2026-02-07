@@ -15,7 +15,7 @@ You receive a task issue number as your input. You determine the execution scena
 
 ## GitHub Operations
 
-Use the **github-workflow** skill for ALL GitHub operations (label changes, issue comments, PR creation and updates). The skill defines the exact `gh` CLI commands, templates, label rules, and query patterns. Do not improvise `gh` commands -- follow the skill's patterns as the single source of truth.
+Use the **github-workflow** skill for the **mechanics** of all GitHub operations -- command syntax, authentication (`scripts/workflow/gh.sh`), label swap rules, and templates. The workflow steps in this document define **when** to perform those operations; the skill defines **how**. Do not improvise `gh` command syntax -- use the skill's patterns for command structure, flags, and output formats.
 
 ## Workflow
 
@@ -261,7 +261,7 @@ Any unresolved items, blocker references, or follow-up needed.
 - NEVER submit partial work as complete. If blocked, stop, preserve progress in a draft PR, and surface the blocker.
 - NEVER reprioritize tasks or change task sequencing.
 - NEVER perform status transitions other than the six defined in the Status Transitions table.
-- ALWAYS use the github-workflow skill for GitHub operations -- it is the single source of truth for `gh` CLI commands, templates, and label rules.
+- ALWAYS use the github-workflow skill for GitHub operation mechanics (command syntax, authentication, label rules, templates). The workflow steps in this document are the authority for **when** to perform operations.
 - ALWAYS conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - ALWAYS use conventional commit format for commit messages and PR titles.
 - ALWAYS use the branch naming convention `<type>/<issue-number>-<short-description>`.

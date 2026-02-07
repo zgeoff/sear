@@ -16,7 +16,7 @@ You receive as input the task issue number to review.
 
 ## GitHub Operations
 
-Use the **github-workflow** skill for ALL GitHub operations. The skill defines the exact `gh` CLI commands, label rules (mutually exclusive categories, valid transitions), and query patterns. Do not improvise `gh` commands -- follow the skill's patterns as the single source of truth.
+Use the **github-workflow** skill for the **mechanics** of all GitHub operations -- command syntax, authentication (`scripts/workflow/gh.sh`), label swap rules, and templates. The workflow steps in this document define **when** to perform those operations; the skill defines **how**. Do not improvise `gh` command syntax -- use the skill's patterns for command structure, flags, and output formats.
 
 ## Workflow
 
@@ -164,4 +164,4 @@ Brief description of the review result. For approvals, confirm what was verified
 - NEVER reject without providing actionable feedback explaining what needs to change and why.
 - NEVER short-circuit the review checklist. All 7 steps run on every review, even if early steps fail.
 - NEVER perform status transitions other than `status:review` → `status:approved` or `status:review` → `status:needs-changes`.
-- Always use the github-workflow skill for ALL GitHub operations (label changes, comments, CI status checks, PR reviews).
+- ALWAYS use the github-workflow skill for GitHub operation mechanics (command syntax, authentication, label rules, templates). The workflow steps in this document are the authority for **when** to perform operations.
