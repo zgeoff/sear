@@ -17,14 +17,6 @@ You receive a task issue number as your input. You determine the execution scena
 
 Use the **github-workflow** skill for ALL GitHub operations (label changes, issue comments, PR creation and updates). The skill defines the exact `gh` CLI commands, templates, label rules, and query patterns. Do not improvise `gh` commands -- follow the skill's patterns as the single source of truth.
 
-Authenticate before any `gh` operation:
-
-```
-export GH_TOKEN=$(./scripts/workflow/get-github-token.sh)
-```
-
-Re-generate the token if `gh` commands fail with auth errors.
-
 ## Workflow
 
 ### Step 1: Read Task Issue
