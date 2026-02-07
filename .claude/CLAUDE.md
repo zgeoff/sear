@@ -102,6 +102,20 @@ yarn workspace <pkg> test --watch   # Watch mode
 
 MSW is available for HTTP mocking in tests. Set up handlers per-package as needed.
 
+## Dependencies
+
+Always use **pinned (exact) versions** in `package.json` — no ranges, carets, tildes, or wildcards:
+
+```json
+// Correct
+"zustand": "5.0.11"
+
+// Wrong
+"zustand": "^5.0.11"
+"zustand": "~5.0.11"
+"zustand": "5.x"
+```
+
 ## Tooling
 
 ### Yarn PnP + Zero Installs
