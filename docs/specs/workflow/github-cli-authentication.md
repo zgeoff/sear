@@ -1,7 +1,7 @@
 ---
 title: GitHub CLI Authentication
 version: 0.1.0
-last_updated: 2026-02-06
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -155,4 +155,4 @@ The script requires these commands on `PATH`:
 
 - GitHub App authentication docs: https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app
 - GitHub App installation token docs: https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app
-- Development protocol: `docs/workflow-v0.md`
+- Development protocol: `docs/specs/workflow/workflow.md`

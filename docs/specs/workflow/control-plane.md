@@ -1,7 +1,7 @@
 ---
 title: Agentic Workflow Control Plane
 version: 0.1.0
-last_updated: 2026-02-07
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -20,7 +20,7 @@ It is the single interface through which the Human role interacts with the autom
 - Must not invoke agents concurrently for the same task issue. One agent per issue at a time.
 - Must auto-recover stale `status:in-progress` issues when no agent is running for them (reset to `status:pending`).
 - Must only auto-dispatch the Planner for specs with `status: approved` in frontmatter.
-- Must use `@octokit/rest` for all GitHub API interactions.
+- Must use `@octokit/rest` with `@octokit/auth-app` for all GitHub API interactions.
 - Must use `@anthropic-ai/claude-agent-sdk` for all agent invocations.
 
 ## Specification
@@ -83,6 +83,8 @@ The control plane categorizes state changes into three tiers that determine how 
 | **User-dispatch** | Surfaced in TUI, user chooses when to invoke | Issues with `status:pending`, `status:unblocked`, `status:needs-changes` → Implementor |
 | **Notify-only** | User notified for action outside the control plane | `status:needs-refinement` (with clipboard command), `status:blocked` (URL only), `status:approved` (ready to merge) |
 
+Dispatch decisions are based solely on status labels and dispatch tier classification. The engine does not enforce task dependencies (e.g., "Blocked by #X" references in issue bodies). Dependency ordering is the Human's responsibility when deciding which user-dispatch tasks to invoke.
+
 The engine determines the tier. The TUI renders accordingly — auto-dispatched agents appear as running, user-dispatch items appear as actionable, and notifications appear with copy-to-clipboard commands.
 
 Notifications are dismissed automatically when the underlying issue status changes.
@@ -115,8 +117,21 @@ Recovery is the only case where the engine writes to GitHub Issues. All other Gi
 | TUI framework | Ink (React for terminal) |
 | TUI state management | Zustand |
 | GitHub API | `@octokit/rest` |
+| GitHub Auth | `@octokit/auth-app` |
 | Agent invocation | `@anthropic-ai/claude-agent-sdk` |
 | Configuration | TypeScript config file |
+
+### API Duality
+
+Agents and the engine use different GitHub API clients by design:
+
+- **Agents** use the `gh` CLI, authenticated via `GH_TOKEN` from `get-github-token.sh`. Each agent session gets a fresh token at invocation.
+- **Engine** uses `@octokit/rest` with `@octokit/auth-app`, authenticated via GitHub App credentials in config. Token refresh is handled automatically.
+
+Consequences for implementors:
+- No code sharing for GitHub operations between engine and agents.
+- Different error shapes and retry patterns — `gh` returns exit codes and stderr; `@octokit/rest` throws typed errors.
+- The control plane never uses `gh` CLI; agents never use `@octokit/rest`.
 
 ### Worktree Isolation
 
@@ -171,4 +186,3 @@ Each Implementor agent runs in a dedicated git worktree, isolating parallel impl
 
 ## References
 
-- `docs/workflow-v0.md` — Original development protocol (being superseded by `workflow.md`)

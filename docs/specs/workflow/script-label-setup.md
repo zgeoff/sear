@@ -1,7 +1,7 @@
 ---
 title: Label Setup Script
 version: 0.1.2
-last_updated: 2026-02-07
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -50,7 +50,6 @@ If the token script fails (missing credentials, bad key, API error), it prints d
 | --- | --- | --- |
 | `task:implement` | Implementation work | `1d76db` |
 | `task:refinement` | Spec clarification request | `5319e7` |
-| `task:spec` | Spec writing or revision | `d4c5f9` |
 
 #### Status Labels
 
@@ -119,7 +118,6 @@ The script prints one line per label processed, indicating the action taken:
 ```
    created  task:implement
    created  task:refinement
-   created  task:spec
 up-to-date  status:pending
    updated  status:in-progress
    created  status:blocked
@@ -183,9 +181,9 @@ The script is idempotent. Running it multiple times:
 - `gh` CLI
 - `jq` (for parsing JSON output from `gh`)
 - `scripts/workflow/get-github-token.sh` (see `docs/specs/workflow/github-cli-authentication.md`)
-- Label definitions from the development protocol (`docs/workflow-v0.md`, "GitHub Labels" section)
+- Label definitions from the development protocol (`docs/specs/workflow/workflow.md`, "Labels" section)
 
 ## References
 
-- Development protocol: `docs/workflow-v0.md` (GitHub Labels section)
+- Development protocol: `docs/specs/workflow/workflow.md` (Labels section)
 - `gh label` CLI documentation: https://cli.github.com/manual/gh_label

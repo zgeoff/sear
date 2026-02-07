@@ -8,7 +8,7 @@ An issue must have exactly one label within each of these categories:
 
 | Category | Labels |
 | --- | --- |
-| **Type** | `task:implement`, `task:refinement`, `task:spec` |
+| **Type** | `task:implement`, `task:refinement` |
 | **Status** | All `status:*` labels |
 | **Priority** | `priority:high`, `priority:medium`, `priority:low` |
 

@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI
 version: 0.1.0
-last_updated: 2026-02-07
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -72,7 +72,7 @@ A scrollable, chronological event history. Newest notifications appear at the to
 | `issueStatusChanged` | Issue #N status changed from X to Y |
 | `specChanged` | "Spec changed: {filePath}". The `contextURL` is constructed from the commit SHA (for Enter/browser diff action). |
 | `recoveryPerformed` | Issue #N recovered from stale in-progress |
-| `notification` (engine) | "Issue #{N} requires attention — {status}" for `needs-refinement`/`blocked`, or "Issue #{N} approved — ready to merge" for `approved` |
+| `notification` (engine) | `needs-refinement`: "Issue #{N} needs spec refinement — {resolutionGuidance}". `blocked`: "Issue #{N} blocked — {resolutionGuidance}". `approved`: "Issue #{N} approved — ready to merge". |
 | `agentSkipped` | "{AgentType} skipped for issue #{N} — already running" (Implementor/Reviewer) or "Planner skipped — already running (paths deferred)" (Planner) |
 | `dispatchReady` | "Issue #{N} ready for dispatch" |
 | `notificationDismissed` | Issue #N notification dismissed |
@@ -140,7 +140,7 @@ Displays context-aware content based on the currently selected issue in the issu
 | `in-progress` (agent running) | Live streaming Implementor output | `getAgentStream` stream accessor (buffered in `agentStreams`) |
 | `review` (Reviewer running) | Live streaming Reviewer output | `getAgentStream` stream accessor (buffered in `agentStreams`) |
 | `review` (no agent) | PR summary — title, changed files count, CI status | `getPRForIssue` query (cached in `prDetails`) |
-| `needs-refinement`, `blocked` | Issue details + blocker comment | `getIssueDetails` query (cached in `issueDetails`) |
+| `needs-refinement`, `blocked` | Issue details + blocker comment + resolution guidance (from `NotificationEvent.resolutionGuidance`) | `getIssueDetails` query (cached in `issueDetails`) |
 | `approved` | PR summary — ready for merge | `getPRForIssue` query (cached in `prDetails`) |
 | Failed (TUI overlay) | Error details, session ID, preserved worktree path (if Implementor), retry prompt | `lastFailure` from Zustand store |
 | No issue selected (`selectedIssue` is `null`) | Empty state: "No issue selected" | N/A |

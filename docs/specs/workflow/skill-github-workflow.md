@@ -1,7 +1,7 @@
 ---
 title: GitHub Workflow Skill
 version: 0.4.0
-last_updated: 2026-02-07
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -114,7 +114,7 @@ Label definitions (names, descriptions, colors) are maintained by `script-label-
 
 An issue must have exactly one label within each category:
 
-- **Type**: `task:implement`, `task:refinement`, `task:spec`
+- **Type**: `task:implement`, `task:refinement`
 - **Status**: all `status:*` labels
 - **Priority**: `priority:high`, `priority:medium`, `priority:low`
 
@@ -204,13 +204,13 @@ Common query patterns for the workflow.
 
 - `gh` CLI (available on PATH, authenticated via `GH_TOKEN`)
 - GitHub CLI authentication script (`docs/specs/workflow/github-cli-authentication.md`)
-- Development protocol (`docs/workflow-v0.md`)
+- Development protocol (`docs/specs/workflow/workflow.md`)
 - Label setup script (`docs/specs/workflow/script-label-setup.md`)
 - GitHub repository with labels created per protocol conventions
 
 ## References
 
-- Development protocol: `docs/workflow-v0.md`
+- Development protocol: `docs/specs/workflow/workflow.md`
 - GitHub CLI authentication: `docs/specs/workflow/github-cli-authentication.md`
 - Label setup script: `docs/specs/workflow/script-label-setup.md`
 - Planner agent: `docs/specs/workflow/agent-planner.md`

@@ -1,7 +1,7 @@
 ---
 title: Planner Agent
 version: 0.1.0
-last_updated: 2026-02-06
+last_updated: 2026-02-08
 status: approved
 ---
 
@@ -26,9 +26,9 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 
 ### Trigger
 
-The Planner is invoked when a specification file is committed or updated in `docs/specs/`. The trigger mechanism (polling, webhook, manual invocation) is defined by the workflow dispatcher and is outside the scope of this spec.
+The Planner is invoked when one or more specification files are committed or updated in `docs/specs/`. The trigger mechanism (polling, webhook, manual invocation) is defined by the workflow dispatcher and is outside the scope of this spec.
 
-The Planner receives as input the path(s) to the spec file(s) that were committed or updated.
+The Planner receives as input one or more spec file paths and processes them as a batch in a single invocation. When multiple specs change in the same poll cycle, they are all passed to the Planner together rather than triggering separate invocations.
 
 ### Inputs
 
@@ -41,14 +41,16 @@ The Planner reads the following before producing any output:
 
 ### Pre-Planning: Validate Entry Criteria
 
-Before creating any tasks, the Planner verifies the following quality gates:
+Before creating any tasks, the Planner validates the following quality gates for each input spec:
 
 1. Spec frontmatter `status` is `approved`.
 2. All acceptance criteria in the spec are testable (contain observable outcomes).
 3. The spec is committed to the repository (not just local changes).
 4. No open `task:refinement` issues exist for this spec.
 
-If any gate fails, the Planner stops and reports which gate(s) failed as its final text output, returned to whatever process invoked it. It does not create tasks. The failure report uses the following format:
+Gates are evaluated per spec. If any single spec fails a gate, the Planner reports the failure for that spec and continues processing the remaining specs. Only specs that pass all gates proceed to decomposition.
+
+The failure report uses the following format (one block per failed spec):
 
 ```
 ## Planning Gate Failure
@@ -65,7 +67,7 @@ What must be resolved before the Planner can process this spec.
 
 ### Phase 1: Review Existing Issues
 
-Before creating new issues, the Planner reviews all open issues that reference the current spec. An issue references a spec if its body contains the spec file path in the "Spec Reference" section (e.g., `docs/specs/feature-name.md`). Issues that do not reference the current spec are ignored.
+Before creating new issues, the Planner reviews all open issues that reference any of the input specs. An issue references a spec if its body contains the spec file path in the "Spec Reference" section (e.g., `docs/specs/feature-name.md`). Issues that do not reference any of the input specs are ignored. The Planner should query efficiently — e.g., fetching all open `task:implement` issues once and filtering client-side by spec path, rather than issuing a separate query per spec.
 
 The Planner identifies:
 
@@ -76,9 +78,9 @@ The Planner comments on every issue it closes or modifies, explaining the reason
 
 ### Phase 2: Assess Delta
 
-The Planner compares the spec's requirements against the current codebase to determine what work remains:
+The Planner compares the acceptance criteria across all input specs against the current codebase to determine what work remains:
 
-1. Read each acceptance criterion in the spec.
+1. Read each acceptance criterion across all input specs.
 2. For each criterion, check whether the current codebase already satisfies it.
 3. Criteria that are already satisfied do not need tasks.
 4. Criteria that are not satisfied (or partially satisfied) become the basis for task decomposition.
@@ -96,6 +98,8 @@ The Planner breaks remaining work into tasks. Each task:
 #### Task Sizing
 
 Tasks should be sized so that an Implementor can complete one in a single working session. If a spec section requires work that is too large for one task, split it into sequential tasks with explicit dependencies.
+
+Cross-spec dependencies are detected during aggregate decomposition (e.g., Task A from spec-1 depends on types defined in spec-2's tasks). These are documented using the same "Blocked by #X" mechanism as intra-spec dependencies.
 
 #### Scope Boundaries
 
@@ -159,7 +163,7 @@ The Planner assigns priority based on:
 
 #### Dependencies
 
-Dependencies between tasks are documented in two ways:
+Dependencies between tasks (both within a single spec and across specs) are documented in two ways:
 
 1. **Issue body:** Include "Blocked by #X" in the Context section when a task cannot start until another completes.
 2. **Issue references:** Use GitHub issue references so dependencies are visible in the issue sidebar.
@@ -172,24 +176,31 @@ When a new issue supersedes an existing open issue, the Planner closes the exist
 
 ### Phase 5: Report Summary
 
-After all issues are created (or existing issues updated/closed), the Planner outputs a summary as its final text output, returned to whatever process invoked it:
+After all issues are created (or existing issues updated/closed), the Planner outputs a summary as its final text output, returned to whatever process invoked it. When multiple specs are processed, the summary includes per-spec sections with a combined dependency graph at the end:
 
 ```
 ## Planning Summary
 
-**Spec:** docs/specs/<name>.md (v<version>)
+### docs/specs/<name-1>.md (v<version>)
 
-### Existing Issues
+#### Existing Issues
 - Closed: #12 (irrelevant), #15 (duplicate of #20)
 - Updated: #13 (scope revised)
 
-### New Issues Created
+#### New Issues Created
 - #20: <title> [priority:high]
 - #21: <title> [priority:medium] (blocked by #20)
+
+### docs/specs/<name-2>.md (v<version>)
+
+#### Existing Issues
+- (none)
+
+#### New Issues Created
 - #22: <title> [priority:medium] (blocked by #20)
 - #23: <title> [priority:low]
 
-### Dependency Graph
+### Combined Dependency Graph
 #20 → #21
 #20 → #22
 #21, #22 → #23
