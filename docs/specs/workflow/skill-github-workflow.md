@@ -22,15 +22,13 @@ Internal agent skill that guides workflow agents (Planner, Implementor, Reviewer
 
 ### Authentication
 
-All `gh` CLI operations require authentication via the `GH_TOKEN` environment variable. Agents must set `GH_TOKEN` before performing any `gh` operation.
+All `gh` CLI operations must be run through the authenticated wrapper script:
 
 ```bash
-export GH_TOKEN=$(./scripts/workflow/get-github-token.sh)
+scripts/workflow/gh.sh <command> [args...]
 ```
 
-The token is short-lived (up to 1 hour). Agents should generate a fresh token at the start of each session rather than caching or reusing tokens. For long-running sessions, agents should re-generate the token if `gh` commands begin failing with authentication errors.
-
-If the authentication script exits with a non-zero code, the agent should abort — no `gh` operations will succeed without a valid token.
+The wrapper handles authentication automatically — it generates a GitHub App token (with local caching) and exports `GH_TOKEN` before forwarding arguments to `gh` via `exec`. If the wrapper exits non-zero before reaching `gh`, authentication has failed and the agent should abort.
 
 ### Issue Operations
 
@@ -203,7 +201,7 @@ Common query patterns for the workflow.
 ## Dependencies
 
 - `gh` CLI (available on PATH, authenticated via `GH_TOKEN`)
-- GitHub CLI authentication script (`docs/specs/workflow/github-cli-authentication.md`)
+- GitHub CLI wrapper (`docs/specs/workflow/github-cli.md`)
 - Development protocol (`docs/specs/workflow/workflow.md`)
 - Label setup script (`docs/specs/workflow/script-label-setup.md`)
 - GitHub repository with labels created per protocol conventions
@@ -211,7 +209,7 @@ Common query patterns for the workflow.
 ## References
 
 - Development protocol: `docs/specs/workflow/workflow.md`
-- GitHub CLI authentication: `docs/specs/workflow/github-cli-authentication.md`
+- GitHub CLI wrapper: `docs/specs/workflow/github-cli.md`
 - Label setup script: `docs/specs/workflow/script-label-setup.md`
 - Planner agent: `docs/specs/workflow/agent-planner.md`
 - Implementor agent: `docs/specs/workflow/agent-implementor.md`

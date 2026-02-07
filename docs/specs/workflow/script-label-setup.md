@@ -18,7 +18,7 @@ One-time shell script that creates the required GitHub labels for the workflow s
 - Must be idempotent: running multiple times produces the same result as running once
 - Must not delete or modify labels that are not defined by this script
 - Must not fail if a label already exists with the correct configuration
-- Must authenticate using the token script defined in `docs/specs/workflow/github-cli-authentication.md`
+- Must authenticate using `scripts/workflow/gh.sh` (see `docs/specs/workflow/github-cli.md`)
 - Must require no arguments
 
 ## Specification
@@ -33,14 +33,9 @@ No arguments. The script operates on the repository determined by `gh`'s current
 
 ### Authentication
 
-The script authenticates at startup by running `scripts/workflow/get-github-token.sh` and exporting the result as `GH_TOKEN`:
+The script delegates all `gh` CLI calls to `scripts/workflow/gh.sh`, which handles authentication automatically (token generation, caching, and `GH_TOKEN` export). The label setup script does not manage tokens directly.
 
-```bash
-GH_TOKEN=$(./scripts/workflow/get-github-token.sh) || exit 1
-export GH_TOKEN
-```
-
-If the token script fails (missing credentials, bad key, API error), it prints diagnostics to stderr and exits non-zero. The label setup script detects this and exits immediately with code `1`. No separate authentication check is performed.
+If the wrapper exits non-zero before reaching `gh`, authentication has failed. The wrapper prints diagnostics to stderr. The label setup script detects the non-zero exit and exits immediately with code `1`.
 
 ### Label Definitions
 
@@ -149,7 +144,7 @@ The summary format is: `Done: <N> created, <N> updated, <N> up-to-date, <N> fail
 ### Error Handling
 
 - If `gh` or `jq` is not installed, the script exits immediately with a descriptive error message and exit code `1`.
-- If the token script (`scripts/workflow/get-github-token.sh`) fails, the script exits immediately with exit code `1`. The token script handles its own error messaging.
+- If the `gh.sh` wrapper fails (authentication error), the script exits immediately with exit code `1`. The wrapper handles its own error messaging.
 - If fetching the existing label list fails, the script exits immediately with a descriptive error message and exit code `1`.
 - If a single label create/update fails, the script logs the error for that label (to stderr), continues processing remaining labels, and exits with code `1` after all labels are attempted.
 - The script must not silently swallow errors.
@@ -180,7 +175,7 @@ The script is idempotent. Running it multiple times:
 
 - `gh` CLI
 - `jq` (for parsing JSON output from `gh`)
-- `scripts/workflow/get-github-token.sh` (see `docs/specs/workflow/github-cli-authentication.md`)
+- `scripts/workflow/gh.sh` (see `docs/specs/workflow/github-cli.md`)
 - Label definitions from the development protocol (`docs/specs/workflow/workflow.md`, "Labels" section)
 
 ## References

@@ -125,7 +125,7 @@ Recovery is the only case where the engine writes to GitHub Issues. All other Gi
 
 Agents and the engine use different GitHub API clients by design:
 
-- **Agents** use the `gh` CLI, authenticated via `GH_TOKEN` from `get-github-token.sh`. Each agent session gets a fresh token at invocation.
+- **Agents** use the `gh` CLI via `scripts/workflow/gh.sh`, which handles authentication and token caching automatically.
 - **Engine** uses `@octokit/rest` with `@octokit/auth-app`, authenticated via GitHub App credentials in config. Token refresh is handled automatically.
 
 Consequences for implementors:
