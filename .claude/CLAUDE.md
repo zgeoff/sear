@@ -285,6 +285,17 @@ serializeRunConfig(runConfig)   // convert structured -> string/JSON (format tra
 
 ## Code Style
 
+### Type assertions
+Never use type assertions (`as`) unless there is a genuine TypeScript error that cannot be resolved through correct typing. If the types are wrong, fix the types — don't cast around them. This includes `as unknown as X`, `as Record<string, unknown>`, `as any`, and similar escape hatches.
+
+```ts
+// Wrong — unnecessary cast, fix the function signature instead
+expect(() => validateConfig(config as Record<string, unknown>)).not.toThrow();
+
+// Correct — types match, no cast needed
+expect(() => validateConfig(config)).not.toThrow();
+```
+
 ### Pattern Matching
 Prefer `ts-pattern` over switch statements for discriminated unions:
 
