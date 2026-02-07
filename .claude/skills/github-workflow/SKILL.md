@@ -15,13 +15,22 @@ Mechanics for GitHub Issue and PR operations using `gh` CLI. Agents decide when 
 
 ## Authentication
 
-Set `GH_TOKEN` before any `gh` operation:
+All `gh` commands MUST be run through the authenticated wrapper script:
 
 ```
-export GH_TOKEN=$(./scripts/workflow/get-github-token.sh)
+scripts/workflow/gh.sh <command> [args...]
 ```
 
-The token is short-lived (up to 1 hour). Generate a fresh token at session start. Re-generate if `gh` commands fail with auth errors. If the script exits non-zero, abort — no `gh` operations will succeed.
+The wrapper ensures a valid GitHub App token is available (generating and caching as needed), so there is no session-level token to manage or refresh. If the wrapper exits non-zero before reaching `gh`, authentication has failed — abort the operation.
+
+**Every `gh` command shown in this skill must be prefixed with `scripts/workflow/gh.sh` instead of bare `gh`.** For example:
+
+```
+# Skill example says:
+#   gh issue view 1
+# You run:
+#   scripts/workflow/gh.sh issue view 1
+```
 
 ## Issue Operations
 
@@ -182,7 +191,7 @@ gh issue list --state open --search "in:body docs/specs/<name>.md" --limit 100 -
 
 ## Dependencies
 
-- `gh` CLI authenticated via `GH_TOKEN` and on PATH
-- GitHub CLI authentication script: `scripts/workflow/get-github-token.sh` (spec: `docs/specs/workflow/github-cli-authentication.md`)
+- `gh` CLI on PATH
+- Authenticated wrapper: `scripts/workflow/gh.sh` (spec: `docs/specs/workflow/github-cli.md`)
 - Labels created per `docs/specs/workflow/script-label-setup.md`
 - Development protocol: `docs/specs/workflow/workflow.md`

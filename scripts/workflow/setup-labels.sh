@@ -10,26 +10,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------------------
 # Dependency checks
 # ---------------------------------------------------------------------------
-if ! command -v gh &>/dev/null; then
-  echo "Error: gh CLI is not installed." >&2
-  exit 1
-fi
-
 if ! command -v jq &>/dev/null; then
   echo "Error: jq is not installed." >&2
   exit 1
 fi
 
-# ---------------------------------------------------------------------------
-# Authentication
-# ---------------------------------------------------------------------------
-GH_TOKEN=$("${SCRIPT_DIR}/get-github-token.sh") || exit 1
-export GH_TOKEN
+# Use the authenticated gh wrapper (handles token generation and caching)
+GH="${SCRIPT_DIR}/gh.sh"
 
 # ---------------------------------------------------------------------------
 # Fetch existing labels
 # ---------------------------------------------------------------------------
-existing_labels=$(gh label list --limit 100 --json name,color,description) || {
+existing_labels=$("$GH" label list --limit 100 --json name,color,description) || {
   echo "Error: failed to fetch existing labels." >&2
   exit 1
 }
@@ -76,7 +68,7 @@ for entry in "${labels[@]}"; do
 
   if [[ -z "$match" ]]; then
     # Label does not exist — create it
-    if gh label create "$name" --description "$description" --color "$color" >/dev/null; then
+    if "$GH" label create "$name" --description "$description" --color "$color" >/dev/null; then
       printf "%10s  %s\n" "created" "$name"
       (( ++count_created ))
     else
@@ -93,7 +85,7 @@ for entry in "${labels[@]}"; do
       printf "%10s  %s\n" "up-to-date" "$name"
       (( ++count_uptodate ))
     else
-      if gh label edit "$name" --description "$description" --color "$color" >/dev/null; then
+      if "$GH" label edit "$name" --description "$description" --color "$color" >/dev/null; then
         printf "%10s  %s\n" "updated" "$name"
         (( ++count_updated ))
       else
