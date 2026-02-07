@@ -17,7 +17,7 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 - Must not modify code outside `docs/specs/` (reads specs, writes only GitHub Issues)
 - Must not create tasks for specs that are not `approved` status
 - Must review existing GitHub Issues before creating new ones to avoid duplicates
-- Must use the `gh` CLI (via skill-github-workflow) for all GitHub operations
+- Must use the `gh` CLI (via the `github-workflow` skill) for all GitHub operations
 - Must not make interpretive decisions about spec intent -- if a spec is ambiguous, the Planner creates a `task:refinement` issue instead of guessing
 - Each task must be hermetic: completable without real-time coordination with other agents
 - Must not reprioritize tasks created by previous planning runs unless the spec has changed
@@ -249,7 +249,7 @@ Refinement issues receive labels `task:refinement`, `status:pending`, and a prio
 
 ## Dependencies
 
-- skill-github-workflow (for all GitHub operations)
+- `github-workflow` skill (for all GitHub operations)
 - `gh` CLI (authenticated with repo access)
 - Label setup (all workflow labels must exist in the repository; see `script-label-setup.md`)
 - Approved specification in `docs/specs/`
