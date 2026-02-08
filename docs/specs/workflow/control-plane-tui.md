@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI
-version: 0.2.0
-last_updated: 2026-02-08
+version: 0.3.0
+last_updated: 2026-02-09
 status: approved
 ---
 
@@ -53,7 +53,7 @@ flowchart LR
 └──────────────────┴──────────────────┴──────────────────┘
 ```
 
-The dashboard fills the terminal viewport exactly — its height is `stdout.rows` and its width is `stdout.columns`. No content extends beyond the viewport (no terminal scrolling). On terminal resize, the layout reflows to the new dimensions. Each pane's scrollable area is computed from the available height minus chrome (headers, horizontal rules, status bars). The three panes divide horizontal space equally (each gets one-third of `stdout.columns`).
+The dashboard fills the terminal viewport exactly — its height is `stdout.rows` and its width is `stdout.columns`. The dashboard has no global chrome (no title bar, no status line) — each pane's total height is `stdout.rows`. No content extends beyond the viewport (no terminal scrolling). On terminal resize, the layout reflows to the new dimensions. Each pane's scrollable area is computed from `stdout.rows` minus that pane's chrome (header line + horizontal rule = 2 rows). The three panes divide horizontal space equally (each gets one-third of `stdout.columns`).
 
 The issue list pane has focus by default on startup. The user navigates between panes and interacts with items using keyboard controls.
 
@@ -73,7 +73,7 @@ All list-based panes (notifications, issue list) share a common visual foundatio
 
 **Single-line truncation:** Each list item occupies exactly one terminal line. Content exceeding the available pane width is truncated with a trailing ellipsis (`…`).
 
-**Scroll windowing:** The pane header and horizontal rule are fixed — they never scroll off-screen. The scrollable area begins below the rule and displays as many items as the remaining pane height allows. When items exceed visible rows, the list scrolls within this area via keyboard navigation (`↑`/`↓`/`j`/`k`) or mouse scroll wheel. The viewport uses scroll-by-one: it shifts by exactly one row when the selection moves outside the currently visible window. Mouse scroll moves the viewport without changing the selected item. If the user mouse-scrolls away from the selected item then presses a navigation key, the viewport snaps back to keep the selection visible before applying the navigation.
+**Scroll windowing:** Chrome for list-based panes is exactly 2 rows (header line + rule line). The visible item count is `stdout.rows - 2`. The pane header and horizontal rule are fixed — they never scroll off-screen. The scrollable area begins below the rule and displays up to `visible item count` items. When items exceed visible rows, the list scrolls within this area via keyboard navigation (`↑`/`↓`/`j`/`k`) or mouse scroll wheel. The viewport uses scroll-by-one: it shifts by exactly one row when the selection moves outside the currently visible window. Mouse scroll moves the viewport without changing the selected item. If the user mouse-scrolls away from the selected item then presses a navigation key, the viewport snaps back to keep the selection visible before applying the navigation. On terminal resize, the visible item count is recomputed from the new `stdout.rows`.
 
 **Terminal hyperlinks:** Specific text elements render as clickable terminal hyperlinks via the OSC 8 protocol (`ink-link`). In terminals that do not support OSC 8, text renders normally without click behavior — no URL suffix is appended, since all linked resources are also accessible via keyboard actions (`Enter` to open in browser). Fallback is disabled (`fallback={false}`).
 
@@ -212,6 +212,12 @@ A prioritized list of all open issues with the `task:implement` label. This is t
 
 Displays context-aware content based on the currently selected issue in the issue list. The content changes automatically as the user navigates the issue list.
 
+**Pane header:** Like list-based panes, the detail pane renders a full-caps label (`DETAILS`) followed by a full-width horizontal rule (`─`). The header has 1-character horizontal padding on each side. The header is fixed — it never scrolls off-screen. Chrome for the detail pane is exactly 2 rows (header line + rule line).
+
+**Scroll windowing:** The visible row count is `stdout.rows - 2` (terminal height minus chrome). Only that many lines are rendered at a time — content beyond the visible window is not rendered. All detail pane views (issue details, streaming output, PR summary, failure overlay, empty state) are subject to this constraint. When content exceeds the visible row count, the user scrolls within the pane using keyboard controls (`↑`/`↓`/`j`/`k`) or mouse scroll wheel. Both keyboard and mouse scroll move the viewport by one row per key press or scroll tick (the detail pane has no selected item, so there is no snap-back behavior). During streaming, mouse scroll up pauses auto-scroll, same as keyboard scroll. On terminal resize, the visible row count is recomputed from the new `stdout.rows`.
+
+**Line truncation:** Each line in the detail pane occupies exactly one terminal row. Lines exceeding the pane width are truncated with a trailing ellipsis (`…`). This preserves the 1:1 mapping between buffer indices and terminal rows — no line wrapping occurs.
+
 | Selected Issue State | Detail Pane Content | Data Source |
 |---------------------|---------------------|-------------|
 | `pending`, `unblocked`, `needs-changes` | Issue details: objective, spec reference, scope, acceptance criteria | `getIssueDetails` query (cached in `issueDetails`) |
@@ -225,7 +231,7 @@ Displays context-aware content based on the currently selected issue in the issu
 
 **On-demand fetching:** When the user selects an issue, the store checks its `issueDetails`/`prDetails` caches. If the data is not cached, it calls the engine's query interface to fetch it. A spinner with "Loading…" text is shown in the detail pane while the fetch is in progress.
 
-**Agent output streaming:** When viewing a running agent, the detail pane renders from the `agentStreams` buffer. The stream auto-scrolls to show the latest output. The user can scroll up to review earlier output; auto-scroll resumes when the user scrolls back to the bottom.
+**Agent output streaming:** When viewing a running agent, the detail pane renders from the `agentStreams` buffer. Each entry in the buffer is one terminal line (see Agent stream lifecycle for the split contract). The windowing operates on buffer index, not raw character offsets. When auto-scroll is active, the viewport is pinned to the tail of the buffer: the last `visible row count` lines are displayed. The user can scroll up to review earlier output, which pauses auto-scroll. Auto-scroll resumes when the user scrolls the viewport such that the last line in the buffer is visible (viewport offset ≥ buffer length − visible row count).
 
 **Failure overlay:** When an issue has a `lastFailure` in the store, the detail pane shows the error state regardless of the GitHub status label. This allows the user to see the error and retry before the issue reverts to its normal pending appearance.
 
@@ -260,9 +266,9 @@ The engine store is created once at startup and subscribes to all engine events.
 
 **Failure tracking:** When the engine emits `agentFailed`, the store records `lastFailure` on the affected issue with the error details, session ID, preserved worktree path (if Implementor), and log file path (if present). The engine's crash recovery resets the GitHub status to `pending`, but the TUI overlays the failure state — displaying the error indicator and retry action instead of the ready indicator. The `lastFailure` is cleared when the user dispatches a retry (Enter on a failed issue) or when the issue's status changes via a subsequent poll. The session ID is surfaced in the failure detail view so the user can manually resume the session outside the control plane if desired.
 
-**Agent stream lifecycle:** When the engine emits `agentStarted` for an issue, the store calls `getAgentStream(issueNumber)` on the engine and begins consuming the async iterable, appending chunks to the `agentStreams` buffer. For Planner `agentStarted` events (which have no `issueNumber`), the store skips stream subscription — Planner output is not streamed to the detail pane. When the stream ends (agent completes or fails), the buffer is retained for review until the issue state changes.
+**Agent stream lifecycle:** When the engine emits `agentStarted` for an issue, the store calls `getAgentStream(issueNumber)` on the engine and begins consuming the async iterable. The store splits each yielded chunk on `\n` and discards any trailing empty string from the split (so `"hello\n"` produces `["hello"]`, not `["hello", ""]`). A chunk with no newlines is appended as a single line. Each buffer entry is exactly one terminal line — this guarantees a 1:1 mapping between buffer indices and terminal rows, which the detail pane's scroll windowing depends on. For Planner `agentStarted` events (which have no `issueNumber`), the store skips stream subscription — Planner output is not streamed to the detail pane. When the stream ends (agent completes or fails), the buffer is retained for review until a new agent starts for the same issue or the issue is removed.
 
-**Stream buffer limit:** Each issue's stream buffer is capped at 10,000 chunks. When the buffer exceeds this limit, the oldest chunks are dropped (ring buffer). This prevents unbounded memory growth from verbose agent sessions.
+**Stream buffer limit:** Each issue's stream buffer is capped at 10,000 lines. When the buffer exceeds this limit, the oldest lines are dropped (ring buffer). If auto-scroll is paused (the user has scrolled up) and a line is dropped from the front of the buffer, the viewport offset is decremented by one to keep the same content visible. If the offset reaches zero (the user's view has been fully scrolled out by drops), auto-scroll resumes. This prevents unbounded memory growth from verbose agent sessions.
 
 **Event handling:** The store subscribes to all engine events in its initializer. Event-to-state mapping:
 
@@ -447,7 +453,7 @@ type EngineStoreState = {
   // Derived from engine events
   issues: Map<number, TrackedIssue>;
   notifications: Notification[];
-  agentStreams: Map<number, string[]>; // issue number → buffered text chunks
+  agentStreams: Map<number, string[]>; // issue number → buffered lines (one string per terminal row)
   plannerRunning: boolean;
   // On-demand caches (populated via engine queries)
   issueDetails: Map<number, CachedIssueDetails>;
@@ -580,6 +586,8 @@ When the user presses `q`:
 - [ ] Given a running agent's output is streaming, when new output arrives, then the detail pane auto-scrolls to show the latest output.
 - [ ] Given the user scrolls up in the agent stream, when new output arrives, then auto-scroll is paused until the user scrolls back to the bottom.
 - [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the preserved worktree path.
+- [ ] Given the detail pane displays content that exceeds the visible row count, when the pane renders, then only the visible window of lines is rendered — the pane header remains fixed and the dashboard does not exceed the terminal viewport.
+- [ ] Given the detail pane has more content than fits in the visible window, when the user presses `↓`/`j` or `↑`/`k`, then the viewport shifts by exactly one row per key press.
 
 ### Shared List Primitives
 
@@ -633,11 +641,11 @@ When the user presses `q`:
 - [ ] Given the engine emits an `issueStatusChanged` event, when the TUI processes it, then the issue list and detail pane update to reflect the new state.
 - [ ] Given the engine emits a `dispatchReady` event, when the TUI processes it, then a notification is added and no issue state change occurs — the ready indicator was already applied from the preceding `issueStatusChanged` event.
 - [ ] Given the engine emits an `agentStarted` event, when the TUI processes it, then the store subscribes to the agent's output stream via `getAgentStream`.
-- [ ] Given a running agent is producing output, when the TUI receives stream chunks, then the output is buffered in `agentStreams` and renderable in the detail pane without blocking other panes.
+- [ ] Given a running agent is producing output, when the TUI receives stream data, then newline-split lines are buffered in `agentStreams` and renderable in the detail pane without blocking other panes.
 - [ ] Given the user selects an issue, when its detail data is not cached, then the store fetches it via `getIssueDetails` or `getPRForIssue` and shows a loading indicator until the data arrives.
 - [ ] Given the user selects an issue, when its detail data is cached but stale, then the cached data is shown immediately while a background re-fetch updates it.
 - [ ] Given the engine emits `issueRemoved`, when the TUI processes it, then the issue is removed from the issue list and all associated caches are cleared.
-- [ ] Given an agent's stream buffer has reached 10,000 chunks, when a new chunk arrives, then the oldest chunk is dropped and the new chunk is appended (ring buffer).
+- [ ] Given an agent's stream buffer has reached 10,000 lines, when a new line arrives, then the oldest line is dropped and the new line is appended (ring buffer).
 - [ ] Given a Planner `agentStarted` event is emitted, when the TUI processes it, then `plannerRunning` is set to `true` and the running agent count includes the Planner.
 - [ ] Given a Planner `agentCompleted` event is emitted, when the TUI processes it, then `plannerRunning` is set to `false` and the running agent count decreases.
 - [ ] Given a stale cache re-fetch fails, when the failure occurs, then the stale data is retained and the cache remains stale for the next view attempt.
