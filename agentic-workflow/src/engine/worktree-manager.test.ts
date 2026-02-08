@@ -46,19 +46,19 @@ function setupTest() {
 
 // -- buildWorktreePath / buildBranchName --
 
-test('buildWorktreePath returns .worktrees/issue-<N> under repo root', () => {
+test('it resolves the worktree path under the .worktrees directory for a given issue number', () => {
   const result = buildWorktreePath('/repo', 42);
   expect(result).toBe(resolve('/repo', '.worktrees', 'issue-42'));
 });
 
-test('buildBranchName returns issue-<N>', () => {
+test('it builds a branch name from an issue number', () => {
   expect(buildBranchName(42)).toBe('issue-42');
   expect(buildBranchName(1)).toBe('issue-1');
 });
 
 // -- createOrReuse: new worktree --
 
-test('createOrReuse creates a new worktree from main when none exists', async () => {
+test('it creates a new worktree from main when no existing worktree or branch is found', async () => {
   const { manager, calls, setFailure } = setupTest();
 
   // worktree list returns only the main worktree (no match)
@@ -87,7 +87,7 @@ test('createOrReuse creates a new worktree from main when none exists', async ()
 
 // -- createOrReuse: reuse existing worktree --
 
-test('createOrReuse reuses an existing registered worktree', async () => {
+test('it reuses an existing registered worktree without creating a new one', async () => {
   const { manager, calls, setResponse } = setupTest();
   const worktreePath = resolve('/repo', '.worktrees', 'issue-7');
 
@@ -110,7 +110,7 @@ test('createOrReuse reuses an existing registered worktree', async () => {
 
 // -- createOrReuse: branch exists but worktree was deleted --
 
-test('createOrReuse prunes and re-adds when branch exists but worktree is not registered', async () => {
+test('it prunes and re-adds the worktree when the branch exists but the worktree is not registered', async () => {
   const { manager, calls } = setupTest();
 
   // worktree list returns only the main worktree (no match for issue-5)
@@ -137,7 +137,7 @@ test('createOrReuse prunes and re-adds when branch exists but worktree is not re
 
 // -- remove --
 
-test('remove calls git worktree remove with --force', async () => {
+test('it force-removes the worktree for a given issue number', async () => {
   const { manager, calls } = setupTest();
 
   await manager.remove(42);
@@ -153,7 +153,7 @@ test('remove calls git worktree remove with --force', async () => {
 
 // -- createOrReuse returns correct path for different issue numbers --
 
-test('createOrReuse produces correct paths for various issue numbers', async () => {
+test('it produces correct paths and branch names for various issue numbers', async () => {
   const { manager, setFailure } = setupTest();
 
   setFailure(['rev-parse', '--verify', 'refs/heads/issue-1']);
@@ -169,7 +169,7 @@ test('createOrReuse produces correct paths for various issue numbers', async () 
 
 // -- createOrReuse: git worktree add failure propagates --
 
-test('createOrReuse propagates git errors', async () => {
+test('it propagates git errors when creating a worktree fails', async () => {
   const { manager, setFailure } = setupTest();
 
   // branch doesn't exist
@@ -189,7 +189,7 @@ test('createOrReuse propagates git errors', async () => {
 
 // -- remove: git worktree remove failure propagates --
 
-test('remove propagates git errors', async () => {
+test('it propagates git errors when removing a worktree fails', async () => {
   const { manager, setFailure } = setupTest();
 
   setFailure(['worktree', 'remove', resolve('/repo', '.worktrees', 'issue-99'), '--force']);
