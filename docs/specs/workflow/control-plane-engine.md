@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine
-version: 0.1.0
+version: 0.2.0
 last_updated: 2026-02-08
 status: approved
 ---
@@ -18,7 +18,7 @@ The engine is the core module of the control plane. It orchestrates independent 
 - Must not dispatch more than one agent per task issue at a time.
 - Must not auto-dispatch the Planner for specs without `status: approved` in frontmatter.
 - Must reset `status:in-progress` issues to `status:pending` when no agent is running for them (startup recovery and crash recovery).
-- Must use `@octokit/rest` with `@octokit/auth-app` as the authentication strategy for all GitHub API interactions.
+- Must use `@octokit/rest` with `@octokit/auth-app` as the authentication strategy for all GitHub API interactions. Octokit is an implementation detail of the GitHub Client adapter — all engine code interacts with the `GitHubClient` interface, never with Octokit directly. No type assertions (`as`) are permitted at the adapter boundary or anywhere `GitHubClient` is consumed.
 - Must use `@anthropic-ai/claude-agent-sdk` for all agent invocations.
 - Must detect spec changes remotely (via GitHub API), not from the local filesystem.
 - GitHub write operations are limited to recovery (status label resets). All other writes are performed by agents.
@@ -64,6 +64,30 @@ flowchart TD
 
 Each poller maintains its own snapshot slice. A failure in one poller does not affect others.
 
+### GitHub Client
+
+The engine accesses GitHub through a `GitHubClient` interface — a narrow, explicitly-typed contract covering only the API methods the engine uses. The `createGitHubClient` factory constructs an Octokit instance internally and returns a thin adapter that satisfies `GitHubClient` without type assertions.
+
+**Why a wrapper:** Octokit's deeply generic types do not structurally match a narrow interface, even when the methods are compatible at runtime. Casting (`as unknown as GitHubClient`) would hide real mismatches. Instead, each adapter method explicitly calls the corresponding Octokit method and returns the result through a properly-typed function signature. The wrappers are 1:1 delegations — no transformation, no error mapping, no retry logic. They exist solely to bridge the type gap.
+
+**Factory:** `createGitHubClient(config: GitHubClientConfig): GitHubClient`
+
+The factory:
+
+1. Creates an `Octokit` instance with `createAppAuth` as the auth strategy, using the provided `appID`, `privateKey`, and `installationID`.
+2. Returns an object satisfying `GitHubClient` where each method delegates to the corresponding Octokit method.
+
+**Module location:** `engine/github-client/`. The module contains:
+
+- `types.ts` — `GitHubClientConfig`, `GitHubClient`, and all param/result types.
+- `create-github-client.ts` — The adapter factory. Imports `Octokit` from `@octokit/rest` and `createAppAuth` from `@octokit/auth-app`. This is the only file in the engine that imports from `@octokit/*`.
+
+**Octokit isolation:** No file outside `engine/github-client/` may import from `@octokit/rest` or `@octokit/auth-app`. This ensures Octokit is a swappable implementation detail.
+
+**Caller responsibility:** The caller reads the private key from disk and passes the PEM content as a string. The adapter does not perform filesystem I/O.
+
+**Auth validation:** `@octokit/auth-app` validates credentials lazily — the first API call triggers JWT creation and token exchange, not the `createGitHubClient` call itself. If credentials are invalid (bad key, wrong app ID, etc.), the first poller cycle will fail. The engine's error handling (log and retry next cycle) applies, but since invalid credentials never self-heal, this will fail indefinitely. This is acceptable for v1 — invalid credentials are a deployment misconfiguration, caught immediately on first cycle. The operator must fix the config and restart.
+
 ### Pollers
 
 #### IssuePoller
@@ -72,7 +96,7 @@ Monitors GitHub Issues for status label changes.
 
 **Poll cycle:**
 
-1. Query open issues with the `task:implement` label via `@octokit/rest`. Only `task:implement` issues are tracked — `task:refinement` issues are outside the control plane's scope (they do not have status transitions that drive agent dispatch).
+1. Query open issues with the `task:implement` label via `GitHubClient`. Only `task:implement` issues are tracked — `task:refinement` issues are outside the control plane's scope (they do not have status transitions that drive agent dispatch).
 2. For each issue, compare the current `status:*` label against the snapshot.
 3. For each change, emit `issueStatusChanged` with the issue number, old status, and new status.
 4. Update the snapshot.
@@ -101,11 +125,11 @@ Monitors the specs directory on the default branch for changes, using the GitHub
 
 **Poll cycle:**
 
-1. Fetch the tree SHA of the specs directory on the default branch via `@octokit/rest`.
+1. Fetch the tree SHA of the specs directory on the default branch via `GitHubClient`.
 2. Compare the tree SHA against the snapshot.
 3. If unchanged — done, no further API calls.
 4. If changed — fetch the full tree to identify which files were added, modified, or removed.
-5. For each changed file, fetch its content and parse the frontmatter `status` value.
+5. For each changed file, fetch its content via `repos.getContent` (returns base64-encoded content), decode it, and parse the frontmatter `status` value.
 6. Fetch the HEAD commit SHA of the default branch (for spec diff URLs in the TUI). Note: this is the current HEAD commit, not necessarily the specific commit that modified each spec file. If multiple commits were pushed between poll cycles, the diff URL shows the HEAD commit's full diff, not a per-file change view. This is a known limitation — acceptable because the notification identifies the changed file path, giving the user enough context to find the relevant changes.
 7. Return the complete batch of changes to the Engine Core.
 8. Update the snapshot.
@@ -210,14 +234,24 @@ The engine accepts commands that trigger side effects.
 
 ### Query Interface
 
-The engine provides on-demand data fetching for display purposes. Queries are read-only and fetch data via `@octokit/rest` when called. Results are not cached by the engine — the TUI manages its own caching in the Zustand store.
+The engine provides on-demand data fetching for display purposes. Queries are read-only and fetch data via `GitHubClient` when called. Results are not cached by the engine — the TUI manages its own caching in the Zustand store.
 
 | Query | Parameters | Returns |
 |-------|-----------|---------|
 | `getIssueDetails` | Issue number | Issue body (objective, spec reference, scope, acceptance criteria), labels, creation date |
 | `getPRForIssue` | Issue number | PR number, title, changed files count, CI status, URL. Returns `null` if no linked PR exists. |
 
-PR linkage is determined by searching for a PR whose body contains `Closes #<N>` (word-boundary match — the `<N>` must be followed by whitespace, punctuation, or end of line, not additional digits). Branch name matching is not used because the Implementor renames the working branch (`issue-<N>`) to the convention format (`<type>/<N>-<description>`) before pushing.
+PR linkage is determined by searching for a PR whose body contains a closing keyword referencing the issue number. The match is case-insensitive and supports GitHub's closing keywords: `Closes`, `Fixes`, `Resolves` (and their conjugations: `Close`, `Closed`, `Fix`, `Fixed`, `Resolve`, `Resolved`). The issue number must be followed by whitespace, punctuation, or end of line — not additional digits (word-boundary match). If multiple open PRs match, the first match (by PR number, ascending) is used. Branch name matching is not used because the Implementor renames the working branch (`issue-<N>`) to the convention format (`<type>/<N>-<description>`) before pushing.
+
+**Pagination:** Both `getIssueDetails` (via `issues.listForRepo`) and `getPRForIssue` (via `pulls.list`) use `per_page: 100` without pagination. Repositories with more than 100 open task issues or 100 open PRs will have results silently truncated. This is a known v1 limitation — acceptable for the expected scale of managed repositories.
+
+**Query normalization:** The `GitHubClient` param/result types mirror Octokit's response shapes (e.g., `IssueData.body` is `string | null`, `IssueData.labels` is `(string | { name?: string })[]`). The query functions normalize these into the cleaner result types consumed by the TUI:
+
+- `getIssueDetails` — Coerces `body` from `string | null` to `string` (empty string for `null`). Extracts label names from the `labels` array: for each entry, uses the string directly if it is a bare string, or extracts the `name` property if it is an object with a `name` string. Entries that are objects without a `name` property are discarded.
+- `getPRForIssue` — Lists open PRs (`per_page: 100`), finds the one whose body matches a closing keyword for `#<N>`, then fetches the full PR via `pulls.get` to obtain `head.sha`. Uses `head.sha` to query CI status via `repos.getCombinedStatusForRef` and `checks.listForRef`. Combines both into the `ciStatus` field using the following logic:
+  - `'failure'` — if `getCombinedStatusForRef` reports `state: 'failure'`, or any check run has `conclusion` of `'failure'`, `'cancelled'`, or `'timed_out'`.
+  - `'pending'` — if any check run has `status` other than `'completed'` (i.e., `'queued'` or `'in_progress'`), or if `getCombinedStatusForRef` reports `state: 'pending'`, or if both endpoints report `total_count: 0` (no CI configured).
+  - `'success'` — if `getCombinedStatusForRef` reports `state: 'success'` (or `total_count: 0`) and all check runs have `status: 'completed'` with `conclusion: 'success'`.
 
 ### Stream Accessor
 
@@ -268,10 +302,10 @@ Each agent session receives trigger-specific context as its initial prompt:
 
 On initialization, before pollers start:
 
-1. Query all open issues with `task:implement` label via `@octokit/rest`.
+1. Query all open issues with `task:implement` label via `GitHubClient`.
 2. For each issue with `status:in-progress`, check if an agent session is tracked for it.
 3. Since no agents are tracked at startup, all `status:in-progress` issues are stale.
-4. Reset each to `status:pending` via `@octokit/rest`.
+4. Reset each to `status:pending` via `GitHubClient`.
 5. Emit `recoveryPerformed` for each.
 6. Emit a synthetic `issueStatusChanged` for each (oldStatus: `in-progress`, newStatus: `pending`, `isRecovery: true`), populated from the GitHub API response (title, priority label, creation date). Synthetic events pass through the dispatch logic like any other `issueStatusChanged` — so recovered issues with `newStatus: 'pending'` will emit `dispatchReady`. This ensures the TUI store populates recovered issues immediately and surfaces them as ready for dispatch.
 
@@ -280,7 +314,7 @@ On initialization, before pollers start:
 After any agent session completes (success or failure):
 
 1. Check if the issue still has `status:in-progress`.
-2. If yes, reset to `status:pending` via `@octokit/rest`.
+2. If yes, reset to `status:pending` via `GitHubClient`.
 3. Emit `recoveryPerformed`.
 4. Emit a synthetic `issueStatusChanged` (oldStatus: `in-progress`, newStatus: `pending`, `isRecovery: true`) so the TUI store updates immediately rather than waiting for the next poll cycle. Populate all standard fields (title, priority label, creation date) from the IssuePoller snapshot. Synthetic events pass through the dispatch logic, so this will also emit `dispatchReady`. The `isRecovery` flag tells the TUI store to update the status label without clearing `lastFailure` (the failure overlay must survive recovery). Update the IssuePoller snapshot to match.
 
@@ -305,7 +339,7 @@ The engine reads configuration from a TypeScript config file (`agentic-workflow.
 | `logLevel` | `string` | Logging verbosity (`debug`, `info`, `error`) | `info` |
 | `shutdownTimeout` | `number` | Seconds to wait for agents during shutdown | `300` |
 
-The engine uses `@octokit/auth-app` to create the `@octokit/rest` instance. This handles JWT creation, installation token exchange, and automatic token refresh — no manual token management is needed. The App must have `issues:write` (for recovery label resets) and `contents:read` (for tree/file access) permissions.
+At startup, the engine parses `repository` into `owner` and `repo` strings (split on `/`). It reads the private key file from `githubAppPrivateKeyPath` and passes the PEM content string to `createGitHubClient` along with `githubAppID` and `githubAppInstallationID`. The returned `GitHubClient` instance, along with `owner` and `repo`, is then passed to all pollers, queries, and recovery as dependencies. Authentication is handled internally by `@octokit/auth-app` (JWT creation, installation token exchange, automatic token refresh) — no manual token management is needed. The App must have `issues:write` (for recovery label resets) and `contents:read` (for tree/file access) permissions.
 
 #### IssuePoller
 
@@ -356,6 +390,7 @@ The engine must not crash on transient errors. Each error type has a defined rec
 | Error | Behavior |
 |-------|----------|
 | GitHub API error (in any poller) | Log at `error` level. Skip this cycle for the affected poller only. Other pollers continue unaffected. Retry next cycle. |
+| GitHub API rate limit (HTTP 403/429) | Treated as a GitHub API error — same log-and-skip behavior. The poll interval provides natural backoff. No explicit rate limit tracking or adaptive throttling in v1. GitHub App installation tokens have a 5,000 request/hour limit; with default poll intervals (30s issues, 60s specs), steady-state usage is well within this budget. |
 | Agent session creation failure | Log at `error` level. Do not mark agent as running. Next cycle will re-detect the state and retry dispatch. |
 | Agent session failure | Log at `error` level with error details. Perform crash recovery if applicable. |
 | Config file missing or invalid | Log at `error` level and exit. This is not a transient error. |
@@ -373,6 +408,46 @@ When a shutdown command is received:
 ### Type Definitions
 
 Reference types for the engine's public interfaces. These define the contracts that the TUI (or any consumer) relies on.
+
+#### GitHub Client
+
+```ts
+type GitHubClientConfig = {
+  appID: number;
+  privateKey: string; // PEM file content (caller reads from disk)
+  installationID: number;
+};
+
+// createGitHubClient(config: GitHubClientConfig): GitHubClient
+
+type GitHubClient = {
+  issues: {
+    get(params: IssuesGetParams): Promise<IssuesGetResult>;
+    listForRepo(params: IssuesListForRepoParams): Promise<IssuesListForRepoResult>;
+    addLabels(params: IssuesAddLabelsParams): Promise<IssuesAddLabelsResult>;
+    removeLabel(params: IssuesRemoveLabelParams): Promise<IssuesRemoveLabelResult>;
+  };
+  pulls: {
+    list(params: PullsListParams): Promise<PullsListResult>;
+    get(params: PullsGetParams): Promise<PullsGetResult>;
+  };
+  repos: {
+    getCombinedStatusForRef(params: ReposGetCombinedStatusParams): Promise<ReposGetCombinedStatusResult>;
+    getContent(params: ReposGetContentParams): Promise<ReposGetContentResult>;
+  };
+  checks: {
+    listForRef(params: ChecksListForRefParams): Promise<ChecksListForRefResult>;
+  };
+  git: {
+    getTree(params: GitGetTreeParams): Promise<GitGetTreeResult>;
+    getRef(params: GitGetRefParams): Promise<GitGetRefResult>;
+  };
+};
+
+// Param/result types (e.g., IssuesGetParams, PullsGetResult) are defined
+// in engine/github-client/types.ts. Each is a named type with only the
+// fields the engine uses — narrower than Octokit's full response shapes.
+```
 
 #### Events
 
@@ -510,6 +585,10 @@ type EngineCommand = DispatchImplementorCommand | DispatchReviewerCommand | Canc
 #### Query Results
 
 ```ts
+// Normalized from GitHubClient response shapes:
+// - body: coerced from string | null to string (empty string for null)
+// - labels: from (string | { name?: string })[] — bare strings kept as-is,
+//   objects yield their name property, objects without name are discarded
 type IssueDetailsResult = {
   number: number;
   title: string;
@@ -518,6 +597,7 @@ type IssueDetailsResult = {
   createdAt: string; // ISO 8601
 };
 
+// ciStatus derived from pulls.get → head.sha → repos.getCombinedStatusForRef + checks.listForRef
 type PRDetailsResult = {
   number: number;
   title: string;
@@ -597,6 +677,14 @@ type Engine = {
 
 ## Acceptance Criteria
 
+### GitHub Client
+
+- [ ] Given valid `GitHubClientConfig` values, when `createGitHubClient` is called, then it returns an object satisfying the `GitHubClient` interface with no type assertions in the adapter implementation.
+- [ ] Given `createGitHubClient` is called with valid config, when the Octokit instance is constructed, then it uses `createAppAuth` as the auth strategy with the provided `appID`, `privateKey`, and `installationID`.
+- [ ] Given the returned `GitHubClient`, when any method is called (e.g., `issues.listForRepo`), then it delegates to the corresponding Octokit method and returns the result with correct types.
+- [ ] Given the returned `GitHubClient`, when any method is called, then all parameters are forwarded to Octokit without transformation and all Octokit errors propagate to the caller without modification.
+- [ ] Given the engine codebase, when inspected, then no file outside `engine/github-client/` imports from `@octokit/rest` or `@octokit/auth-app`.
+
 ### Pollers
 
 - [ ] Given the IssuePoller is running, when its poll interval elapses, then it queries GitHub Issues independently of the SpecPoller.
@@ -636,7 +724,12 @@ type Engine = {
 ### Queries and Streams
 
 - [ ] Given `getIssueDetails` is called with an issue number, when the issue exists, then it returns the issue body, labels, and creation date.
-- [ ] Given `getPRForIssue` is called with an issue number, when a linked PR exists (via `Closes #N` body match), then it returns the PR number, title, changed files count, CI status, and URL.
+- [ ] Given `getIssueDetails` is called for an issue with a `null` body, when the result is returned, then `body` is an empty string.
+- [ ] Given `getIssueDetails` is called for an issue with labels in mixed format (bare strings and `{ name }` objects), when the result is returned, then `labels` contains extracted name strings from both formats.
+- [ ] Given `getPRForIssue` is called with an issue number, when a linked PR exists (via closing keyword body match), then it returns the PR number, title, changed files count, CI status, and URL.
+- [ ] Given `getPRForIssue` finds a linked PR, when all check runs have `conclusion: 'success'` and combined status is `'success'`, then `ciStatus` is `'success'`.
+- [ ] Given `getPRForIssue` finds a linked PR, when any check run has `conclusion: 'failure'`, `'cancelled'`, or `'timed_out'`, then `ciStatus` is `'failure'`.
+- [ ] Given `getPRForIssue` finds a linked PR, when any check run has `status` other than `'completed'`, then `ciStatus` is `'pending'`.
 - [ ] Given `getPRForIssue` is called with an issue number, when no linked PR exists, then it returns `null`.
 - [ ] Given `getAgentStream` is called for an issue with a running agent, when the agent produces output, then the returned async iterable yields output chunks.
 - [ ] Given `getAgentStream` is called for an issue with no running agent, when called, then it returns `null`.
@@ -657,6 +750,7 @@ type Engine = {
 
 ## Dependencies
 
+- `@octokit/rest` — GitHub REST API client. Wrapped by the `GitHubClient` adapter; not imported directly outside `engine/github-client/`.
 - `@octokit/auth-app` — GitHub App authentication strategy for `@octokit/rest`. Handles JWT creation, installation token exchange, and automatic token refresh.
 - `@anthropic-ai/claude-agent-sdk` documentation — Required reading for implementing the Agent Manager. This spec assumes the SDK provides: session creation with a system prompt file path and working directory, a `session_id` returned in the init message, an async iterable message stream with typed content blocks, session cancellation, and `resume: sessionId` for resuming failed sessions. If the SDK API differs from these assumptions, the Agent Manager implementation must adapt accordingly.
 - `control-plane.md` — Parent architecture spec (dispatch tiers, worktree isolation, recovery policy)
