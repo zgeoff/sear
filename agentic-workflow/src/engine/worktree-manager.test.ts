@@ -75,8 +75,7 @@ test('createOrReuse creates a new worktree from main when none exists', async ()
   const addCall = calls.find(
     (c) => c.args[0] === 'worktree' && c.args[1] === 'add' && c.args[2] === '-b',
   );
-  expect(addCall).toBeDefined();
-  expect(addCall!.args).toEqual([
+  expect(addCall?.args).toEqual([
     'worktree',
     'add',
     '-b',
@@ -128,8 +127,7 @@ test('createOrReuse prunes and re-adds when branch exists but worktree is not re
   expect(pruneCall).toBeDefined();
 
   const addCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
-  expect(addCall).toBeDefined();
-  expect(addCall!.args).toEqual([
+  expect(addCall?.args).toEqual([
     'worktree',
     'add',
     resolve('/repo', '.worktrees', 'issue-5'),
@@ -145,8 +143,7 @@ test('remove calls git worktree remove with --force', async () => {
   await manager.remove(42);
 
   const removeCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'remove');
-  expect(removeCall).toBeDefined();
-  expect(removeCall!.args).toEqual([
+  expect(removeCall?.args).toEqual([
     'worktree',
     'remove',
     resolve('/repo', '.worktrees', 'issue-42'),
