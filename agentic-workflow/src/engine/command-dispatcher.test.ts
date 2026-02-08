@@ -14,7 +14,7 @@ function setupTest() {
   return { handlers, dispatcher };
 }
 
-test('dispatchImplementor command invokes the dispatchImplementor handler', () => {
+test('it routes a dispatch-implementor command to the correct handler', () => {
   const { handlers, dispatcher } = setupTest();
 
   const command: EngineCommand = {
@@ -27,7 +27,7 @@ test('dispatchImplementor command invokes the dispatchImplementor handler', () =
   expect(handlers.dispatchImplementor).toHaveBeenCalledTimes(1);
 });
 
-test('dispatchReviewer command invokes the dispatchReviewer handler', () => {
+test('it routes a dispatch-reviewer command to the correct handler', () => {
   const { handlers, dispatcher } = setupTest();
 
   const command: EngineCommand = {
@@ -40,7 +40,7 @@ test('dispatchReviewer command invokes the dispatchReviewer handler', () => {
   expect(handlers.dispatchReviewer).toHaveBeenCalledTimes(1);
 });
 
-test('cancelAgent command invokes the cancelAgent handler', () => {
+test('it routes a cancel-agent command to the correct handler', () => {
   const { handlers, dispatcher } = setupTest();
 
   const command: EngineCommand = {
@@ -53,7 +53,7 @@ test('cancelAgent command invokes the cancelAgent handler', () => {
   expect(handlers.cancelAgent).toHaveBeenCalledTimes(1);
 });
 
-test('cancelPlanner command invokes the cancelPlanner handler', () => {
+test('it routes a cancel-planner command to the correct handler', () => {
   const { handlers, dispatcher } = setupTest();
 
   const command: EngineCommand = {
@@ -65,7 +65,7 @@ test('cancelPlanner command invokes the cancelPlanner handler', () => {
   expect(handlers.cancelPlanner).toHaveBeenCalledTimes(1);
 });
 
-test('shutdown command invokes the shutdown handler', () => {
+test('it routes a shutdown command to the correct handler', () => {
   const { handlers, dispatcher } = setupTest();
 
   const command: EngineCommand = {
@@ -77,7 +77,7 @@ test('shutdown command invokes the shutdown handler', () => {
   expect(handlers.shutdown).toHaveBeenCalledTimes(1);
 });
 
-test('each command type routes to its own handler exclusively', () => {
+test('it routes each command type to its own handler exclusively', () => {
   const { handlers, dispatcher } = setupTest();
 
   dispatcher.dispatch({ command: 'dispatchImplementor', issueNumber: 1 });
@@ -89,7 +89,7 @@ test('each command type routes to its own handler exclusively', () => {
   expect(handlers.shutdown).not.toHaveBeenCalled();
 });
 
-test('dispatcher handles all EngineCommand types', () => {
+test('it handles all command types without errors', () => {
   const { handlers, dispatcher } = setupTest();
 
   const commands: EngineCommand[] = [
@@ -111,7 +111,7 @@ test('dispatcher handles all EngineCommand types', () => {
   expect(handlers.shutdown).toHaveBeenCalledTimes(1);
 });
 
-test('dispatcher passes full command object to handler', () => {
+test('it passes the full command object to the matched handler', () => {
   const { handlers, dispatcher } = setupTest();
 
   const command: EngineCommand = {

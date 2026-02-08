@@ -7,14 +7,14 @@ function setupTest() {
   return { emitter };
 }
 
-test('on() returns an unsubscribe function', () => {
+test('it returns an unsubscribe function when subscribing to events', () => {
   const { emitter } = setupTest();
   const handler = vi.fn();
   const unsubscribe = emitter.on(handler);
   expect(typeof unsubscribe).toBe('function');
 });
 
-test('emitted event is delivered to subscribed handler', () => {
+test('it delivers an emitted event to the subscribed handler', () => {
   const { emitter } = setupTest();
   const handler = vi.fn();
   emitter.on(handler);
@@ -34,7 +34,7 @@ test('emitted event is delivered to subscribed handler', () => {
   expect(handler).toHaveBeenCalledTimes(1);
 });
 
-test('emitted event is delivered to all subscribed handlers', () => {
+test('it delivers an emitted event to all subscribed handlers', () => {
   const { emitter } = setupTest();
   const handler1 = vi.fn();
   const handler2 = vi.fn();
@@ -55,7 +55,7 @@ test('emitted event is delivered to all subscribed handlers', () => {
   expect(handler3).toHaveBeenCalledWith(event);
 });
 
-test('unsubscribed handler is not called on subsequent emits', () => {
+test('it stops delivering events to a handler after unsubscribing', () => {
   const { emitter } = setupTest();
   const handler = vi.fn();
   const unsubscribe = emitter.on(handler);
@@ -79,7 +79,7 @@ test('unsubscribed handler is not called on subsequent emits', () => {
   expect(handler).toHaveBeenCalledTimes(1);
 });
 
-test('unsubscribing one handler does not affect others', () => {
+test('it continues delivering events to remaining handlers after one unsubscribes', () => {
   const { emitter } = setupTest();
   const handler1 = vi.fn();
   const handler2 = vi.fn();
@@ -100,7 +100,7 @@ test('unsubscribing one handler does not affect others', () => {
   expect(handler2).toHaveBeenCalledWith(event);
 });
 
-test('handlers are called synchronously', () => {
+test('it invokes handlers synchronously in subscription order', () => {
   const { emitter } = setupTest();
   const callOrder: number[] = [];
 
@@ -118,7 +118,7 @@ test('handlers are called synchronously', () => {
   expect(callOrder).toEqual([1, 2]);
 });
 
-test('emitter accepts all EngineEvent types', () => {
+test('it accepts and delivers all engine event types', () => {
   const { emitter } = setupTest();
   const handler = vi.fn();
   emitter.on(handler);
@@ -200,7 +200,7 @@ test('emitter accepts all EngineEvent types', () => {
   expect(handler).toHaveBeenCalledTimes(events.length);
 });
 
-test('emitting with no subscribers does not throw', () => {
+test('it does not throw when emitting with no subscribers', () => {
   const { emitter } = setupTest();
 
   const event: EngineEvent = {
