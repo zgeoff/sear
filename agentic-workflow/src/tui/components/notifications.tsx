@@ -1,4 +1,5 @@
 import { Box, Text } from 'ink';
+import { match } from 'ts-pattern';
 import type { Notification } from '../types';
 import type {
   CopyToClipboard,
@@ -7,14 +8,6 @@ import type {
   OpenURL,
   SelectIndex,
 } from './types';
-
-export type {
-  CopyToClipboard,
-  NotificationsKeyState,
-  NotificationsPaneProps,
-  OpenURL,
-  SelectIndex,
-};
 
 export function NotificationsPane(props: NotificationsPaneProps) {
   const reversed = [...props.notifications].reverse();
@@ -88,16 +81,17 @@ function formatTimestamp(isoString: string): string {
 }
 
 function getEventIndicator(eventType: string): string {
-  if (eventType === 'agentStarted') return '>>>';
-  if (eventType === 'agentCompleted') return '[v]';
-  if (eventType === 'agentFailed') return '[!]';
-  if (eventType === 'agentSkipped') return '[-]';
-  if (eventType === 'issueStatusChanged') return '<->';
-  if (eventType === 'specChanged') return '[~]';
-  if (eventType === 'notification') return '[*]';
-  if (eventType === 'notificationDismissed') return '[x]';
-  if (eventType === 'dispatchReady') return '[+]';
-  if (eventType === 'recoveryPerformed') return '[r]';
-  if (eventType === 'issueRemoved') return '[d]';
-  return '---';
+  return match(eventType)
+    .with('agentStarted', () => '>>>')
+    .with('agentCompleted', () => '[v]')
+    .with('agentFailed', () => '[!]')
+    .with('agentSkipped', () => '[-]')
+    .with('issueStatusChanged', () => '<->')
+    .with('specChanged', () => '[~]')
+    .with('notification', () => '[*]')
+    .with('notificationDismissed', () => '[x]')
+    .with('dispatchReady', () => '[+]')
+    .with('recoveryPerformed', () => '[r]')
+    .with('issueRemoved', () => '[d]')
+    .otherwise(() => '---');
 }
