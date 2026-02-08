@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
-import { buildValidConfig } from '../../test-utils/build-valid-config.js';
-import { buildResolvedConfig } from './build-resolved-config.js';
+import { buildValidConfig } from '../../test-utils/build-valid-config';
+import { buildResolvedConfig } from './build-resolved-config';
 
 test('it applies all default values when optional fields are omitted', () => {
   const config = buildValidConfig();

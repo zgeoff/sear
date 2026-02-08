@@ -1,9 +1,4 @@
-import type {
-  CrashRecoveryParams,
-  Recovery,
-  RecoveryConfig,
-  StartupRecoveryResult,
-} from './types.js';
+import type { CrashRecoveryParams, Recovery, RecoveryConfig, StartupRecoveryResult } from './types';
 
 export function createRecovery(config: RecoveryConfig): Recovery {
   return {

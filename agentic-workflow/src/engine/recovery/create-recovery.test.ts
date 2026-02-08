@@ -1,9 +1,9 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.js';
-import type { EngineEvent } from '../../types.js';
-import { createEventEmitter } from '../event-emitter/create-event-emitter.js';
-import { createRecovery } from './create-recovery.js';
-import type { IssuePollerSnapshot, IssueSnapshotEntry } from './types.js';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
+import type { EngineEvent } from '../../types';
+import { createEventEmitter } from '../event-emitter/create-event-emitter';
+import { createRecovery } from './create-recovery';
+import type { IssuePollerSnapshot, IssueSnapshotEntry } from './types';
 
 function setupTest() {
   const octokit = createMockGitHubClient();

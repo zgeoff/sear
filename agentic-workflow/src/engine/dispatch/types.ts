@@ -1,4 +1,4 @@
-import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types.js';
+import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types';
 
 export type AgentManagerDelegate = {
   dispatchPlanner(specPaths: string[]): void;

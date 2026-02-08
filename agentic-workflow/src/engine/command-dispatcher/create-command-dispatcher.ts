@@ -1,5 +1,5 @@
 import { match } from 'ts-pattern';
-import type { CommandDispatcher, CommandHandlers } from './types.js';
+import type { CommandDispatcher, CommandHandlers } from './types';
 
 export function createCommandDispatcher(handlers: CommandHandlers): CommandDispatcher {
   return {

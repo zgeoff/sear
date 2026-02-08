@@ -1,4 +1,4 @@
-import type { EngineConfig } from '../../types.js';
+import type { EngineConfig } from '../../types';
 
 const VALID_LOG_LEVELS = new Set(['debug', 'info', 'error']);
 

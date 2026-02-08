@@ -1,8 +1,8 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.js';
-import type { GitHubClient } from '../github-client/types.js';
-import { createSpecPoller } from './create-spec-poller.js';
-import type { LogError } from './types.js';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
+import type { GitHubClient } from '../github-client/types';
+import { createSpecPoller } from './create-spec-poller';
+import type { LogError } from './types';
 
 // ---------------------------------------------------------------------------
 // Mock GitHub client factory (builds on shared createMockGitHubClient)

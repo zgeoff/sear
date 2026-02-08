@@ -1,8 +1,8 @@
 import { expect, test, vi } from 'vitest';
-import type { EngineEvent, IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types.js';
-import { createEventEmitter } from '../event-emitter/create-event-emitter.js';
-import { createDispatch } from './create-dispatch.js';
-import type { AgentManagerDelegate } from './types.js';
+import type { EngineEvent, IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types';
+import { createEventEmitter } from '../event-emitter/create-event-emitter';
+import { createDispatch } from './create-dispatch';
+import type { AgentManagerDelegate } from './types';
 
 // ---------------------------------------------------------------------------
 // Test helpers

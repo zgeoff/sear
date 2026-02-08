@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { loadConfig } from './load-config.js';
+import { loadConfig } from './load-config';
 
 test('it exits the process when the config file does not exist', async () => {
   const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {

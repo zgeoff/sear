@@ -1,5 +1,5 @@
-import type { EngineConfig } from '../../types.js';
-import type { ResolvedEngineConfig } from './types.js';
+import type { EngineConfig } from '../../types';
+import type { ResolvedEngineConfig } from './types';
 
 const DEFAULTS = {
   logLevel: 'info' as const,

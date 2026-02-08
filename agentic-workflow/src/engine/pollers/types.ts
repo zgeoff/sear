@@ -1,4 +1,4 @@
-import type { SpecPollerBatchResult } from '../../types.js';
+import type { SpecPollerBatchResult } from '../../types';
 
 // ---------------------------------------------------------------------------
 // IssuePoller

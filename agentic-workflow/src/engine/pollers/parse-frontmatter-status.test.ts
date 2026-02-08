@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { parseFrontmatterStatus } from './parse-frontmatter-status.js';
+import { parseFrontmatterStatus } from './parse-frontmatter-status';
 
 function buildSpecContent(status: string): string {
   return `---\ntitle: Test Spec\nversion: 0.1.0\nstatus: ${status}\n---\n\n# Test Spec\n\nContent here.\n`;

@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
-import type { EngineEvent } from '../../types.js';
-import { createEventEmitter } from './create-event-emitter.js';
+import type { EngineEvent } from '../../types';
+import { createEventEmitter } from './create-event-emitter';
 
 function setupTest() {
   const emitter = createEventEmitter();
