@@ -26,14 +26,14 @@ const PRIORITY_ORDER: Record<string, number> = {
   'priority:low': 2,
 };
 
-export function IssueList({ store, focused, onOpenURL, repository, height }: IssueListProps) {
-  const issues = useStore(store, (s) => s.issues);
-  const selectedIssue = useStore(store, (s) => s.selectedIssue);
-  const selectIssue = useStore(store, (s) => s.selectIssue);
-  const dispatchImplementor = useStore(store, (s) => s.dispatchImplementor);
-  const dispatchReviewer = useStore(store, (s) => s.dispatchReviewer);
-  const cancelAgent = useStore(store, (s) => s.cancelAgent);
-  const prDetails = useStore(store, (s) => s.prDetails);
+export function IssueList(props: IssueListProps) {
+  const issues = useStore(props.store, (s) => s.issues);
+  const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
+  const selectIssue = useStore(props.store, (s) => s.selectIssue);
+  const dispatchImplementor = useStore(props.store, (s) => s.dispatchImplementor);
+  const dispatchReviewer = useStore(props.store, (s) => s.dispatchReviewer);
+  const cancelAgent = useStore(props.store, (s) => s.cancelAgent);
+  const prDetails = useStore(props.store, (s) => s.prDetails);
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
 
   const promptRef = useRef(prompt);
@@ -43,7 +43,7 @@ export function IssueList({ store, focused, onOpenURL, repository, height }: Iss
 
   useInput(
     (input, key) => {
-      if (!focused) return;
+      if (!props.focused) return;
 
       const currentPrompt = promptRef.current;
 
@@ -89,7 +89,7 @@ export function IssueList({ store, focused, onOpenURL, repository, height }: Iss
         return;
       }
     },
-    { isActive: focused },
+    { isActive: props.focused },
   );
 
   function confirmPrompt(currentPrompt: PromptState) {
@@ -112,7 +112,7 @@ export function IssueList({ store, focused, onOpenURL, repository, height }: Iss
   }
 
   function handleEnter(issue: TrackedIssue) {
-    const action = getEnterAction(issue, prDetails, repository);
+    const action = getEnterAction(issue, prDetails, props.repository);
 
     match(action)
       .with({ type: 'dispatch' }, (a) => {
@@ -125,7 +125,7 @@ export function IssueList({ store, focused, onOpenURL, repository, height }: Iss
         setPrompt({ type: 'retry', issueNumber: a.issueNumber, agentType: a.agentType });
       })
       .with({ type: 'openURL' }, (a) => {
-        onOpenURL(a.url);
+        props.onOpenURL(a.url);
       })
       .exhaustive();
   }
@@ -139,8 +139,8 @@ export function IssueList({ store, focused, onOpenURL, repository, height }: Iss
   }
 
   const currentIndex = sortedIssues.findIndex((i) => i.number === selectedIssue);
-  const { start } = computeVisibleWindow(currentIndex, sortedIssues.length, height);
-  const visibleIssues = sortedIssues.slice(start, start + height);
+  const { start } = computeVisibleWindow(currentIndex, sortedIssues.length, props.height);
+  const visibleIssues = sortedIssues.slice(start, start + props.height);
 
   return (
     <Box flexDirection="column">

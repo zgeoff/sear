@@ -4,10 +4,10 @@ export type ConfirmationPromptProps = {
   message: string;
 };
 
-export function ConfirmationPrompt({ message }: ConfirmationPromptProps) {
+export function ConfirmationPrompt(props: ConfirmationPromptProps) {
   return (
     <Box>
-      <Text>{message}</Text>
+      <Text>{props.message}</Text>
     </Box>
   );
 }
