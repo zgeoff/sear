@@ -1,8 +1,8 @@
-import { expect, type Mock, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { buildValidConfig } from '../test-utils/build-valid-config';
 import { createMockGitHubClient } from '../test-utils/create-mock-github-client';
 import type { AgentFailedEvent, EngineEvent, IssueStatusChangedEvent } from '../types';
-import type { QueryFactory, QueryFactoryParams } from './agent-manager/types';
+import type { QueryFactory } from './agent-manager/types';
 import { createEngine } from './create-engine';
 import type { GitHubClient } from './github-client/types';
 import type { WorktreeManager } from './worktree-manager/types';
@@ -105,30 +105,30 @@ function setupMockGitHubClient(
   issues: ReturnType<typeof buildMockIssueData>[] = [],
 ) {
   // Differentiate between recovery query (status:in-progress) and regular poll
-  (octokit.issues.listForRepo as Mock).mockImplementation(async (params: { labels: string }) => {
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
     if (params.labels.includes('status:in-progress')) {
       return { data: [] }; // No in-progress issues by default (startup recovery)
     }
     return { data: issues };
   });
-  (octokit.issues.get as Mock).mockImplementation(async (params: { issue_number: number }) => {
+  vi.mocked(octokit.issues.get).mockImplementation(async (params: { issue_number: number }) => {
     const issue = issues.find((i) => i.number === params.issue_number);
     return { data: issue ?? buildMockIssueData(params.issue_number, 'pending') };
   });
-  (octokit.issues.addLabels as Mock).mockResolvedValue({ data: {} });
-  (octokit.issues.removeLabel as Mock).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
 
   // SpecPoller: no tree changes by default
-  (octokit.git.getTree as Mock).mockResolvedValue({
+  vi.mocked(octokit.git.getTree).mockResolvedValue({
     data: { sha: 'tree-sha-1', tree: [] },
   });
-  (octokit.git.getRef as Mock).mockResolvedValue({
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
     data: { object: { sha: 'commit-sha-1' } },
   });
 
   // Queries: PRs
-  (octokit.pulls.list as Mock).mockResolvedValue({ data: [] });
-  (octokit.pulls.get as Mock).mockResolvedValue({
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
       number: 1,
       title: 'PR #1',
@@ -137,13 +137,13 @@ function setupMockGitHubClient(
       head: { sha: 'abc123' },
     },
   });
-  (octokit.repos.getCombinedStatusForRef as Mock).mockResolvedValue({
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'pending', total_count: 0 },
   });
-  (octokit.checks.listForRef as Mock).mockResolvedValue({
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: { total_count: 0, check_runs: [] },
   });
-  (octokit.repos.getContent as Mock).mockResolvedValue({
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({
     data: { content: '' },
   });
 }
@@ -251,7 +251,7 @@ test('it performs startup recovery for in-progress issues', async () => {
   // Startup recovery query returns in-progress issues
   const recoveryIssues = [buildMockIssueData(5, 'in-progress')];
 
-  (octokit.issues.listForRepo as Mock).mockImplementation(async (params: { labels: string }) => {
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
     if (params.labels.includes('status:in-progress')) {
       return { data: recoveryIssues };
     }
@@ -259,12 +259,12 @@ test('it performs startup recovery for in-progress issues', async () => {
     return { data: [buildMockIssueData(5, 'pending')] };
   });
 
-  (octokit.issues.addLabels as Mock).mockResolvedValue({ data: {} });
-  (octokit.issues.removeLabel as Mock).mockResolvedValue({ data: {} });
-  (octokit.git.getTree as Mock).mockResolvedValue({
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({
     data: { sha: 'tree-sha-1', tree: [] },
   });
-  (octokit.git.getRef as Mock).mockResolvedValue({
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
     data: { object: { sha: 'commit-sha-1' } },
   });
 
@@ -513,7 +513,7 @@ test('it does not crash when a poll cycle throws a github API error', async () =
   const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
 
   let callCount = 0;
-  (octokit.issues.listForRepo as Mock).mockImplementation(async () => {
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async () => {
     callCount++;
     if (callCount === 1) {
       // First call (startup recovery)
@@ -525,10 +525,10 @@ test('it does not crash when a poll cycle throws a github API error', async () =
     }
     return { data: [] };
   });
-  (octokit.git.getTree as Mock).mockResolvedValue({
+  vi.mocked(octokit.git.getTree).mockResolvedValue({
     data: { sha: 'tree-sha-1', tree: [] },
   });
-  (octokit.git.getRef as Mock).mockResolvedValue({
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
     data: { object: { sha: 'commit-sha-1' } },
   });
 
@@ -635,7 +635,7 @@ test('it cancels a running agent when its issue is removed from the poller snaps
   const worktreeManager = createMockWorktreeManager();
 
   let pollCount = 0;
-  (octokit.issues.listForRepo as Mock).mockImplementation(async (params: { labels: string }) => {
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
     if (params.labels.includes('status:in-progress')) {
       return { data: [] };
     }
@@ -646,16 +646,16 @@ test('it cancels a running agent when its issue is removed from the poller snaps
     // Second poll: issue removed
     return { data: [] };
   });
-  (octokit.issues.addLabels as Mock).mockResolvedValue({ data: {} });
-  (octokit.issues.removeLabel as Mock).mockResolvedValue({ data: {} });
-  (octokit.git.getTree as Mock).mockResolvedValue({
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({
     data: { sha: 'tree-sha-1', tree: [] },
   });
-  (octokit.git.getRef as Mock).mockResolvedValue({
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
     data: { object: { sha: 'commit-sha-1' } },
   });
-  (octokit.pulls.list as Mock).mockResolvedValue({ data: [] });
-  (octokit.repos.getContent as Mock).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
 
   const queryFactory: QueryFactory = () => {
     const q = createMockQuery();
