@@ -13,9 +13,9 @@ const DEFAULTS = {
     defaultBranch: 'main',
   },
   agents: {
-    agentFilePlanner: '.claude/agents/planner.md',
-    agentFileImplementor: '.claude/agents/implementor.md',
-    agentFileReviewer: '.claude/agents/reviewer.md',
+    agentPlanner: 'planner',
+    agentImplementor: 'implementor',
+    agentReviewer: 'reviewer',
     maxAgentDuration: 1800,
   },
 };
@@ -37,10 +37,9 @@ export function buildResolvedConfig(config: EngineConfig): ResolvedEngineConfig 
       defaultBranch: config.specPoller?.defaultBranch ?? DEFAULTS.specPoller.defaultBranch,
     },
     agents: {
-      agentFilePlanner: config.agents?.agentFilePlanner ?? DEFAULTS.agents.agentFilePlanner,
-      agentFileImplementor:
-        config.agents?.agentFileImplementor ?? DEFAULTS.agents.agentFileImplementor,
-      agentFileReviewer: config.agents?.agentFileReviewer ?? DEFAULTS.agents.agentFileReviewer,
+      agentPlanner: config.agents?.agentPlanner ?? DEFAULTS.agents.agentPlanner,
+      agentImplementor: config.agents?.agentImplementor ?? DEFAULTS.agents.agentImplementor,
+      agentReviewer: config.agents?.agentReviewer ?? DEFAULTS.agents.agentReviewer,
       maxAgentDuration: config.agents?.maxAgentDuration ?? DEFAULTS.agents.maxAgentDuration,
     },
   };

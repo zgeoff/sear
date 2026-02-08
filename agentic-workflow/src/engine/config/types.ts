@@ -9,9 +9,9 @@ export type ResolvedSpecPollerConfig = {
 };
 
 export type ResolvedAgentsConfig = {
-  agentFilePlanner: string;
-  agentFileImplementor: string;
-  agentFileReviewer: string;
+  agentPlanner: string;
+  agentImplementor: string;
+  agentReviewer: string;
   maxAgentDuration: number;
 };
 

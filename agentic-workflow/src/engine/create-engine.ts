@@ -69,9 +69,9 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     emitter,
     worktreeManager,
     repoRoot,
-    agentFilePlanner: resolved.agents.agentFilePlanner,
-    agentFileImplementor: resolved.agents.agentFileImplementor,
-    agentFileReviewer: resolved.agents.agentFileReviewer,
+    agentFilePlanner: resolved.agents.agentPlanner,
+    agentFileImplementor: resolved.agents.agentImplementor,
+    agentFileReviewer: resolved.agents.agentReviewer,
     maxAgentDuration: resolved.agents.maxAgentDuration,
     queryFactory: deps?.queryFactory ?? buildQueryFactory(),
   });

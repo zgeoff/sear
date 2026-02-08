@@ -190,9 +190,9 @@ export type SpecPollerConfig = {
 };
 
 export type AgentsConfig = {
-  agentFilePlanner?: string; // default: '.claude/agents/planner.md'
-  agentFileImplementor?: string; // default: '.claude/agents/implementor.md'
-  agentFileReviewer?: string; // default: '.claude/agents/reviewer.md'
+  agentPlanner?: string; // agent name, default: 'planner'
+  agentImplementor?: string; // agent name, default: 'implementor'
+  agentReviewer?: string; // agent name, default: 'reviewer'
   maxAgentDuration?: number; // seconds, default: 1800
 };
 
