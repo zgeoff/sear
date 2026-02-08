@@ -1831,6 +1831,7 @@ const RAW_RUNTIME_STATE =
           ["@types/node", "npm:25.2.2"],\
           ["@types/react", "npm:19.2.13"],\
           ["ink", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.2.0"],\
+          ["ink-link", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.0.0"],\
           ["ink-testing-library", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.0.0"],\
           ["memfs", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.56.10"],\
           ["react", "npm:18.3.1"],\
@@ -2512,6 +2513,15 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["has-flag", [\
+      ["npm:5.0.1", {\
+        "packageLocation": "./.yarn/cache/has-flag-npm-5.0.1-319b3f9df6-6c214902e9.zip/node_modules/has-flag/",\
+        "packageDependencies": [\
+          ["has-flag", "npm:5.0.1"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["http-cache-semantics", [\
       ["npm:4.2.0", {\
         "packageLocation": "./.yarn/cache/http-cache-semantics-npm-4.2.0-fadacfb3ad-45b66a945c.zip/node_modules/http-cache-semantics/",\
@@ -2625,6 +2635,33 @@ const RAW_RUNTIME_STATE =
           "@types/react-devtools-core",\
           "@types/react",\
           "react-devtools-core",\
+          "react"\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["ink-link", [\
+      ["npm:5.0.0", {\
+        "packageLocation": "./.yarn/cache/ink-link-npm-5.0.0-71212b3f5f-6ac227347f.zip/node_modules/ink-link/",\
+        "packageDependencies": [\
+          ["ink-link", "npm:5.0.0"]\
+        ],\
+        "linkType": "SOFT"\
+      }],\
+      ["virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.0.0", {\
+        "packageLocation": "./.yarn/__virtual__/ink-link-virtual-c4f94c2775/0/cache/ink-link-npm-5.0.0-71212b3f5f-6ac227347f.zip/node_modules/ink-link/",\
+        "packageDependencies": [\
+          ["@types/ink", null],\
+          ["@types/react", "npm:19.2.13"],\
+          ["ink", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.2.0"],\
+          ["ink-link", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.0.0"],\
+          ["react", "npm:18.3.1"],\
+          ["terminal-link", "npm:5.0.0"]\
+        ],\
+        "packagePeers": [\
+          "@types/ink",\
+          "@types/react",\
+          "ink",\
           "react"\
         ],\
         "linkType": "HARD"\
@@ -3438,6 +3475,26 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["supports-color", [\
+      ["npm:10.2.2", {\
+        "packageLocation": "./.yarn/cache/supports-color-npm-10.2.2-e43ac15f9f-fb28dd7e0c.zip/node_modules/supports-color/",\
+        "packageDependencies": [\
+          ["supports-color", "npm:10.2.2"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["supports-hyperlinks", [\
+      ["npm:4.4.0", {\
+        "packageLocation": "./.yarn/cache/supports-hyperlinks-npm-4.4.0-183da892ff-1172347b73.zip/node_modules/supports-hyperlinks/",\
+        "packageDependencies": [\
+          ["has-flag", "npm:5.0.1"],\
+          ["supports-color", "npm:10.2.2"],\
+          ["supports-hyperlinks", "npm:4.4.0"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["tar", [\
       ["npm:7.5.7", {\
         "packageLocation": "./.yarn/cache/tar-npm-7.5.7-053aec5a88-51f261afc4.zip/node_modules/tar/",\
@@ -3448,6 +3505,17 @@ const RAW_RUNTIME_STATE =
           ["minizlib", "npm:3.1.0"],\
           ["tar", "npm:7.5.7"],\
           ["yallist", "npm:5.0.0"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["terminal-link", [\
+      ["npm:5.0.0", {\
+        "packageLocation": "./.yarn/cache/terminal-link-npm-5.0.0-ff4e907d36-c34e9c2ad9.zip/node_modules/terminal-link/",\
+        "packageDependencies": [\
+          ["ansi-escapes", "npm:7.3.0"],\
+          ["supports-hyperlinks", "npm:4.4.0"],\
+          ["terminal-link", "npm:5.0.0"]\
         ],\
         "linkType": "HARD"\
       }]\

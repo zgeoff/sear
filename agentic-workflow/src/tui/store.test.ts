@@ -11,6 +11,7 @@ import { createEngineStore, selectRunningAgentCount } from './store';
 import { createMockEngine } from './test-utils/create-mock-engine';
 import type {
   AgentCompletedNotification,
+  AgentFailedNotification,
   AgentStartedNotification,
   EngineEventNotification,
   IssueStatusChangedNotification,
@@ -361,6 +362,57 @@ test('it marks cached PR details as stale when a reviewer completes', () => {
   expect(store.getState().prDetails.get(1)?.stale).toBe(true);
 });
 
+test('it includes the log file path on the notification when an agent completes with session logging', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  emit({
+    type: 'agentCompleted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+    logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+  } satisfies AgentCompletedEvent);
+
+  const notifications = store.getState().notifications;
+  const completedNotif = notifications.find(
+    (n) => n.eventType === 'agentCompleted' && 'issueNumber' in n && n.issueNumber === 1,
+  ) as AgentCompletedNotification;
+  expect(completedNotif.logFilePath).toBe('/logs/2026-02-08T10-00-00Z-implementor-1.log');
+});
+
+test('it omits the log file path on the notification when an agent completes without session logging', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  emit({
+    type: 'agentCompleted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentCompletedEvent);
+
+  const notifications = store.getState().notifications;
+  const completedNotif = notifications.find(
+    (n) => n.eventType === 'agentCompleted' && 'issueNumber' in n && n.issueNumber === 1,
+  ) as AgentCompletedNotification;
+  expect(completedNotif.logFilePath).toBeUndefined();
+});
+
 test('it flags the planner as not running when the planner completes', () => {
   const { store, emit } = setupTest();
 
@@ -442,6 +494,59 @@ test('it records a failure without worktree path when a reviewer fails', () => {
     error: 'review failed',
     sessionID: 'sess-r-1',
   });
+});
+
+test('it records the log file path in the failure when an agent fails with session logging', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  emit({
+    type: 'agentFailed',
+    agentType: 'implementor',
+    issueNumber: 1,
+    error: 'timeout',
+    sessionID: 'sess-1',
+    worktreePath: '/tmp/wt',
+    logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+  } satisfies AgentFailedEvent);
+
+  const issue = store.getState().issues.get(1);
+  expect(issue?.lastFailure?.logFilePath).toBe('/logs/2026-02-08T10-00-00Z-implementor-1.log');
+});
+
+test('it includes the log file path on the notification when an agent fails with session logging', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  emit({
+    type: 'agentFailed',
+    agentType: 'implementor',
+    issueNumber: 1,
+    error: 'timeout',
+    sessionID: 'sess-1',
+    logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+  } satisfies AgentFailedEvent);
+
+  const notifications = store.getState().notifications;
+  const failNotif = notifications.find((n) => n.eventType === 'agentFailed');
+  expect(failNotif).toBeDefined();
+  expect((failNotif as AgentFailedNotification).logFilePath).toBe(
+    '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+  );
 });
 
 test('it flags the planner as not running and skips failure recording when the planner fails', () => {

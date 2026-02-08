@@ -171,6 +171,52 @@ test('it shows the correct indicator for each event type', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Log file path suffix
+// ---------------------------------------------------------------------------
+
+test('it shows a logs suffix for a completed agent notification with a log file path', () => {
+  const notification = buildTypedNotification('agentCompleted', 'notif-logs');
+  const notifWithLog = { ...notification, logFilePath: '/logs/session.log' };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notifWithLog] });
+
+  expect(lastFrame()).toContain('(logs)');
+});
+
+test('it does not show a logs suffix for a completed agent notification without a log file path', () => {
+  const notification = buildTypedNotification('agentCompleted', 'notif-no-logs');
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  expect(lastFrame()).not.toContain('(logs)');
+});
+
+test('it shows a logs suffix for a failed agent notification with a log file path', () => {
+  const notification = buildTypedNotification('agentFailed', 'notif-fail-logs');
+  const notifWithLog = { ...notification, logFilePath: '/logs/fail-session.log' };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notifWithLog] });
+
+  expect(lastFrame()).toContain('(logs)');
+});
+
+test('it does not show a logs suffix for a failed agent notification without a log file path', () => {
+  const notification = buildTypedNotification('agentFailed', 'notif-fail-no-logs');
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  expect(lastFrame()).not.toContain('(logs)');
+});
+
+test('it does not show a logs suffix for non-agent notification types', () => {
+  const notification = buildTypedNotification('issueStatusChanged', 'notif-status');
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  expect(lastFrame()).not.toContain('(logs)');
+});
+
+// ---------------------------------------------------------------------------
 // Keyboard navigation (handleNotificationsInput)
 // ---------------------------------------------------------------------------
 
