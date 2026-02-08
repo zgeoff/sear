@@ -78,7 +78,11 @@ export function DetailPane(props: DetailPaneProps) {
     prevChunkCountRef.current = chunkCount;
   }, [chunkCount, autoScroll, chunks]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset scroll state when selected issue changes
+  // selectedIssue is an intentional trigger — reset scroll state when the user
+  // selects a different issue.  The effect body only calls stable setters and
+  // mutates a ref, so Biome sees selectedIssue as unused, but removing it would
+  // turn this into a mount-only effect.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedIssue is a trigger, not a consumed value
   useEffect(() => {
     setScrollOffset(0);
     setAutoScroll(true);
