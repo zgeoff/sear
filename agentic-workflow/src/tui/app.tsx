@@ -52,7 +52,15 @@ export function App({ engine, repository }: AppProps) {
     }
   }, [shuttingDown, runningAgentCount, exit]);
 
+  const startupErrorRef = useRef(startupError);
+  startupErrorRef.current = startupError;
+
   useInput((input, key) => {
+    if (startupErrorRef.current) {
+      exit();
+      return;
+    }
+
     const currentPrompt = promptRef.current;
 
     if (currentPrompt.type === 'quit') {
@@ -86,6 +94,7 @@ export function App({ engine, repository }: AppProps) {
     return (
       <Box flexDirection="column">
         <Text color="red">Startup failed: {startupError}</Text>
+        <Text dimColor>Press any key to exit.</Text>
       </Box>
     );
   }

@@ -61,12 +61,5 @@ function buildEntry(level: LogLevel, message: string, data?: Record<string, unkn
 }
 
 function defaultWriter(entry: LogEntry): void {
-  const json = JSON.stringify(entry);
-
-  if (entry.level === 'error') {
-    console.error(json);
-    return;
-  }
-
-  console.log(json);
+  process.stderr.write(`${JSON.stringify(entry)}\n`);
 }
