@@ -1,12 +1,7 @@
 import type { SpecChange, SpecPollerBatchResult } from '../../types.js';
-import type { GitHubClient } from '../github-client.js';
+import type { GitHubClient } from '../github-client/types.js';
 import { parseFrontmatterStatus } from './parse-frontmatter-status.js';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type LogError = (message: string, error: unknown) => void;
+import type { LogError, SpecPoller } from './types.js';
 
 type SpecPollerConfig = {
   octokit: GitHubClient;
@@ -21,14 +16,6 @@ type SpecSnapshot = {
   treeSHA: string | null;
   fileSHAs: Map<string, string>; // filePath -> blob SHA
   fileStatuses: Map<string, string>; // filePath -> frontmatterStatus
-};
-
-// ---------------------------------------------------------------------------
-// SpecPoller
-// ---------------------------------------------------------------------------
-
-export type SpecPoller = {
-  poll(): Promise<SpecPollerBatchResult>;
 };
 
 const EMPTY_RESULT: SpecPollerBatchResult = { changes: [], commitSHA: '' };

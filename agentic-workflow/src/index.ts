@@ -1,4 +1,4 @@
-export type { GitHubClient } from './engine/github-client.js';
+export type { GitHubClient } from './engine/github-client/types.js';
 export type {
   AgentCompletedEvent,
   AgentFailedEvent,

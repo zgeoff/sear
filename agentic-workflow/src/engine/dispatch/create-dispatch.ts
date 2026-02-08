@@ -5,26 +5,8 @@ import type {
   NotificationEvent,
   SpecPollerBatchResult,
 } from '../../types.js';
-import type { EventEmitter } from '../event-emitter/create-event-emitter.js';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type AgentManagerDelegate = {
-  dispatchPlanner(specPaths: string[]): void;
-  dispatchReviewer(issueNumber: number): void;
-  isPlannerRunning(): boolean;
-};
-
-export type DispatchConfig = {
-  repository: string; // owner/repo format
-};
-
-export type Dispatch = {
-  handleSpecPollerResult(result: SpecPollerBatchResult): void;
-  handleIssueStatusChanged(event: IssueStatusChangedEvent): void;
-};
+import type { EventEmitter } from '../event-emitter/types.js';
+import type { AgentManagerDelegate, Dispatch, DispatchConfig } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Constants

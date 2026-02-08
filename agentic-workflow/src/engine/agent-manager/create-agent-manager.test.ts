@@ -1,13 +1,9 @@
 import { expect, test, vi } from 'vitest';
 import type { EngineEvent } from '../../types.js';
 import { createEventEmitter } from '../event-emitter/create-event-emitter.js';
-import type { WorktreeManager } from '../worktree-manager/create-worktree-manager.js';
-import {
-  type AgentManager,
-  createAgentManager,
-  type QueryFactory,
-  type QueryFactoryParams,
-} from './create-agent-manager.js';
+import type { WorktreeManager } from '../worktree-manager/types.js';
+import { createAgentManager } from './create-agent-manager.js';
+import type { AgentManager, QueryFactory, QueryFactoryParams } from './types.js';
 
 type MockQuery = {
   pushMessage(msg: unknown): void;

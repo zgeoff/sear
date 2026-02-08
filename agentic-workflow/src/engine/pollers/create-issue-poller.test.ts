@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.js';
 import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types.js';
 import { createEventEmitter } from '../event-emitter/create-event-emitter.js';
-import type { GitHubClient, IssueData } from '../github-client.js';
+import type { GitHubClient, IssueData } from '../github-client/types.js';
 import { createIssuePoller } from './create-issue-poller.js';
 
 // ---------------------------------------------------------------------------

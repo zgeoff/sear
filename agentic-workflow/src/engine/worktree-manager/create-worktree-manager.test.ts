@@ -4,8 +4,8 @@ import {
   buildBranchName,
   buildWorktreePath,
   createWorktreeManager,
-  type ExecGit,
 } from './create-worktree-manager.js';
+import type { ExecGit } from './types.js';
 
 type GitCall = { args: string[] };
 

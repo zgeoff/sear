@@ -1,24 +1,5 @@
 import { match } from 'ts-pattern';
-import type {
-  CancelAgentCommand,
-  CancelPlannerCommand,
-  DispatchImplementorCommand,
-  DispatchReviewerCommand,
-  EngineCommand,
-  ShutdownCommand,
-} from '../../types.js';
-
-export type CommandHandlers = {
-  dispatchImplementor(command: DispatchImplementorCommand): void;
-  dispatchReviewer(command: DispatchReviewerCommand): void;
-  cancelAgent(command: CancelAgentCommand): void;
-  cancelPlanner(command: CancelPlannerCommand): void;
-  shutdown(command: ShutdownCommand): void;
-};
-
-export type CommandDispatcher = {
-  dispatch(command: EngineCommand): void;
-};
+import type { CommandDispatcher, CommandHandlers } from './types.js';
 
 export function createCommandDispatcher(handlers: CommandHandlers): CommandDispatcher {
   return {
