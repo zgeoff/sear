@@ -131,18 +131,20 @@ describe('parser', () => {
 
 ### Test naming
 
-Start every test name with "it" — each test reads as a behavioral sentence about the subject under test. Describe behavior and outcomes, not implementation details. Avoid method names, parameter names, or internal component names in the test string.
+Start every test name with "it" — each test reads as a natural-language behavioral sentence about the subject under test. Describe behavior and outcomes in plain English, not implementation details. Avoid variable names, field names, method names, event type strings, or internal component names in the test string. The reader should understand the test's intent without knowing the codebase.
 
 ```ts
-// Correct — behavioral, reads as "it ..."
-test('it returns an unsubscribe function from the event emitter', () => { ... });
-test('it invokes the cancel handler when the cancel command is received', () => { ... });
-test('it passes the full command object to the handler', () => { ... });
+// Correct — natural language, describes behavior
+test('it flags the planner as not running when the planner completes', () => { ... });
+test('it preserves the failure overlay when recovering from a crash', () => { ... });
+test('it returns stale data immediately while refreshing in the background', () => { ... });
+test('it removes the issue and clears associated caches when an issue is dropped', () => { ... });
 
-// Wrong — implementation-focused, names internals
-test('on() returns an unsubscribe function', () => { ... });
-test('cancelPlanner command invokes the cancelPlanner handler', () => { ... });
-test('dispatcher passes full command object to handler', () => { ... });
+// Wrong — leaks implementation details (field names, event strings, method names)
+test('it sets plannerRunning to false when Planner agentCompleted is emitted', () => { ... });
+test('it does not clear lastFailure when issueStatusChanged has isRecovery true', () => { ... });
+test('it returns stale cached data immediately and re-fetches in the background', () => { ... });
+test('it calls getPRForIssue to update notification contextURL when Implementor agentCompleted is emitted', () => { ... });
 ```
 
 ### No `beforeEach`/`beforeAll` — use a `setupTest()` helper
