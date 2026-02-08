@@ -77,12 +77,9 @@ done
 
 # ─── Layer 2: Allowlist ─────────────────────────────────────────────────────
 # Each segment of a chained/piped command must start with an allowed prefix.
-# Segments are split on &&, ||, ;, and |.
-#
-# NOTE: This splitting is naive — it doesn't respect quoted strings. In
-# practice, agent commands are simple chains (gh ... | jq ...) so this is
-# adequate. A quoted string containing && would cause a false rejection,
-# which is a safe failure mode (agent retries with different formatting).
+# Segments are split on &&, ||, ;, |, and newlines — but only outside quoted
+# strings. Backslash escapes are respected outside quotes and inside double
+# quotes (per bash quoting rules). Single-quoted strings are literal.
 
 allowlist=(
   # ── GitHub & Git ──
@@ -132,12 +129,68 @@ allowlist=(
   touch
 )
 
-# Split on chain/pipe operators, validate each segment's first word
-segments=$(echo "$COMMAND" | sed 's/&&/\n/g; s/||/\n/g; s/;/\n/g; s/|/\n/g')
+# Splits a command string into null-delimited segments on &&, ||, ;, |, and
+# newlines. Operators inside single- or double-quoted strings are preserved
+# (not treated as separators). Backslash escapes are handled outside quotes
+# and inside double quotes; single-quoted strings are literal.
+split_segments() {
+  printf '%s' "$1" | awk -v sq="'" '
+  { buf = buf sep $0; sep = "\n" }
+  END {
+    len = length(buf)
+    q = ""
+    seg = ""
+    i = 1
+    while (i <= len) {
+      c = substr(buf, i, 1)
+      if (q == "") {
+        if (c == "\"" || c == sq) {
+          q = c
+          seg = seg c
+          i++
+          continue
+        }
+        if (c == "\\" && i < len) {
+          seg = seg c substr(buf, i + 1, 1)
+          i += 2
+          continue
+        }
+        if (i < len) {
+          cc = substr(buf, i, 2)
+          if (cc == "&&" || cc == "||") {
+            printf "%s%c", seg, 0
+            seg = ""
+            i += 2
+            continue
+          }
+        }
+        if (c == "|" || c == ";" || c == "\n") {
+          printf "%s%c", seg, 0
+          seg = ""
+          i++
+          continue
+        }
+        seg = seg c
+      } else {
+        if (c == "\\" && q == "\"" && i < len) {
+          seg = seg c substr(buf, i + 1, 1)
+          i += 2
+          continue
+        }
+        if (c == q) {
+          q = ""
+        }
+        seg = seg c
+      }
+      i++
+    }
+    if (seg != "") printf "%s%c", seg, 0
+  }'
+}
 
-while IFS= read -r segment; do
-  # Trim leading whitespace, extract first word
-  cmd=$(echo "$segment" | sed 's/^[[:space:]]*//' | awk '{print $1}')
+# Validate each segment's first word against the allowlist
+while IFS= read -r -d '' segment; do
+  cmd=$(printf '%s' "$segment" | head -1 | sed 's/^[[:space:]]*//' | awk '{print $1}')
 
   [[ -z "$cmd" ]] && continue
 
@@ -153,6 +206,6 @@ while IFS= read -r segment; do
     echo "Blocked: '$cmd' is not in the allowed command list" >&2
     exit 2
   fi
-done <<< "$segments"
+done < <(split_segments "$COMMAND")
 
 exit 0
