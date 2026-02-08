@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine
-version: 0.4.0
-last_updated: 2026-02-08
+version: 0.5.0
+last_updated: 2026-02-09
 status: approved
 ---
 
@@ -113,11 +113,13 @@ Monitors GitHub Issues for status label changes.
 
 **Change detection:** Only `status:*` label changes trigger `issueStatusChanged` events. Title, priority, and creation date are included in the event payload for convenience (the IssuePoller already has this data from the API response) but changes to these fields alone do not trigger events. The snapshot tracks them so they can be included in future events.
 
-**Closed issue detection:** On each poll cycle, the IssuePoller compares the set of issue numbers in the API response against the snapshot. Issues present in the snapshot but absent from the response have been closed or had their `task:implement` label removed. For each removed issue, if an agent is running for it, the engine cancels the agent session (treated as failure — `agentFailed` emitted, worktree preserved if Implementor). The IssuePoller then emits `issueRemoved` for each and removes them from the snapshot.
+**Closed issue detection:** On each poll cycle, the IssuePoller compares the set of issue numbers in the API response against the snapshot. Issues present in the snapshot but absent from the response have been closed or had their `task:implement` label removed. For each removed issue, the IssuePoller removes it from the snapshot and reports the removal to the Engine Core. The Engine Core then: (1) if an agent is running for the issue, cancels the agent session and emits `agentFailed` (treated as cancellation — worktree preserved if Implementor); then (2) emits `issueRemoved`. This ordering guarantees `agentFailed` is emitted before `issueRemoved` for the same issue, so the TUI can process the failure before the issue is removed from its store.
 
 **Initial poll cycle:** On the first cycle, the snapshot is empty. All detected issues are treated as new — each emits an `issueStatusChanged` event with `oldStatus: null`. This is how the engine populates the initial issue set. The dispatch logic treats `oldStatus: null` the same as any other status change for tier classification.
 
 **Startup burst:** This means the first poll cycle may trigger dispatch actions for all existing issues simultaneously: auto-dispatching Reviewers for all `status:review` issues, emitting `dispatchReady` for all `status:pending` issues, and emitting notifications for all `status:needs-refinement`/`status:blocked` issues. This is intentional — if the control plane starts (or restarts), it should bring the system to the correct state. Startup recovery completes before the first poll cycle, so `status:in-progress` issues will already be reset to `status:pending`.
+
+**First-cycle execution:** `Engine.start()` runs the first poll cycle of each poller as a direct invocation, not via the interval timer. It awaits both first cycles before resolving. Interval-based polling begins after the first cycles complete. This ensures the TUI receives the initial issue set and any startup-triggered dispatch events before `start()` resolves.
 
 #### SpecPoller
 
@@ -127,23 +129,27 @@ Monitors the specs directory on the default branch for changes, using the GitHub
 
 1. Fetch the tree SHA of the specs directory on the default branch via `GitHubClient`.
 2. Compare the tree SHA against the snapshot.
-3. If unchanged — done, no further API calls.
-4. If changed — fetch the full tree to identify which files were added, modified, or removed.
-5. For each changed file, fetch its content via `repos.getContent` (returns base64-encoded content), decode it, and parse the frontmatter `status` value.
-6. Fetch the HEAD commit SHA of the default branch (for spec diff URLs in the TUI). Note: this is the current HEAD commit, not necessarily the specific commit that modified each spec file. If multiple commits were pushed between poll cycles, the diff URL shows the HEAD commit's full diff, not a per-file change view. This is a known limitation — acceptable because the notification identifies the changed file path, giving the user enough context to find the relevant changes.
+3. If unchanged — notify the Engine Core with an empty batch (`changes: []`). No further API calls are made for this cycle.
+4. If changed — fetch the full tree. Compare each entry's blob SHA against the snapshot's per-file entries to classify changes: entries absent from the snapshot are additions, entries with a different blob SHA are modifications, entries present in the snapshot but absent from the tree are removals.
+5. For each added or modified file, fetch its content via `repos.getContent` (returns base64-encoded content), decode it, and parse the frontmatter `status` value.
+6. Fetch the HEAD commit SHA of the default branch via `git.getRef` (for spec diff URLs in the TUI). Note: this is the current HEAD commit, not necessarily the specific commit that modified each spec file. If multiple commits were pushed between poll cycles, the diff URL shows the HEAD commit's full diff, not a per-file change view. This is a known limitation — acceptable because the notification identifies the changed file path, giving the user enough context to find the relevant changes.
 7. Return the complete batch of changes to the Engine Core.
 8. Update the snapshot.
 
-The SpecPoller returns results synchronously to the Engine Core rather than emitting events directly. The Engine Core then emits individual `specChanged` events per file (for the TUI's notification history) and separately passes the full batch of approved spec paths to the dispatch logic for a single Planner invocation. The per-file events are not the input to Planner dispatch — the Engine Core passes the batch directly. This ensures reliable batching.
+The SpecPoller returns results synchronously to the Engine Core on every cycle, even when no changes are detected (empty `changes` array). This ensures the Engine Core can dispatch deferred Planner paths on any cycle (see Planner concurrency guard), not only when the SpecPoller detects changes. When `changes` is non-empty, the Engine Core emits individual `specChanged` events per file (for the TUI's notification history) and separately passes the full batch of approved spec paths to the dispatch logic for a single Planner invocation. The per-file events are not the input to Planner dispatch — the Engine Core passes the batch directly. This ensures reliable batching.
 
 **Snapshot state:**
 
 | Field | Description |
 |-------|-------------|
 | Tree SHA | SHA of the specs directory tree on the default branch |
-| Per-file status | Map of file path → frontmatter `status` value |
+| Per-file entries | Map of file path → blob SHA and frontmatter `status` value |
 
 The tree SHA comparison makes the common case (nothing changed) a single API call. Detailed file inspection only happens when the tree SHA differs.
+
+**Snapshot seeding:** The SpecPoller accepts an optional initial snapshot (tree SHA and per-file entries) via its constructor. When provided, the snapshot starts with the seeded state instead of empty. This enables the Planner Cache to prevent redundant Planner runs on engine restart — the SpecPoller compares blob SHAs against the seeded state and only reports files that actually changed. If no seed is provided, the snapshot starts empty (existing behavior). See Planner Cache.
+
+**Snapshot access:** The SpecPoller exposes a `getSnapshot()` method that returns the current snapshot state (tree SHA and per-file entries) as a `SpecPollerSnapshot`. The Engine Core uses this at Planner dispatch time to capture the state for the Planner Cache.
 
 **Removed specs:** If a spec file is deleted, the SpecPoller removes it from its per-file snapshot. No `specChanged` event is emitted for removals — existing task issues for the removed spec are unaffected. The Planner is not notified of removals.
 
@@ -162,7 +168,7 @@ The engine invokes the agent automatically with no user action.
 
 The Planner is invoked once per SpecPoller cycle with all changed (and approved) spec paths batched into a single invocation. The Engine Core receives the full batch from the SpecPoller synchronously and passes approved paths to a single Planner dispatch.
 
-**Planner concurrency guard:** Only one Planner session may run at a time. If a SpecPoller cycle detects changes while a Planner is already running, the engine emits `agentSkipped` for the Planner and defers the batch. The Engine Core maintains a deferred paths buffer (a set of file paths, deduplicated) for this purpose. On each subsequent SpecPoller cycle, the Engine Core merges the deferred buffer with the new cycle's results (union, deduplicated). The approval filter (`status: approved`) is applied to the merged set at dispatch time — paths whose frontmatter status changed to non-approved since deferral are dropped. The deferred buffer is cleared when the Planner is successfully dispatched.
+**Planner concurrency guard:** Only one Planner session may run at a time. If a SpecPoller cycle detects changes while a Planner is already running, the engine emits `agentSkipped` for the Planner and defers the batch. The Engine Core maintains a deferred paths buffer (a set of file paths, deduplicated) for this purpose. On each subsequent SpecPoller cycle, the Engine Core merges the deferred buffer with the new cycle's results (union, deduplicated). The approval filter (`status: approved`) is applied to the merged set at dispatch time — paths whose frontmatter status changed to non-approved since deferral are dropped. The deferred buffer is cleared when the Planner is successfully dispatched. If the Planner session fails, the Engine Core re-adds the dispatched spec paths to the deferred buffer so they are included in the next dispatch attempt rather than being lost until restart.
 
 **Planner idempotency:** The engine does not prevent re-dispatch for the same spec (e.g., a whitespace-only change to an approved spec will re-trigger the Planner). The Planner agent definition is responsible for idempotency — checking existing issues before creating new ones. See `agent-planner.md`.
 
@@ -188,7 +194,7 @@ The engine emits a notification event. No agent is dispatched.
 |-------------|-------------|
 | `issueStatusChanged` to `status:needs-refinement` | Clipboard-ready CLI command for the Human to address the spec issue. Includes resolution guidance: "After amending the spec, change the label to `status:unblocked`." `contextURL`: issue URL. |
 | `issueStatusChanged` to `status:blocked` | Notification with issue URL for the Human to investigate the blocker. Includes resolution guidance: "After resolving the blocker, change the label to `status:unblocked`." `contextURL`: issue URL. |
-| `issueStatusChanged` to `status:approved` | Notification that the issue is ready for Human to merge. `contextURL`: PR URL (via async `getPRForIssue` lookup — same pattern as `agentCompleted` Implementor: issue URL initially, updated to PR URL when resolved). |
+| `issueStatusChanged` to `status:approved` | Notification that the issue is ready for Human to merge. `contextURL`: issue URL. The TUI is responsible for asynchronous PR URL lookup (see `control-plane-tui.md`). |
 
 **Clipboard command format** for `status:needs-refinement`:
 
@@ -199,6 +205,8 @@ claude -p "Use /spec-writing to address the spec refinement needed for issue #<N
 This gives the Human a ready-to-paste command to kick off a spec amendment workflow outside the control plane. The `/spec-writing` skill handles the structured spec authoring process.
 
 Notifications are dismissed automatically when the underlying issue's status changes to a different value on a subsequent poll.
+
+**Event ordering:** For each status change, the Engine Core emits `issueStatusChanged` before any dispatch-tier event (`dispatchReady`, `notification`, or auto-dispatch trigger). This ensures the TUI's store has the updated issue state before processing dispatch events that reference it.
 
 **Dispatch fallthrough:** Status changes to values not listed in any dispatch tier (e.g., `in-progress`) trigger no dispatch action. The `issueStatusChanged` event is still emitted so the TUI can update the issue's state indicator.
 
@@ -243,7 +251,7 @@ The engine provides on-demand data fetching for display purposes. Queries are re
 
 PR linkage is determined by searching for a PR whose body contains a closing keyword referencing the issue number. The match is case-insensitive and supports GitHub's closing keywords: `Closes`, `Fixes`, `Resolves` (and their conjugations: `Close`, `Closed`, `Fix`, `Fixed`, `Resolve`, `Resolved`). The issue number must be followed by whitespace, punctuation, or end of line — not additional digits (word-boundary match). If multiple open PRs match, the first match (by PR number, ascending) is used. Branch name matching is not used because the Implementor renames the working branch (`issue-<N>`) to the convention format (`<type>/<N>-<description>`) before pushing.
 
-**Pagination:** Both `getIssueDetails` (via `issues.listForRepo`) and `getPRForIssue` (via `pulls.list`) use `per_page: 100` without pagination. Repositories with more than 100 open task issues or 100 open PRs will have results silently truncated. This is a known v1 limitation — acceptable for the expected scale of managed repositories.
+**Pagination:** `getIssueDetails` fetches the issue directly via `issues.get` (no pagination concern). `getPRForIssue` lists open PRs via `pulls.list` with `per_page: 100` without pagination. The IssuePoller's `issues.listForRepo` call also uses `per_page: 100` without pagination. Repositories with more than 100 open task issues or 100 open PRs will have results silently truncated. This is a known v1 limitation — acceptable for the expected scale of managed repositories.
 
 **Query normalization:** The `GitHubClient` param/result types mirror Octokit's response shapes (e.g., `IssueData.body` is `string | null`, `IssueData.labels` is `(string | { name?: string })[]`). The query functions normalize these into the cleaner result types consumed by the TUI:
 
@@ -273,7 +281,7 @@ When the engine dispatches an agent:
 
 1. **Guard** — Check if an agent is already running for this issue. If so, emit `agentSkipped` and return.
 2. **Worktree** (Implementor only) — Create or reuse a worktree at `.worktrees/issue-<N>` on branch `issue-<N>`. See `control-plane.md` Worktree Isolation.
-3. **Create session** — Create an agent session via `query()` from `@anthropic-ai/claude-agent-sdk`. The SDK resolves the agent definition file (`.claude/agents/<agent>.md`), parses its YAML frontmatter, and applies the agent's system prompt, tools, model, skills, and hooks. See SDK Session Configuration below for the full call signature.
+3. **Create session** — Create an agent session via `query()` from `@anthropic-ai/claude-agent-sdk`. The engine loads the agent definition inline (see Agent Definition Loading) and passes it to the SDK via the `agents` option. See SDK Session Configuration below for the full call signature.
 4. **Capture session ID** — The SDK returns a `session_id` in its init message. Store this alongside the session handle.
 5. **Track** — Record the agent session as running for this issue/spec, including the session handle, session ID, and worktree path (if Implementor).
 6. **Emit** — Emit `agentStarted` with the session ID.
@@ -450,6 +458,58 @@ This ensures no issue is permanently stuck in `status:in-progress` due to agent 
 
 **Reviewer failure:** Crash recovery only applies to `status:in-progress`. When a Reviewer fails, the issue remains `status:review` (Reviewers do not change the status to `in-progress`). No recovery is performed — the issue stays in `status:review` with no running agent. The TUI surfaces the failure via `lastFailure`, and the user can retry via the `dispatchReviewer` command. The IssuePoller will not re-trigger auto-dispatch because the status hasn't changed since the last poll.
 
+### Planner Cache
+
+The engine persists a lightweight cache to prevent redundant Planner runs across restarts. Without this cache, the SpecPoller starts with an empty snapshot on each engine initialization, causing all approved specs to appear as new changes and triggering a full Planner dispatch.
+
+**Cache file:** `.agentic-workflow-cache.json` in the engine's working directory (repository root). This file should be gitignored — it is machine-local ephemeral state, not shared across clones.
+
+**Format:**
+
+```json
+{
+  "specsDirTreeSHA": "abc123def456...",
+  "files": {
+    "docs/specs/workflow/control-plane.md": {
+      "blobSHA": "def456...",
+      "frontmatterStatus": "approved"
+    },
+    "docs/specs/auth.md": {
+      "blobSHA": "ghi789...",
+      "frontmatterStatus": "draft"
+    }
+  }
+}
+```
+
+The cache stores the SpecPoller's snapshot at the time the Planner was last successfully dispatched: the specs directory tree SHA and per-file blob SHAs with frontmatter status. The on-disk format is a JSON serialization of `SpecPollerSnapshot`.
+
+**Startup seeding:** On engine initialization, before startup recovery:
+
+1. Attempt to read `.agentic-workflow-cache.json` from the working directory.
+2. If the file exists and contains valid JSON matching the `SpecPollerSnapshot` schema, pass it to the SpecPoller as the initial snapshot seed.
+3. The SpecPoller uses the seed as its starting snapshot, so the first poll cycle compares the current tree SHA and per-file blob SHAs against the seeded state. Only files that actually changed since the last successful Planner run are reported.
+4. If the file is missing, unreadable, or contains invalid JSON, treat as a cold start — the SpecPoller starts with an empty snapshot (existing behavior). Log at `debug` level (a missing cache is normal on first run).
+
+The startup sequence becomes: load planner cache → startup recovery → start pollers.
+
+**Cache write:** When the Engine Core dispatches the Planner, it calls `getSnapshot()` on the SpecPoller and stores the result. When the Planner session completes successfully (`agentCompleted`), the Engine Core writes the stored snapshot to the cache file. The snapshot is captured at dispatch time, not at completion time — this ensures changes detected by the SpecPoller during the Planner's run (which go to the deferred buffer) are not incorrectly marked as planned.
+
+**Behavior by scenario:**
+
+| Scenario | Behavior |
+|----------|----------|
+| Restart, no spec changes | Tree SHA matches cache → SpecPoller reports no changes → Planner not dispatched |
+| Restart, some specs changed | Tree SHA differs → SpecPoller compares blob SHAs → only changed files reported → Planner dispatched for changed approved specs only |
+| Restart, one spec changed | Same as above — only the one changed file is reported and planned |
+| First-ever run (no cache file) | Cold start → existing behavior |
+| Cache file corrupt/unreadable | Treated as cold start |
+| Planner fails | Cache not updated → next restart uses previous cache → changes re-detected and re-planned |
+
+**Deferred paths interaction:** If the Planner succeeds but changes were deferred during its run, the cached snapshot reflects the state at dispatch time (before the deferred changes were detected). On the next restart, the SpecPoller compares the current tree against the cached snapshot. Files that changed after the cached snapshot (including the deferred changes) have different blob SHAs and are detected and planned.
+
+**Cache write errors:** If the cache file cannot be written (permissions, disk full), log at `error` level and continue. The engine operates correctly without the cache — the next restart will perform a full Planner run. This is non-fatal.
+
 ### Configuration
 
 The engine reads configuration from a TypeScript config file (`agentic-workflow.config.ts`):
@@ -517,6 +577,8 @@ The engine logs structured events at the following levels:
 | Recovery performed | `info` | Issue number, old status, new status |
 | Shutdown initiated | `info` | Reason |
 | Shutdown complete | `info` | Agents terminated count |
+| Planner cache loaded | `debug` | Loaded tree SHA and file count, or "cache miss — cold start" |
+| Planner cache write failed | `error` | Error details |
 | Agent session transcript | (file) | Full SDK message stream written to `{logsDir}/{timestamp}-{agentType}[-{context}].log`. One file per session. Only when `logging.agentSessions` is enabled. |
 
 Entries with level `(file)` represent disk writes handled by the Agent Manager, not the structured logger. See Agent Session Logging for format details.
@@ -532,6 +594,8 @@ The engine must not crash on transient errors. Each error type has a defined rec
 | Agent session creation failure | Log at `error` level. Do not mark agent as running. Next cycle will re-detect the state and retry dispatch. |
 | Agent session failure | Log at `error` level with error details. Perform crash recovery if applicable. |
 | Config file missing or invalid | Log at `error` level and exit. This is not a transient error. |
+| Planner cache read error | Log at `debug` level. Treat as cold start — SpecPoller starts with empty snapshot. Non-fatal. |
+| Planner cache write error | Log at `error` level. Engine continues — next restart cannot skip Planner. Non-fatal. |
 
 ### Graceful Shutdown
 
@@ -656,7 +720,7 @@ type NotificationEvent = {
   issueNumber: number;
   statusLabel: string;
   clipboardCommand?: string; // present for needs-refinement, absent for blocked and approved
-  contextURL: string; // issue URL for needs-refinement/blocked; issue URL initially for approved (async PR URL update by TUI)
+  contextURL: string; // issue URL for all notification statuses (needs-refinement, blocked, approved)
   resolutionGuidance?: string; // present for blocked and needs-refinement, absent for approved
   // blocked: "After resolving the blocker, change the label to status:unblocked."
   // needs-refinement: "After amending the spec, change the label to status:unblocked."
@@ -771,9 +835,19 @@ type QueryFactoryParams = {
 type QueryFactory = (params: QueryFactoryParams) => Query; // Query is from @anthropic-ai/claude-agent-sdk
 ```
 
-#### SpecPoller Batch Result
+#### SpecPoller
 
 ```ts
+type SpecPollerFileEntry = {
+  blobSHA: string;
+  frontmatterStatus: string;
+};
+
+type SpecPollerSnapshot = {
+  specsDirTreeSHA: string;
+  files: Record<string, SpecPollerFileEntry>;
+};
+
 type SpecChange = {
   filePath: string;
   frontmatterStatus: string;
@@ -827,7 +901,7 @@ type StartupResult = {
 };
 
 type Engine = {
-  start(): Promise<StartupResult>; // resolves after startup recovery + first IssuePoller and SpecPoller cycles complete
+  start(): Promise<StartupResult>; // resolves after planner cache load, startup recovery, and first IssuePoller and SpecPoller cycles complete
   on(handler: (event: EngineEvent) => void): () => void; // returns unsubscribe function
   send(command: EngineCommand): void;
   getIssueDetails(issueNumber: number): Promise<IssueDetailsResult>;
@@ -850,16 +924,16 @@ type Engine = {
 
 - [ ] Given the IssuePoller is running, when its poll interval elapses, then it queries GitHub Issues independently of the SpecPoller.
 - [ ] Given the SpecPoller is running, when its poll interval elapses, then it fetches the tree SHA of the specs directory on the default branch via the GitHub API.
-- [ ] Given the SpecPoller detects the tree SHA is unchanged, when the poll cycle completes, then no further API calls are made for that cycle.
-- [ ] Given the SpecPoller detects the tree SHA changed, when it inspects the tree, then it identifies which files changed and reads their frontmatter status.
+- [ ] Given the SpecPoller detects the tree SHA is unchanged, when the poll cycle completes, then no further API calls are made and the Engine Core receives an empty batch.
+- [ ] Given the SpecPoller detects the tree SHA changed, when it inspects the tree, then it compares blob SHAs against its snapshot to identify additions, modifications, and removals, and reads frontmatter status for added and modified files only.
 - [ ] Given the IssuePoller runs its first cycle with an empty snapshot, when issues are detected, then each emits `issueStatusChanged` with `oldStatus: null`.
 - [ ] Given the IssuePoller encounters a GitHub API error, when the error occurs, then the SpecPoller continues operating on its own interval.
 
 ### Dispatch
 
 - [ ] Given the SpecPoller returns N changed files, when the Engine Core processes the batch, then N individual `specChanged` events are emitted (one per file).
-- [ ] Given a spec's frontmatter status is `approved` and its tree SHA changed, when the Engine Core emits `specChanged`, then the Planner is auto-dispatched with that spec path.
-- [ ] Given a spec's frontmatter status is `draft` and its tree SHA changed, when the Engine Core emits `specChanged`, then the Planner is not dispatched for that spec.
+- [ ] Given a spec's frontmatter status is `approved` and its blob SHA changed, when the Engine Core emits `specChanged`, then the Planner is auto-dispatched with that spec path.
+- [ ] Given a spec's frontmatter status is `draft` and its blob SHA changed, when the Engine Core emits `specChanged`, then the Planner is not dispatched for that spec.
 - [ ] Given multiple approved specs changed in the same SpecPoller cycle, when the Planner is dispatched, then it receives all changed spec paths in a single invocation.
 - [ ] Given an issue status changed to `status:review`, when the IssuePoller emits the change, then the Reviewer is auto-dispatched for that issue.
 - [ ] Given an issue is `status:pending`, when the change is first detected, then a `dispatchReady` event is emitted.
@@ -889,6 +963,19 @@ type Engine = {
 
 - [ ] Given the engine starts and an issue has `status:in-progress`, when no agent is tracked for it, then the issue is reset to `status:pending`.
 - [ ] Given an agent session completes and the issue is still `status:in-progress`, when the completion is detected, then the issue is reset to `status:pending` and `recoveryPerformed` is emitted.
+
+### Planner Cache
+
+- [ ] Given the engine starts with a valid `.agentic-workflow-cache.json`, when the SpecPoller runs its first cycle and the current tree SHA matches the cached value, then the Planner is not dispatched.
+- [ ] Given the engine starts with a valid `.agentic-workflow-cache.json`, when the SpecPoller runs its first cycle and the current tree SHA differs, then only files with changed blob SHAs are reported as changes (not all files).
+- [ ] Given the engine starts with a valid `.agentic-workflow-cache.json` and one spec file has a different blob SHA, when the SpecPoller runs its first cycle, then only that one file is included in the Planner batch.
+- [ ] Given the engine starts with no `.agentic-workflow-cache.json` file, when the SpecPoller runs its first cycle, then all specs are treated as new (existing cold start behavior).
+- [ ] Given the engine starts with a corrupt or unreadable `.agentic-workflow-cache.json`, when the cache is loaded, then it is treated as a cold start and logged at `debug` level.
+- [ ] Given a Planner session completes successfully, when the `agentCompleted` event fires, then `.agentic-workflow-cache.json` is written with the `SpecPollerSnapshot` captured at dispatch time.
+- [ ] Given a Planner session fails, when the `agentFailed` event fires, then `.agentic-workflow-cache.json` is not updated.
+- [ ] Given changes were deferred during a Planner run, when the Planner completes and the cache is written, then the cached snapshot reflects the dispatch-time state, ensuring deferred changes are re-detected on restart.
+- [ ] Given the cache file cannot be written, when a write error occurs, then the error is logged at `error` level and the engine continues operating.
+- [ ] Given the engine starts, when the startup sequence runs, then the planner cache is loaded before the SpecPoller's first poll cycle.
 
 ### Queries and Streams
 
@@ -930,7 +1017,9 @@ type Engine = {
 - [ ] Given changes were deferred from a previous SpecPoller cycle, when the next cycle runs and the Planner is no longer running, then the deferred paths are merged with the new cycle's results and dispatched together.
 - [ ] Given deferred spec paths include a path whose frontmatter status changed to non-approved since deferral, when the merged set is dispatched, then the non-approved path is dropped from the batch.
 - [ ] Given an issue was present in the previous poll but is absent from the current poll results, when the IssuePoller processes the cycle, then `issueRemoved` is emitted.
-- [ ] Given an agent is running for issue N, when issue N is removed from the poll results (closed or label removed), then the agent session is cancelled, `agentFailed` is emitted, and `issueRemoved` is emitted.
+- [ ] Given an agent is running for issue N, when issue N is removed from the poll results (closed or label removed), then the agent session is cancelled, `agentFailed` is emitted before `issueRemoved`.
+- [ ] Given an issue status changes to a user-dispatch status, when the Engine Core processes the change, then `issueStatusChanged` is emitted before `dispatchReady`.
+- [ ] Given a Planner session fails, when the failure is detected, then the dispatched spec paths are re-added to the deferred buffer for the next dispatch attempt.
 - [ ] Given recovery resets an issue to `status:pending`, when the recovery completes, then both `recoveryPerformed` and a synthetic `issueStatusChanged` are emitted so the TUI updates immediately.
 
 ## Dependencies
