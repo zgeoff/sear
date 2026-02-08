@@ -35,6 +35,7 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["@biomejs/biome", "npm:2.3.14"],\
           ["@sear/monorepo", "workspace:."],\
+          ["bats", "npm:1.13.0"],\
           ["lefthook", "npm:2.1.0"],\
           ["prettier", "npm:3.8.1"],\
           ["turbo", "npm:2.8.3"],\
@@ -1317,6 +1318,7 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["@biomejs/biome", "npm:2.3.14"],\
           ["@sear/monorepo", "workspace:."],\
+          ["bats", "npm:1.13.0"],\
           ["lefthook", "npm:2.1.0"],\
           ["prettier", "npm:3.8.1"],\
           ["turbo", "npm:2.8.3"],\
@@ -1530,6 +1532,15 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/auto-bind-npm-5.0.1-a3b4e3a569-a703375350.zip/node_modules/auto-bind/",\
         "packageDependencies": [\
           ["auto-bind", "npm:5.0.1"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["bats", [\
+      ["npm:1.13.0", {\
+        "packageLocation": "./.yarn/unplugged/bats-npm-1.13.0-ac7ccdef7f/node_modules/bats/",\
+        "packageDependencies": [\
+          ["bats", "npm:1.13.0"]\
         ],\
         "linkType": "HARD"\
       }]\

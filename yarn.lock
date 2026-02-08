@@ -1128,10 +1128,14 @@ __metadata:
   resolution: "@sear/monorepo@workspace:."
   dependencies:
     "@biomejs/biome": "npm:2.3.14"
+    bats: "npm:1.13.0"
     lefthook: "npm:2.1.0"
     prettier: "npm:3.8.1"
     turbo: "npm:2.8.3"
     typescript: "npm:5.9.3"
+  dependenciesMeta:
+    bats@1.13.0:
+      unplugged: true
   languageName: unknown
   linkType: soft
 
@@ -1303,6 +1307,15 @@ __metadata:
   version: 5.0.1
   resolution: "auto-bind@npm:5.0.1"
   checksum: 10c0/a703375350ea7b6e92405d8e6bcc6dbfb84b0d7c7172b33e5788a7593929a18227999ff9aa9c32436741d06d021e6672457b1cec73287efe3fab95cff6627eaf
+  languageName: node
+  linkType: hard
+
+"bats@npm:1.13.0":
+  version: 1.13.0
+  resolution: "bats@npm:1.13.0"
+  bin:
+    bats: bin/bats
+  checksum: 10c0/7f697d6305d80d328d620bd58c658f7830fbed57e28a43f18771d89fb6f941a131b440ab18d951fd15fdd23f3c687687d607d7fc03ac4c99f4725e64d2432832
   languageName: node
   linkType: hard
 
