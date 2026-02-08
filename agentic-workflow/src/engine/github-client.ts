@@ -25,6 +25,40 @@ export type IssuesGetResult = {
   data: IssueData;
 };
 
+export type IssuesListForRepoParams = {
+  owner: string;
+  repo: string;
+  labels: string;
+  state: string;
+  per_page: number;
+};
+
+export type IssuesListForRepoResult = {
+  data: IssueData[];
+};
+
+export type IssuesAddLabelsParams = {
+  owner: string;
+  repo: string;
+  issue_number: number;
+  labels: string[];
+};
+
+export type IssuesAddLabelsResult = {
+  data: unknown;
+};
+
+export type IssuesRemoveLabelParams = {
+  owner: string;
+  repo: string;
+  issue_number: number;
+  name: string;
+};
+
+export type IssuesRemoveLabelResult = {
+  data: unknown;
+};
+
 // ---------------------------------------------------------------------------
 // Pulls
 // ---------------------------------------------------------------------------
@@ -176,6 +210,9 @@ export type GitGetRefResult = {
 export type GitHubClient = {
   issues: {
     get(params: IssuesGetParams): Promise<IssuesGetResult>;
+    listForRepo(params: IssuesListForRepoParams): Promise<IssuesListForRepoResult>;
+    addLabels(params: IssuesAddLabelsParams): Promise<IssuesAddLabelsResult>;
+    removeLabel(params: IssuesRemoveLabelParams): Promise<IssuesRemoveLabelResult>;
   };
   pulls: {
     list(params: PullsListParams): Promise<PullsListResult>;

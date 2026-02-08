@@ -5,6 +5,9 @@ export function createMockGitHubClient(): GitHubClient {
   return {
     issues: {
       get: vi.fn(),
+      listForRepo: vi.fn(),
+      addLabels: vi.fn(),
+      removeLabel: vi.fn(),
     },
     pulls: {
       list: vi.fn(),
