@@ -121,9 +121,9 @@ function setupTest(overrides?: Partial<{ maxAgentDuration: number }>): SetupCont
     emitter,
     worktreeManager,
     repoRoot: '/repo',
-    agentFilePlanner: '.claude/agents/planner.md',
-    agentFileImplementor: '.claude/agents/implementor.md',
-    agentFileReviewer: '.claude/agents/reviewer.md',
+    agentPlanner: 'planner',
+    agentImplementor: 'implementor',
+    agentReviewer: 'reviewer',
     maxAgentDuration: overrides?.maxAgentDuration ?? 1800,
     queryFactory,
   });
@@ -226,9 +226,8 @@ test('it creates a worktree and agent session when dispatching an implementor', 
   expect(ctx.mockQueries).toHaveLength(1);
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '42',
+    agent: 'implementor',
     cwd: '/repo/.worktrees/issue-42',
-    systemPrompt: '.claude/agents/implementor.md',
-    permissionMode: 'bypassPermissions',
   });
 });
 
@@ -332,8 +331,8 @@ test('it sets the working directory to the repo root for reviewers', () => {
 
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '10',
+    agent: 'reviewer',
     cwd: '/repo',
-    systemPrompt: '.claude/agents/reviewer.md',
   });
 });
 
@@ -396,8 +395,8 @@ test('it sets the working directory to the repo root for planners', () => {
   ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
 
   expect(ctx.queryParams[0]).toMatchObject({
+    agent: 'planner',
     cwd: '/repo',
-    systemPrompt: '.claude/agents/planner.md',
   });
 });
 
