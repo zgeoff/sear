@@ -1,6 +1,6 @@
 ---
 title: Control Plane TUI
-version: 0.1.0
+version: 0.2.0
 last_updated: 2026-02-08
 status: approved
 ---
@@ -117,8 +117,8 @@ Notifications persist for the entire session as scrollable history.
 | Engine Event | Notification Content |
 |-------------|---------------------|
 | `agentStarted` | `{AgentType} started for #{N}` (task agents) — `Planner started for {N} specs` (Planner) |
-| `agentCompleted` | `{AgentType} completed for #{N}` (task agents) — `Planner completed` (Planner) |
-| `agentFailed` | `{AgentType} failed for #{N} — {error}` (task agents) — `Planner failed — {error}` (Planner). Note: session ID is available on the `AgentFailedNotification` type for programmatic access but is not rendered in the notification text. |
+| `agentCompleted` | `{AgentType} completed for #{N}` (task agents) — `Planner completed` (Planner). When `logFilePath` is present, append ` (logs)` suffix. |
+| `agentFailed` | `{AgentType} failed for #{N} — {error}` (task agents) — `Planner failed — {error}` (Planner). When `logFilePath` is present, append ` (logs)` suffix. Note: session ID is available on the `AgentFailedNotification` type for programmatic access but is not rendered in the notification text. |
 | `issueStatusChanged` | `#{N}: {oldStatus} → {newStatus}` (e.g., `#39: none → pending`). When `oldStatus` is `null` (first detection), render as `none`. |
 | `specChanged` | `Spec changed: {fileName}` (filename only, directories stripped). `contextURL` links to the commit diff. |
 | `recoveryPerformed` | `#{N} recovered from stale` |
@@ -141,6 +141,7 @@ Notification content is composed of color-coded, optionally-linked segments. The
 | Status labels (`pending`, `in-progress`, etc.) | Status color (see table below) | — |
 | Spec filenames | Magenta | Commit diff URL (from `contextURL`) |
 | Error messages | Red | — |
+| Log file links (`(logs)`) | Dim | `file://{logFilePath}` (OSC 8 terminal hyperlink — clickable in supported terminals, plain text in others) |
 | All other text | Default | — |
 
 **Status label colors:**
@@ -219,7 +220,7 @@ Displays context-aware content based on the currently selected issue in the issu
 | `review` (no agent) | PR summary — title, changed files count, CI status | `getPRForIssue` query (cached in `prDetails`) |
 | `needs-refinement`, `blocked` | Issue details + blocker comment + resolution guidance (from `NotificationEvent.resolutionGuidance`) | `getIssueDetails` query (cached in `issueDetails`) |
 | `approved` | PR summary — ready for merge | `getPRForIssue` query (cached in `prDetails`) |
-| Failed (TUI overlay) | Error details, session ID, preserved worktree path (if Implementor), retry prompt | `lastFailure` from Zustand store |
+| Failed (TUI overlay) | Error details, session ID, preserved worktree path (if Implementor), log file path (if present), retry prompt | `lastFailure` from Zustand store |
 | No issue selected (`selectedIssue` is `null`) | Empty state: "No issue selected" | N/A |
 
 **On-demand fetching:** When the user selects an issue, the store checks its `issueDetails`/`prDetails` caches. If the data is not cached, it calls the engine's query interface to fetch it. A spinner with "Loading…" text is shown in the detail pane while the fetch is in progress.
@@ -238,7 +239,7 @@ The engine store is created once at startup and subscribes to all engine events.
 
 **State** (see `EngineStoreState` in Type Definitions):
 - `repository` — `{ owner: string; repo: string }`. Set once at initialization from the engine config. Used to construct issue, PR, and commit URLs for hyperlinks and `contextURL`.
-- `issues` — Map of issue number → `TrackedIssue`. Populated from `issueStatusChanged` events. Includes agent status (`agentRunning`, `agentType`) and optional `lastFailure` (error, session ID, worktree path).
+- `issues` — Map of issue number → `TrackedIssue`. Populated from `issueStatusChanged` events. Includes agent status (`agentRunning`, `agentType`) and optional `lastFailure` (error, session ID, worktree path, log file path).
 - `notifications` — `Notification[]` (discriminated union on `eventType`). New notifications are prepended (index 0 is the newest). Each variant carries typed fields for its event — see Type Definitions.
 - `agentStreams` — Map of issue number → `string[]` buffer. Populated by subscribing to the engine's `getAgentStream` on `agentStarted`.
 - `issueDetails` — Cache of `CachedIssueDetails`. Populated via `getIssueDetails` when the user selects an issue. Invalidated on `issueStatusChanged`.
@@ -257,7 +258,7 @@ The engine store is created once at startup and subscribes to all engine events.
 - `cycleFocus(direction)` — Moves focus to the next/previous pane.
 - `selectIssue(issueNumber)` — Updates the selected issue and triggers on-demand data fetching (issue details, PR data) if not already cached. `selectedIssue` is set to `null` only programmatically (via `issueRemoved` handler or when the issue list becomes empty), never by direct user action.
 
-**Failure tracking:** When the engine emits `agentFailed`, the store records `lastFailure` on the affected issue with the error details, session ID, and preserved worktree path (if Implementor). The engine's crash recovery resets the GitHub status to `pending`, but the TUI overlays the failure state — displaying the error indicator and retry action instead of the ready indicator. The `lastFailure` is cleared when the user dispatches a retry (Enter on a failed issue) or when the issue's status changes via a subsequent poll. The session ID is surfaced in the failure detail view so the user can manually resume the session outside the control plane if desired.
+**Failure tracking:** When the engine emits `agentFailed`, the store records `lastFailure` on the affected issue with the error details, session ID, preserved worktree path (if Implementor), and log file path (if present). The engine's crash recovery resets the GitHub status to `pending`, but the TUI overlays the failure state — displaying the error indicator and retry action instead of the ready indicator. The `lastFailure` is cleared when the user dispatches a retry (Enter on a failed issue) or when the issue's status changes via a subsequent poll. The session ID is surfaced in the failure detail view so the user can manually resume the session outside the control plane if desired.
 
 **Agent stream lifecycle:** When the engine emits `agentStarted` for an issue, the store calls `getAgentStream(issueNumber)` on the engine and begins consuming the async iterable, appending chunks to the `agentStreams` buffer. For Planner `agentStarted` events (which have no `issueNumber`), the store skips stream subscription — Planner output is not streamed to the detail pane. When the stream ends (agent completes or fails), the buffer is retained for review until the issue state changes.
 
@@ -268,9 +269,9 @@ The engine store is created once at startup and subscribes to all engine events.
 | Event | Store Update |
 |-------|-------------|
 | `issueStatusChanged` | Add notification ("#{N}: {oldStatus} → {newStatus}"). Upsert issue in `issues` (creates entry on first detection with `oldStatus: null`). Clears `lastFailure` if status changed — **unless `isRecovery` is true** (recovery events must not clear the failure overlay; only user-initiated retry or a subsequent non-recovery poll clears it). Marks `issueDetails`/`prDetails` cache for this issue as stale (see stale-while-revalidate below). |
-| `agentStarted` | **Planner:** set `plannerRunning: true`, add notification, skip issue state and stream subscription. **Implementor/Reviewer:** set `agentRunning: true` and `agentType` on the issue identified by `issueNumber`. Clear any existing `agentStreams` buffer for this issue (from a previous run), then subscribe to `getAgentStream(issueNumber)` and begin buffering in `agentStreams`. |
-| `agentCompleted` | **Planner:** set `plannerRunning: false`, add notification. **Implementor:** set `agentRunning: false` on the issue, add notification with the issue URL as `contextURL` initially, then call `getPRForIssue` asynchronously and update the notification's `contextURL` to the PR URL when it resolves (this is an exception to the append-only rule — in-place URL update only; no-op if the notification no longer exists). **Reviewer:** set `agentRunning: false` on the issue, mark `prDetails` as stale (Reviewer may have added approval or posted review comments), add notification. |
-| `agentFailed` | **Planner:** set `plannerRunning: false`, add notification, no `lastFailure`. **Implementor/Reviewer:** set `agentRunning: false` on the issue identified by `issueNumber`, record `lastFailure` with `agentType`, error, session ID, and worktree path (Implementor only). |
+| `agentStarted` | **Planner:** set `plannerRunning: true`, add notification (derive `specCount` from `event.specPaths.length`), skip issue state and stream subscription. **Implementor/Reviewer:** set `agentRunning: true` and `agentType` on the issue identified by `issueNumber`. Clear any existing `agentStreams` buffer for this issue (from a previous run), then subscribe to `getAgentStream(issueNumber)` and begin buffering in `agentStreams`. |
+| `agentCompleted` | **Planner:** set `plannerRunning: false`, add notification (with `logFilePath` if present on the engine event). **Implementor:** set `agentRunning: false` on the issue, add notification with the issue URL as `contextURL` initially (and `logFilePath` if present), then call `getPRForIssue` asynchronously and update the notification's `contextURL` to the PR URL when it resolves (this is an exception to the append-only rule — in-place URL update only; no-op if the notification no longer exists). **Reviewer:** set `agentRunning: false` on the issue, mark `prDetails` as stale (Reviewer may have added approval or posted review comments), add notification (with `logFilePath` if present). |
+| `agentFailed` | **Planner:** set `plannerRunning: false`, add notification (with `logFilePath` if present on the engine event), no `lastFailure`. **Implementor/Reviewer:** set `agentRunning: false` on the issue identified by `issueNumber`, record `lastFailure` with `agentType`, error, session ID, worktree path (Implementor only), and `logFilePath` (if present). |
 | `agentSkipped` | No issue state change. Notification added. |
 | `dispatchReady` | No issue state change (the issue's status was already updated by `issueStatusChanged`). Notification added ("#{N} ready for dispatch"). |
 | `notification` (engine event) | Add notification entry to history. Map the engine event's `statusLabel` to the `EngineEventNotification.notificationType` field (`'needs-refinement'`, `'blocked'`, or `'approved'`). Set `contextURL` from the engine event's `contextURL`. For `approved` status, the engine provides the issue URL initially — the store calls `getPRForIssue` asynchronously and updates `contextURL` to the PR URL when resolved (same in-place update pattern as `agentCompleted` Implementor). If `clipboardCommand` is present, include it in the notification for `c` keybinding. Note: this is a specific engine event type for notify-only tier issues — distinct from the TUI's concept of "notifications" (all engine events appear in the notifications pane). |
@@ -315,6 +316,7 @@ type TrackedIssue = {
     error: string;
     sessionID: string;
     worktreePath?: string; // present for Implementor failures
+    logFilePath?: string; // present when engine logging.agentSessions is enabled
   };
 };
 
@@ -341,6 +343,7 @@ type AgentCompletedNotification = BaseNotification & {
   eventType: 'agentCompleted';
   agentType: 'implementor' | 'reviewer' | 'planner';
   issueNumber?: number;
+  logFilePath?: string; // present when engine logging.agentSessions is enabled
 };
 
 type AgentFailedNotification = BaseNotification & {
@@ -349,6 +352,7 @@ type AgentFailedNotification = BaseNotification & {
   issueNumber?: number;
   error: string;
   sessionID: string;
+  logFilePath?: string; // present when engine logging.agentSessions is enabled
 };
 
 type AgentSkippedNotification = BaseNotification & {
@@ -602,6 +606,8 @@ When the user presses `q`:
 - [ ] Given an `issueStatusChanged` notification, when it renders, then the format is `#{N}: {oldStatus} → {newStatus}`.
 - [ ] Given a notification with a `contextURL`, when the user presses Enter, then the URL is opened in the browser.
 - [ ] Given a Planner notification with no `contextURL`, when the user presses Enter, then nothing happens (no-op).
+- [ ] Given an `agentCompleted` or `agentFailed` notification with a `logFilePath`, when it renders, then the notification text includes a ` (logs)` suffix styled dim and rendered as an OSC 8 terminal hyperlink to `file://{logFilePath}`.
+- [ ] Given an `agentCompleted` or `agentFailed` notification without a `logFilePath`, when it renders, then no ` (logs)` suffix is shown.
 - [ ] Given an `issueRemoved` notification, when it renders, then the indicator is `−` in dim color and the content is `#{N} removed`.
 
 ### Keyboard Navigation
@@ -616,10 +622,11 @@ When the user presses `q`:
 
 ### Failure Overlay
 
-- [ ] Given the engine emits `agentFailed` for issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, and worktree path (if Implementor).
+- [ ] Given the engine emits `agentFailed` for issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, worktree path (if Implementor), and log file path (if present).
 - [ ] Given an issue has `lastFailure` set, when the issue list renders, then the issue shows an error indicator regardless of its GitHub status label.
 - [ ] Given an issue has `lastFailure` set, when the user presses Enter and confirms (retry), then `lastFailure` is cleared and the appropriate agent is dispatched (matching `lastFailure.agentType` — `dispatchImplementor` for Implementor, `dispatchReviewer` for Reviewer).
 - [ ] Given an issue has `lastFailure` set, when the issue's status changes on a subsequent non-recovery poll (`isRecovery` is false or absent), then `lastFailure` is cleared.
+- [ ] Given an issue has `lastFailure` with a `logFilePath`, when the failure overlay renders in the detail pane, then the log file path is displayed as an OSC 8 terminal hyperlink to `file://{logFilePath}`.
 
 ### Integration
 
