@@ -35,38 +35,38 @@ function setupTest() {
 // buildClosesPattern
 // ---------------------------------------------------------------------------
 
-test('buildClosesPattern matches "Closes #4" at end of line', () => {
+test('it matches a closing reference at end of line', () => {
   const pattern = buildClosesPattern(4);
   expect(pattern.test('Closes #4')).toBe(true);
 });
 
-test('buildClosesPattern matches "Closes #4" followed by whitespace', () => {
+test('it matches a closing reference followed by whitespace', () => {
   const pattern = buildClosesPattern(4);
   expect(pattern.test('Closes #4 and more text')).toBe(true);
 });
 
-test('buildClosesPattern matches "Closes #4" followed by punctuation', () => {
+test('it matches a closing reference followed by punctuation', () => {
   const pattern = buildClosesPattern(4);
   expect(pattern.test('Closes #4.')).toBe(true);
   expect(pattern.test('Closes #4, also fixes things')).toBe(true);
 });
 
-test('buildClosesPattern does not match "Closes #42" when looking for #4', () => {
+test('it does not match a closing reference with extra trailing digits', () => {
   const pattern = buildClosesPattern(4);
   expect(pattern.test('Closes #42')).toBe(false);
 });
 
-test('buildClosesPattern does not match "Closes #40" when looking for #4', () => {
+test('it does not match a closing reference whose number merely starts with the target', () => {
   const pattern = buildClosesPattern(4);
   expect(pattern.test('Closes #40')).toBe(false);
 });
 
-test('buildClosesPattern matches "Closes #4" on a new line in multiline text', () => {
+test('it matches a closing reference on a new line in multiline text', () => {
   const pattern = buildClosesPattern(4);
   expect(pattern.test('Some text\nCloses #4\nMore text')).toBe(true);
 });
 
-test('buildClosesPattern matches "Closes #4" followed by closing paren', () => {
+test('it matches a closing reference followed by a closing parenthesis', () => {
   const pattern = buildClosesPattern(4);
   expect(pattern.test('(Closes #4)')).toBe(true);
 });
@@ -75,7 +75,7 @@ test('buildClosesPattern matches "Closes #4" followed by closing paren', () => {
 // getIssueDetails
 // ---------------------------------------------------------------------------
 
-test('getIssueDetails returns issue body, labels, and creation date', async () => {
+test('it returns the body, labels, and creation date for an issue', async () => {
   const { octokit, config } = setupTest();
 
   const mockIssue = {
@@ -105,7 +105,7 @@ test('getIssueDetails returns issue body, labels, and creation date', async () =
   });
 });
 
-test('getIssueDetails handles null body', async () => {
+test('it returns an empty string when the issue body is null', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.issues.get).mockResolvedValue({
@@ -122,7 +122,7 @@ test('getIssueDetails handles null body', async () => {
   expect(result.body).toBe('');
 });
 
-test('getIssueDetails handles string labels', async () => {
+test('it extracts label names when labels are plain strings', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.issues.get).mockResolvedValue({
@@ -139,7 +139,7 @@ test('getIssueDetails handles string labels', async () => {
   expect(result.labels).toEqual(['label-a', 'label-b']);
 });
 
-test('getIssueDetails propagates API errors', async () => {
+test('it propagates API errors when fetching issue details', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.issues.get).mockRejectedValue(new Error('Not Found'));
@@ -151,7 +151,7 @@ test('getIssueDetails propagates API errors', async () => {
 // getPRForIssue
 // ---------------------------------------------------------------------------
 
-test('getPRForIssue returns PR details when a linked PR exists', async () => {
+test('it returns PR details when a linked pull request exists', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -193,7 +193,7 @@ test('getPRForIssue returns PR details when a linked PR exists', async () => {
   });
 });
 
-test('getPRForIssue returns null when no linked PR exists', async () => {
+test('it returns null when no pull request links to the issue', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -207,7 +207,7 @@ test('getPRForIssue returns null when no linked PR exists', async () => {
   expect(result).toBeNull();
 });
 
-test('getPRForIssue returns null when PR list is empty', async () => {
+test('it returns null when the pull request list is empty', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] } as never);
@@ -216,7 +216,7 @@ test('getPRForIssue returns null when PR list is empty', async () => {
   expect(result).toBeNull();
 });
 
-test('getPRForIssue uses word-boundary match and does not match Closes #42 for issue #4', async () => {
+test('it avoids false matches when the issue number is a prefix of another number', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -230,7 +230,7 @@ test('getPRForIssue uses word-boundary match and does not match Closes #42 for i
   expect(result).toBeNull();
 });
 
-test('getPRForIssue matches Closes #4 followed by period', async () => {
+test('it finds a linked PR when the closing reference is followed by a period', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -260,7 +260,7 @@ test('getPRForIssue matches Closes #4 followed by period', async () => {
   expect(result!.number).toBe(60);
 });
 
-test('getPRForIssue maps pending CI status', async () => {
+test('it reports pending CI status when checks have not completed', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -289,7 +289,7 @@ test('getPRForIssue maps pending CI status', async () => {
   expect(result!.ciStatus).toBe('pending');
 });
 
-test('getPRForIssue maps failure CI status', async () => {
+test('it reports failure CI status when status checks fail', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -318,7 +318,7 @@ test('getPRForIssue maps failure CI status', async () => {
   expect(result!.ciStatus).toBe('failure');
 });
 
-test('getPRForIssue uses check runs when present (all success)', async () => {
+test('it reports success when all check runs complete successfully', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -353,7 +353,7 @@ test('getPRForIssue uses check runs when present (all success)', async () => {
   expect(result!.ciStatus).toBe('success');
 });
 
-test('getPRForIssue uses check runs when present (one failure)', async () => {
+test('it reports failure when any check run has a failure conclusion', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -388,7 +388,7 @@ test('getPRForIssue uses check runs when present (one failure)', async () => {
   expect(result!.ciStatus).toBe('failure');
 });
 
-test('getPRForIssue uses check runs when present (in progress)', async () => {
+test('it reports pending when a check run is still in progress', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -420,7 +420,7 @@ test('getPRForIssue uses check runs when present (in progress)', async () => {
   expect(result!.ciStatus).toBe('pending');
 });
 
-test('getPRForIssue defaults to pending when CI status check fails', async () => {
+test('it defaults to pending when the CI status API call fails', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -443,7 +443,7 @@ test('getPRForIssue defaults to pending when CI status check fails', async () =>
   expect(result!.ciStatus).toBe('pending');
 });
 
-test('getPRForIssue propagates API errors from pulls.list', async () => {
+test('it propagates API errors when listing pull requests', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockRejectedValue(new Error('Rate limited'));
@@ -451,7 +451,7 @@ test('getPRForIssue propagates API errors from pulls.list', async () => {
   await expect(getPRForIssue(config, 10)).rejects.toThrow('Rate limited');
 });
 
-test('getPRForIssue handles PR with null body', async () => {
+test('it skips pull requests with a null body', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
@@ -462,7 +462,7 @@ test('getPRForIssue handles PR with null body', async () => {
   expect(result).toBeNull();
 });
 
-test('getPRForIssue matches first PR when multiple match', async () => {
+test('it returns the first matching PR when multiple link to the same issue', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({

@@ -17,16 +17,6 @@ function buildClosesPattern(issueNumber: number): RegExp {
   return new RegExp(`Closes #${issueNumber}(?=[\\s.,;:!?)\\]}]|$)`, 'm');
 }
 
-function mapCIStatus(conclusion: string | null, status: string): CIStatus {
-  if (status !== 'completed') {
-    return 'pending';
-  }
-  if (conclusion === 'success') {
-    return 'success';
-  }
-  return 'failure';
-}
-
 async function getIssueDetails(
   config: QueriesConfig,
   issueNumber: number,
@@ -82,7 +72,6 @@ async function getPRForIssue(config: QueriesConfig, issueNumber: number): Promis
     });
 
     if (combinedStatus.total_count > 0) {
-      ciStatus = mapCIStatus(null, combinedStatus.state === 'pending' ? 'pending' : 'completed');
       if (combinedStatus.state === 'success') {
         ciStatus = 'success';
       } else if (combinedStatus.state === 'failure') {
