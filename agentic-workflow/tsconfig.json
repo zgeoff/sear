@@ -1,7 +1,7 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "rootDir": "src",
+    "rootDir": ".",
     "outDir": "dist",
     "jsx": "react-jsx",
     "composite": true,
@@ -9,5 +9,5 @@
     "noUnusedParameters": false,
     "verbatimModuleSyntax": false
   },
-  "include": ["src"]
+  "include": ["src", "test-utils"]
 }

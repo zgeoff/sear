@@ -4,33 +4,25 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-type WorktreeResult = {
+export type WorktreeResult = {
   worktreePath: string;
   branch: string;
   created: boolean; // true if newly created, false if reused
 };
 
-type ExecGit = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
+export type ExecGit = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
-type WorktreeManagerDeps = {
+export type WorktreeManagerDeps = {
   repoRoot: string;
   execGit?: ExecGit;
 };
 
-type WorktreeManager = {
+export type WorktreeManager = {
   createOrReuse(issueNumber: number): Promise<WorktreeResult>;
   remove(issueNumber: number): Promise<void>;
 };
 
-function buildWorktreePath(repoRoot: string, issueNumber: number): string {
-  return resolve(repoRoot, '.worktrees', `issue-${issueNumber}`);
-}
-
-function buildBranchName(issueNumber: number): string {
-  return `issue-${issueNumber}`;
-}
-
-function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManager {
+export function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManager {
   const { repoRoot } = deps;
   const execGit: ExecGit =
     deps.execGit ?? ((args) => execFileAsync('git', args, { cwd: repoRoot }));
@@ -93,5 +85,10 @@ function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManager {
   };
 }
 
-export { createWorktreeManager, buildWorktreePath, buildBranchName };
-export type { WorktreeManager, WorktreeResult, WorktreeManagerDeps, ExecGit };
+export function buildWorktreePath(repoRoot: string, issueNumber: number): string {
+  return resolve(repoRoot, '.worktrees', `issue-${issueNumber}`);
+}
+
+export function buildBranchName(issueNumber: number): string {
+  return `issue-${issueNumber}`;
+}

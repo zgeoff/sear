@@ -1,15 +1,15 @@
-import type { EngineEvent } from '../types.js';
+import type { EngineEvent } from '../../types.js';
 
-type EventHandler = (event: EngineEvent) => void;
+export type EventHandler = (event: EngineEvent) => void;
 
-type Unsubscribe = () => void;
+export type Unsubscribe = () => void;
 
-type EventEmitter = {
+export type EventEmitter = {
   on(handler: EventHandler): Unsubscribe;
   emit(event: EngineEvent): void;
 };
 
-function createEventEmitter(): EventEmitter {
+export function createEventEmitter(): EventEmitter {
   const handlers = new Set<EventHandler>();
 
   return {
@@ -27,6 +27,3 @@ function createEventEmitter(): EventEmitter {
     },
   };
 }
-
-export { createEventEmitter };
-export type { EventEmitter, EventHandler, Unsubscribe };
