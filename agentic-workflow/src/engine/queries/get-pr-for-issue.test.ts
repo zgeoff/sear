@@ -1,28 +1,10 @@
-import type { Octokit } from '@octokit/rest';
 import { expect, test, vi } from 'vitest';
-import type { QueriesConfig } from './queries.js';
-import { buildClosesPattern, getIssueDetails, getPRForIssue } from './queries.js';
-
-function createMockOctokit() {
-  return {
-    issues: {
-      get: vi.fn(),
-    },
-    pulls: {
-      list: vi.fn(),
-      get: vi.fn(),
-    },
-    repos: {
-      getCombinedStatusForRef: vi.fn(),
-    },
-    checks: {
-      listForRef: vi.fn(),
-    },
-  } as unknown as Octokit;
-}
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.js';
+import { buildClosesPattern, getPRForIssue } from './get-pr-for-issue.js';
+import type { QueriesConfig } from './types.js';
 
 function setupTest() {
-  const octokit = createMockOctokit();
+  const octokit = createMockGitHubClient();
   const config: QueriesConfig = {
     octokit,
     owner: 'test-owner',
@@ -72,82 +54,6 @@ test('it matches a closing reference followed by a closing parenthesis', () => {
 });
 
 // ---------------------------------------------------------------------------
-// getIssueDetails
-// ---------------------------------------------------------------------------
-
-test('it returns the body, labels, and creation date for an issue', async () => {
-  const { octokit, config } = setupTest();
-
-  const mockIssue = {
-    number: 10,
-    title: 'Implement query interface',
-    body: '## Objective\n\nImplement the query interface.',
-    labels: [{ name: 'task:implement' }, { name: 'status:pending' }, { name: 'priority:medium' }],
-    created_at: '2026-02-08T10:00:00Z',
-  };
-
-  vi.mocked(octokit.issues.get).mockResolvedValue({ data: mockIssue } as never);
-
-  const result = await getIssueDetails(config, 10);
-
-  expect(result).toEqual({
-    number: 10,
-    title: 'Implement query interface',
-    body: '## Objective\n\nImplement the query interface.',
-    labels: ['task:implement', 'status:pending', 'priority:medium'],
-    createdAt: '2026-02-08T10:00:00Z',
-  });
-
-  expect(octokit.issues.get).toHaveBeenCalledWith({
-    owner: 'test-owner',
-    repo: 'test-repo',
-    issue_number: 10,
-  });
-});
-
-test('it returns an empty string when the issue body is null', async () => {
-  const { octokit, config } = setupTest();
-
-  vi.mocked(octokit.issues.get).mockResolvedValue({
-    data: {
-      number: 5,
-      title: 'No body issue',
-      body: null,
-      labels: [],
-      created_at: '2026-01-01T00:00:00Z',
-    },
-  } as never);
-
-  const result = await getIssueDetails(config, 5);
-  expect(result.body).toBe('');
-});
-
-test('it extracts label names when labels are plain strings', async () => {
-  const { octokit, config } = setupTest();
-
-  vi.mocked(octokit.issues.get).mockResolvedValue({
-    data: {
-      number: 5,
-      title: 'String labels',
-      body: 'body',
-      labels: ['label-a', 'label-b'],
-      created_at: '2026-01-01T00:00:00Z',
-    },
-  } as never);
-
-  const result = await getIssueDetails(config, 5);
-  expect(result.labels).toEqual(['label-a', 'label-b']);
-});
-
-test('it propagates API errors when fetching issue details', async () => {
-  const { octokit, config } = setupTest();
-
-  vi.mocked(octokit.issues.get).mockRejectedValue(new Error('Not Found'));
-
-  await expect(getIssueDetails(config, 999)).rejects.toThrow('Not Found');
-});
-
-// ---------------------------------------------------------------------------
 // getPRForIssue
 // ---------------------------------------------------------------------------
 
@@ -155,14 +61,8 @@ test('it returns PR details when a linked pull request exists', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [
-      {
-        number: 20,
-        body: 'Closes #10',
-        head: { sha: 'abc123' },
-      },
-    ],
-  } as never);
+    data: [{ number: 20, body: 'Closes #10' }],
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -172,15 +72,15 @@ test('it returns PR details when a linked pull request exists', async () => {
       html_url: 'https://github.com/test-owner/test-repo/pull/20',
       head: { sha: 'abc123' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 1 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: { total_count: 0, check_runs: [] },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
 
@@ -201,7 +101,7 @@ test('it returns null when no pull request links to the issue', async () => {
       { number: 30, body: 'Closes #99' },
       { number: 31, body: 'Unrelated PR' },
     ],
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result).toBeNull();
@@ -210,7 +110,7 @@ test('it returns null when no pull request links to the issue', async () => {
 test('it returns null when the pull request list is empty', async () => {
   const { octokit, config } = setupTest();
 
-  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] } as never);
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
 
   const result = await getPRForIssue(config, 10);
   expect(result).toBeNull();
@@ -224,7 +124,7 @@ test('it avoids false matches when the issue number is a prefix of another numbe
       { number: 50, body: 'Closes #42' },
       { number: 51, body: 'Closes #421' },
     ],
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 4);
   expect(result).toBeNull();
@@ -235,7 +135,7 @@ test('it finds a linked PR when the closing reference is followed by a period', 
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 60, body: 'Fixes things. Closes #4.' }],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -245,15 +145,15 @@ test('it finds a linked PR when the closing reference is followed by a period', 
       html_url: 'https://github.com/test-owner/test-repo/pull/60',
       head: { sha: 'def456' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'pending', total_count: 1 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: { total_count: 0, check_runs: [] },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 4);
   expect(result).not.toBeNull();
@@ -265,7 +165,7 @@ test('it reports pending CI status when checks have not completed', async () => 
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 70, body: 'Closes #10' }],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -275,15 +175,15 @@ test('it reports pending CI status when checks have not completed', async () => 
       html_url: 'https://github.com/test-owner/test-repo/pull/70',
       head: { sha: 'sha-pending' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'pending', total_count: 1 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: { total_count: 0, check_runs: [] },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result!.ciStatus).toBe('pending');
@@ -294,7 +194,7 @@ test('it reports failure CI status when status checks fail', async () => {
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 80, body: 'Closes #10' }],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -304,15 +204,15 @@ test('it reports failure CI status when status checks fail', async () => {
       html_url: 'https://github.com/test-owner/test-repo/pull/80',
       head: { sha: 'sha-fail' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'failure', total_count: 1 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: { total_count: 0, check_runs: [] },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result!.ciStatus).toBe('failure');
@@ -323,7 +223,7 @@ test('it reports success when all check runs complete successfully', async () =>
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 90, body: 'Closes #10' }],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -333,11 +233,11 @@ test('it reports success when all check runs complete successfully', async () =>
       html_url: 'https://github.com/test-owner/test-repo/pull/90',
       head: { sha: 'sha-checks' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: {
@@ -347,7 +247,7 @@ test('it reports success when all check runs complete successfully', async () =>
         { status: 'completed', conclusion: 'skipped' },
       ],
     },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result!.ciStatus).toBe('success');
@@ -358,7 +258,7 @@ test('it reports failure when any check run has a failure conclusion', async () 
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 91, body: 'Closes #10' }],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -368,11 +268,11 @@ test('it reports failure when any check run has a failure conclusion', async () 
       html_url: 'https://github.com/test-owner/test-repo/pull/91',
       head: { sha: 'sha-checks-fail' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: {
@@ -382,7 +282,7 @@ test('it reports failure when any check run has a failure conclusion', async () 
         { status: 'completed', conclusion: 'failure' },
       ],
     },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result!.ciStatus).toBe('failure');
@@ -393,7 +293,7 @@ test('it reports pending when a check run is still in progress', async () => {
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 92, body: 'Closes #10' }],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -403,18 +303,18 @@ test('it reports pending when a check run is still in progress', async () => {
       html_url: 'https://github.com/test-owner/test-repo/pull/92',
       head: { sha: 'sha-checks-pending' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: {
       total_count: 1,
       check_runs: [{ status: 'in_progress', conclusion: null }],
     },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result!.ciStatus).toBe('pending');
@@ -425,7 +325,7 @@ test('it defaults to pending when the CI status API call fails', async () => {
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 100, body: 'Closes #10' }],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -435,7 +335,7 @@ test('it defaults to pending when the CI status API call fails', async () => {
       html_url: 'https://github.com/test-owner/test-repo/pull/100',
       head: { sha: 'sha-error' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockRejectedValue(new Error('API error'));
 
@@ -456,7 +356,7 @@ test('it skips pull requests with a null body', async () => {
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 110, body: null }],
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result).toBeNull();
@@ -470,7 +370,7 @@ test('it returns the first matching PR when multiple link to the same issue', as
       { number: 120, body: 'Closes #10' },
       { number: 121, body: 'Also Closes #10' },
     ],
-  } as never);
+  });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -480,15 +380,15 @@ test('it returns the first matching PR when multiple link to the same issue', as
       html_url: 'https://github.com/test-owner/test-repo/pull/120',
       head: { sha: 'sha-first' },
     },
-  } as never);
+  });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
-  } as never);
+  });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: { total_count: 0, check_runs: [] },
-  } as never);
+  });
 
   const result = await getPRForIssue(config, 10);
   expect(result!.number).toBe(120);

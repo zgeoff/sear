@@ -5,7 +5,7 @@ import {
   buildWorktreePath,
   createWorktreeManager,
   type ExecGit,
-} from './worktree-manager.js';
+} from './create-worktree-manager.js';
 
 type GitCall = { args: string[] };
 

@@ -1,5 +1,6 @@
-import type { Octokit } from '@octokit/rest';
 import type { SpecChange, SpecPollerBatchResult } from '../../types.js';
+import type { GitHubClient } from '../github-client.js';
+import { parseFrontmatterStatus } from './parse-frontmatter-status.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -8,7 +9,7 @@ import type { SpecChange, SpecPollerBatchResult } from '../../types.js';
 export type LogError = (message: string, error: unknown) => void;
 
 type SpecPollerConfig = {
-  octokit: Octokit;
+  octokit: GitHubClient;
   owner: string;
   repo: string;
   specsDir: string;
@@ -21,20 +22,6 @@ type SpecSnapshot = {
   fileSHAs: Map<string, string>; // filePath -> blob SHA
   fileStatuses: Map<string, string>; // filePath -> frontmatterStatus
 };
-
-// ---------------------------------------------------------------------------
-// Frontmatter parsing
-// ---------------------------------------------------------------------------
-
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---/;
-const STATUS_RE = /^status:\s*(.+)$/m;
-
-export function parseFrontmatterStatus(content: string): string | null {
-  const fmMatch = FRONTMATTER_RE.exec(content);
-  if (!fmMatch?.[1]) return null;
-  const statusMatch = STATUS_RE.exec(fmMatch[1]);
-  return statusMatch?.[1]?.trim() ?? null;
-}
 
 // ---------------------------------------------------------------------------
 // SpecPoller

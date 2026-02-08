@@ -6,9 +6,9 @@ import type {
   DispatchReviewerCommand,
   EngineCommand,
   ShutdownCommand,
-} from '../types.js';
+} from '../../types.js';
 
-type CommandHandlers = {
+export type CommandHandlers = {
   dispatchImplementor(command: DispatchImplementorCommand): void;
   dispatchReviewer(command: DispatchReviewerCommand): void;
   cancelAgent(command: CancelAgentCommand): void;
@@ -16,11 +16,11 @@ type CommandHandlers = {
   shutdown(command: ShutdownCommand): void;
 };
 
-type CommandDispatcher = {
+export type CommandDispatcher = {
   dispatch(command: EngineCommand): void;
 };
 
-function createCommandDispatcher(handlers: CommandHandlers): CommandDispatcher {
+export function createCommandDispatcher(handlers: CommandHandlers): CommandDispatcher {
   return {
     dispatch(command) {
       match(command)
@@ -33,6 +33,3 @@ function createCommandDispatcher(handlers: CommandHandlers): CommandDispatcher {
     },
   };
 }
-
-export { createCommandDispatcher };
-export type { CommandDispatcher, CommandHandlers };
