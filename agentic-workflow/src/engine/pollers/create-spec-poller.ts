@@ -1,7 +1,7 @@
-import type { SpecChange, SpecPollerBatchResult } from '../../types.js';
-import type { GitHubClient } from '../github-client/types.js';
-import { parseFrontmatterStatus } from './parse-frontmatter-status.js';
-import type { LogError, SpecPoller } from './types.js';
+import type { SpecChange, SpecPollerBatchResult } from '../../types';
+import type { GitHubClient } from '../github-client/types';
+import { parseFrontmatterStatus } from './parse-frontmatter-status';
+import type { LogError, SpecPoller } from './types';
 
 type SpecPollerConfig = {
   octokit: GitHubClient;

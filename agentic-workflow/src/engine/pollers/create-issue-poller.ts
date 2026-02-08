@@ -1,7 +1,7 @@
-import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types.js';
-import type { EventEmitter } from '../event-emitter/types.js';
-import type { GitHubClient } from '../github-client/types.js';
-import type { IssuePoller, IssueSnapshot } from './types.js';
+import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types';
+import type { EventEmitter } from '../event-emitter/types';
+import type { GitHubClient } from '../github-client/types';
+import type { IssuePoller, IssueSnapshot } from './types';
 
 type IssuePollerConfig = {
   octokit: GitHubClient;

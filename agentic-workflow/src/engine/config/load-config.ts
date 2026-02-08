@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
-import { buildResolvedConfig } from './build-resolved-config.js';
-import type { ResolvedEngineConfig } from './types.js';
-import { validateConfig } from './validate-config.js';
+import { buildResolvedConfig } from './build-resolved-config';
+import type { ResolvedEngineConfig } from './types';
+import { validateConfig } from './validate-config';
 
 export type LogError = (message: string) => void;
 

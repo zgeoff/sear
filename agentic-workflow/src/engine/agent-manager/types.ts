@@ -1,7 +1,7 @@
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentStream, AgentType } from '../../types.js';
-import type { EventEmitter } from '../event-emitter/types.js';
-import type { WorktreeManager } from '../worktree-manager/types.js';
+import type { AgentStream, AgentType } from '../../types';
+import type { EventEmitter } from '../event-emitter/types';
+import type { WorktreeManager } from '../worktree-manager/types';
 
 export type AgentSessionTracker = {
   agentType: AgentType;

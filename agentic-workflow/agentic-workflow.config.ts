@@ -1,4 +1,4 @@
-import type { EngineConfig } from './src/types.js';
+import type { EngineConfig } from './src/types';
 
 const config: EngineConfig = {
   // Required: GitHub repository in owner/repo format

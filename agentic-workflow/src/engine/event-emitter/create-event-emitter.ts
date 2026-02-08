@@ -1,4 +1,4 @@
-import type { EventEmitter, EventHandler } from './types.js';
+import type { EventEmitter, EventHandler } from './types';
 
 export function createEventEmitter(): EventEmitter {
   const handlers = new Set<EventHandler>();

@@ -412,7 +412,7 @@ export type Recovery = {
 };
 
 // recovery/create-recovery.ts — imports types, keeps internals private
-import type { RecoveryConfig, Recovery } from './types.js';
+import type { RecoveryConfig, Recovery } from './types';
 
 // Internal-only type — fine to keep here, not exported
 type SnapshotCache = Map<number, IssueSnapshotEntry>;

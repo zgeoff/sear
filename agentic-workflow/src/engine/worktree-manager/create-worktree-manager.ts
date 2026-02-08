@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { ExecGit, WorktreeManager, WorktreeManagerDeps } from './types.js';
+import type { ExecGit, WorktreeManager, WorktreeManagerDeps } from './types';
 
 const execFileAsync = promisify(execFile);
 

@@ -1,4 +1,4 @@
-import type { EngineEvent } from '../../types.js';
+import type { EngineEvent } from '../../types';
 
 export type EventHandler = (event: EngineEvent) => void;
 

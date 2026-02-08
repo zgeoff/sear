@@ -4,9 +4,9 @@ import type {
   IssueStatusChangedEvent,
   NotificationEvent,
   SpecPollerBatchResult,
-} from '../../types.js';
-import type { EventEmitter } from '../event-emitter/types.js';
-import type { AgentManagerDelegate, Dispatch, DispatchConfig } from './types.js';
+} from '../../types';
+import type { EventEmitter } from '../event-emitter/types';
+import type { AgentManagerDelegate, Dispatch, DispatchConfig } from './types';
 
 // ---------------------------------------------------------------------------
 // Constants

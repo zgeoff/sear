@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.js';
-import { buildClosesPattern, getPRForIssue } from './get-pr-for-issue.js';
-import type { QueriesConfig } from './types.js';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
+import { buildClosesPattern, getPRForIssue } from './get-pr-for-issue';
+import type { QueriesConfig } from './types';
 
 function setupTest() {
   const octokit = createMockGitHubClient();

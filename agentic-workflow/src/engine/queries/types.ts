@@ -1,4 +1,4 @@
-import type { GitHubClient } from '../github-client/types.js';
+import type { GitHubClient } from '../github-client/types';
 
 export type QueriesConfig = {
   octokit: GitHubClient;

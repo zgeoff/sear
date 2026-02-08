@@ -1,7 +1,7 @@
 import { expect, test, vi } from 'vitest';
-import type { EngineCommand } from '../../types.js';
-import { createCommandDispatcher } from './create-command-dispatcher.js';
-import type { CommandHandlers } from './types.js';
+import type { EngineCommand } from '../../types';
+import { createCommandDispatcher } from './create-command-dispatcher';
+import type { CommandHandlers } from './types';
 
 function setupTest() {
   const handlers: CommandHandlers = {

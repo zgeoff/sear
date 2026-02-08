@@ -1,6 +1,6 @@
-import type { AgentType } from '../../types.js';
-import type { EventEmitter } from '../event-emitter/types.js';
-import type { GitHubClient } from '../github-client/types.js';
+import type { AgentType } from '../../types';
+import type { EventEmitter } from '../event-emitter/types';
+import type { GitHubClient } from '../github-client/types';
 
 export type IssueSnapshotEntry = {
   issueNumber: number;

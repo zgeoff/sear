@@ -6,13 +6,8 @@ import type {
   AgentSkippedEvent,
   AgentStartedEvent,
   AgentType,
-} from '../../types.js';
-import type {
-  AgentManager,
-  AgentManagerDeps,
-  AgentSessionTracker,
-  OutputListener,
-} from './types.js';
+} from '../../types';
+import type { AgentManager, AgentManagerDeps, AgentSessionTracker, OutputListener } from './types';
 
 export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const {

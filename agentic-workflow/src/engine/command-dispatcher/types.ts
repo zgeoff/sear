@@ -5,7 +5,7 @@ import type {
   DispatchReviewerCommand,
   EngineCommand,
   ShutdownCommand,
-} from '../../types.js';
+} from '../../types';
 
 export type CommandHandlers = {
   dispatchImplementor(command: DispatchImplementorCommand): void;

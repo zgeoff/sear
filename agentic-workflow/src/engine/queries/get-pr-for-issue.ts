@@ -1,5 +1,5 @@
-import type { PRDetailsResult } from '../../types.js';
-import type { CIStatus, QueriesConfig } from './types.js';
+import type { PRDetailsResult } from '../../types';
+import type { CIStatus, QueriesConfig } from './types';
 
 export async function getPRForIssue(
   config: QueriesConfig,

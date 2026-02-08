@@ -1,5 +1,5 @@
-import type { IssueDetailsResult } from '../../types.js';
-import type { QueriesConfig } from './types.js';
+import type { IssueDetailsResult } from '../../types';
+import type { QueriesConfig } from './types';
 
 export async function getIssueDetails(
   config: QueriesConfig,
