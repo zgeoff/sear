@@ -12,9 +12,9 @@ test('it applies all default values when optional fields are omitted', () => {
   expect(resolved.specPoller.pollInterval).toBe(60);
   expect(resolved.specPoller.specsDir).toBe('docs/specs/');
   expect(resolved.specPoller.defaultBranch).toBe('main');
-  expect(resolved.agents.agentFilePlanner).toBe('.claude/agents/planner.md');
-  expect(resolved.agents.agentFileImplementor).toBe('.claude/agents/implementor.md');
-  expect(resolved.agents.agentFileReviewer).toBe('.claude/agents/reviewer.md');
+  expect(resolved.agents.agentPlanner).toBe('planner');
+  expect(resolved.agents.agentImplementor).toBe('implementor');
+  expect(resolved.agents.agentReviewer).toBe('reviewer');
   expect(resolved.agents.maxAgentDuration).toBe(1800);
 });
 
@@ -39,9 +39,9 @@ test('it uses provided optional values instead of defaults', () => {
       defaultBranch: 'develop',
     },
     agents: {
-      agentFilePlanner: 'custom/planner.md',
-      agentFileImplementor: 'custom/implementor.md',
-      agentFileReviewer: 'custom/reviewer.md',
+      agentPlanner: 'custom-planner',
+      agentImplementor: 'custom-implementor',
+      agentReviewer: 'custom-reviewer',
       maxAgentDuration: 3600,
     },
   });
@@ -53,9 +53,9 @@ test('it uses provided optional values instead of defaults', () => {
   expect(resolved.specPoller.pollInterval).toBe(120);
   expect(resolved.specPoller.specsDir).toBe('custom/specs/');
   expect(resolved.specPoller.defaultBranch).toBe('develop');
-  expect(resolved.agents.agentFilePlanner).toBe('custom/planner.md');
-  expect(resolved.agents.agentFileImplementor).toBe('custom/implementor.md');
-  expect(resolved.agents.agentFileReviewer).toBe('custom/reviewer.md');
+  expect(resolved.agents.agentPlanner).toBe('custom-planner');
+  expect(resolved.agents.agentImplementor).toBe('custom-implementor');
+  expect(resolved.agents.agentReviewer).toBe('custom-reviewer');
   expect(resolved.agents.maxAgentDuration).toBe(3600);
 });
 
