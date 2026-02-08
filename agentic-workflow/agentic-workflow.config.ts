@@ -29,9 +29,9 @@ const config: EngineConfig = {
 
   // Optional: Agent settings
   // agents: {
-  //   agentFilePlanner: '.claude/agents/planner.md',
-  //   agentFileImplementor: '.claude/agents/implementor.md',
-  //   agentFileReviewer: '.claude/agents/reviewer.md',
+  //   agentPlanner: 'planner',
+  //   agentImplementor: 'implementor',
+  //   agentReviewer: 'reviewer',
   //   maxAgentDuration: 1800, // seconds before agent is cancelled
   // },
 };
