@@ -5,12 +5,15 @@ import type { SpecChange, SpecPollerBatchResult } from '../../types.js';
 // Types
 // ---------------------------------------------------------------------------
 
+export type LogError = (message: string, error: unknown) => void;
+
 type SpecPollerConfig = {
   octokit: Octokit;
   owner: string;
   repo: string;
   specsDir: string;
   defaultBranch: string;
+  logError?: LogError;
 };
 
 type SpecSnapshot = {
@@ -44,7 +47,7 @@ export type SpecPoller = {
 const EMPTY_RESULT: SpecPollerBatchResult = { changes: [], commitSHA: '' };
 
 export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
-  const { octokit, owner, repo, specsDir, defaultBranch } = config;
+  const { octokit, owner, repo, specsDir, defaultBranch, logError = console.error } = config;
 
   const snapshot: SpecSnapshot = {
     treeSHA: null,
@@ -134,7 +137,9 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
 
           changes.push({ filePath, frontmatterStatus: status });
           snapshot.fileStatuses.set(filePath, status);
-        } catch {}
+        } catch (error) {
+          logError(`Failed to fetch spec content for ${filePath}`, error);
+        }
       }
 
       // Update blob SHAs in snapshot for all current files
@@ -157,8 +162,8 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
       snapshot.treeSHA = currentTreeSHA;
 
       return { changes, commitSHA };
-    } catch {
-      // GitHub API error -- return empty result without crashing
+    } catch (error) {
+      logError('SpecPoller poll cycle failed', error);
       return EMPTY_RESULT;
     }
   }

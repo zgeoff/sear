@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { createSpecPoller, parseFrontmatterStatus } from './spec-poller.js';
+import { createSpecPoller, type LogError, parseFrontmatterStatus } from './spec-poller.js';
 
 // ---------------------------------------------------------------------------
 // Mock Octokit factory
@@ -64,18 +64,21 @@ type SetupOptions = {
   handlers?: Partial<MockOctokitHandlers>;
   specsDir?: string;
   defaultBranch?: string;
+  logError?: LogError;
 };
 
 function setupTest(options: SetupOptions = {}) {
   const octokit = buildMockOctokit(options.handlers);
+  const logError = options.logError ?? vi.fn();
   const poller = createSpecPoller({
     octokit: octokit as never,
     owner: 'test-owner',
     repo: 'test-repo',
     specsDir: options.specsDir ?? 'docs/specs/',
     defaultBranch: options.defaultBranch ?? 'main',
+    logError,
   });
-  return { octokit, poller };
+  return { octokit, poller, logError };
 }
 
 // ---------------------------------------------------------------------------
@@ -115,26 +118,26 @@ function buildTreeHandlers(specsDirTreeSHA: string, specFiles: TreeEntry[]) {
 // parseFrontmatterStatus
 // ---------------------------------------------------------------------------
 
-test('parseFrontmatterStatus extracts status from valid frontmatter', () => {
+test('it extracts the status from valid frontmatter', () => {
   const content = buildSpecContent('approved');
   expect(parseFrontmatterStatus(content)).toBe('approved');
 });
 
-test('parseFrontmatterStatus extracts draft status', () => {
+test('it extracts draft status from frontmatter', () => {
   const content = buildSpecContent('draft');
   expect(parseFrontmatterStatus(content)).toBe('draft');
 });
 
-test('parseFrontmatterStatus returns null when no frontmatter exists', () => {
+test('it returns null when the content has no frontmatter', () => {
   expect(parseFrontmatterStatus('# Just a heading\n\nNo frontmatter.')).toBeNull();
 });
 
-test('parseFrontmatterStatus returns null when frontmatter has no status', () => {
+test('it returns null when the frontmatter has no status field', () => {
   const content = '---\ntitle: Test\nversion: 0.1.0\n---\n\n# Content';
   expect(parseFrontmatterStatus(content)).toBeNull();
 });
 
-test('parseFrontmatterStatus trims whitespace from status value', () => {
+test('it trims whitespace from the status value', () => {
   const content = '---\nstatus:   approved  \n---\n\nContent';
   expect(parseFrontmatterStatus(content)).toBe('approved');
 });
@@ -143,7 +146,7 @@ test('parseFrontmatterStatus trims whitespace from status value', () => {
 // SpecPoller — single API call for tree SHA
 // ---------------------------------------------------------------------------
 
-test('poll uses a single API call to fetch the specs directory tree SHA', async () => {
+test('it fetches the specs directory tree SHA with a single recursive API call', async () => {
   const specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
 
   const handlers = {
@@ -171,7 +174,7 @@ test('poll uses a single API call to fetch the specs directory tree SHA', async 
 // SpecPoller — tree SHA unchanged (no further API calls)
 // ---------------------------------------------------------------------------
 
-test('poll returns empty result and makes no content calls when tree SHA is unchanged', async () => {
+test('it returns an empty result and skips content calls when the tree SHA is unchanged', async () => {
   const specFiles = [{ path: 'workflow/engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
 
   const handlers = {
@@ -210,7 +213,7 @@ test('poll returns empty result and makes no content calls when tree SHA is unch
 // SpecPoller — detects new files
 // ---------------------------------------------------------------------------
 
-test('poll detects new spec files and returns changes with frontmatter status', async () => {
+test('it detects new spec files and returns their frontmatter status', async () => {
   const specFiles = [
     { path: 'workflow/engine.md', sha: 'blob-sha-1', type: 'blob' as const },
     { path: 'workflow/tui.md', sha: 'blob-sha-2', type: 'blob' as const },
@@ -251,7 +254,7 @@ test('poll detects new spec files and returns changes with frontmatter status', 
 // SpecPoller — detects modified files
 // ---------------------------------------------------------------------------
 
-test('poll detects modified files when blob SHA changes', async () => {
+test('it detects modified files when the blob SHA changes between polls', async () => {
   let specsDirTreeSHA = 'specs-tree-sha-1';
   let specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
   let engineContent = buildSpecContent('draft');
@@ -300,7 +303,7 @@ test('poll detects modified files when blob SHA changes', async () => {
 // SpecPoller — detects removed files
 // ---------------------------------------------------------------------------
 
-test('poll removes deleted files from snapshot without including them in result', async () => {
+test('it removes deleted files from the snapshot without including them in the result', async () => {
   let specsDirTreeSHA = 'specs-tree-sha-1';
   let specFiles: TreeEntry[] = [
     { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
@@ -366,7 +369,8 @@ test('poll removes deleted files from snapshot without including them in result'
 // SpecPoller — GitHub API error returns empty result
 // ---------------------------------------------------------------------------
 
-test('poll returns empty result on GitHub API error without crashing', async () => {
+test('it returns an empty result on GitHub API error without crashing', async () => {
+  const logError = vi.fn();
   const octokit = buildMockOctokit();
   octokit.git.getTree.mockRejectedValue(new Error('GitHub API rate limit exceeded'));
 
@@ -376,18 +380,20 @@ test('poll returns empty result on GitHub API error without crashing', async () 
     repo: 'test-repo',
     specsDir: 'docs/specs/',
     defaultBranch: 'main',
+    logError,
   });
 
   const result = await poller.poll();
   expect(result.changes).toHaveLength(0);
   expect(result.commitSHA).toBe('');
+  expect(logError).toHaveBeenCalledWith('SpecPoller poll cycle failed', expect.any(Error));
 });
 
 // ---------------------------------------------------------------------------
 // SpecPoller — specs directory not found
 // ---------------------------------------------------------------------------
 
-test('poll returns empty result when specs directory does not exist in tree', async () => {
+test('it returns an empty result when the specs directory does not exist in the tree', async () => {
   const handlers = {
     getTree: () => ({
       data: {
@@ -408,7 +414,7 @@ test('poll returns empty result when specs directory does not exist in tree', as
 // SpecPoller — HEAD commit SHA fetched only for changed cycles
 // ---------------------------------------------------------------------------
 
-test('poll fetches HEAD commit SHA only when changes are detected', async () => {
+test('it fetches the HEAD commit SHA only when changes are detected', async () => {
   const specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
 
   // File has no parseable frontmatter -- will be skipped
@@ -435,7 +441,7 @@ test('poll fetches HEAD commit SHA only when changes are detected', async () => 
 // SpecPoller — file content fetch failure skips file
 // ---------------------------------------------------------------------------
 
-test('poll skips files whose content fetch fails and continues with others', async () => {
+test('it skips files whose content fetch fails and continues with others', async () => {
   const specFiles = [
     { path: 'good.md', sha: 'blob-sha-1', type: 'blob' as const },
     { path: 'bad.md', sha: 'blob-sha-2', type: 'blob' as const },
@@ -457,19 +463,23 @@ test('poll skips files whose content fetch fails and continues with others', asy
     getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
   };
 
-  const { poller } = setupTest({ handlers });
+  const { poller, logError } = setupTest({ handlers });
   const result = await poller.poll();
 
   expect(result.changes).toHaveLength(1);
   expect(result.changes[0]?.filePath).toBe('docs/specs/good.md');
   expect(result.commitSHA).toBe('commit-sha');
+  expect(logError).toHaveBeenCalledWith(
+    'Failed to fetch spec content for docs/specs/bad.md',
+    expect.any(Error),
+  );
 });
 
 // ---------------------------------------------------------------------------
 // SpecPoller — unchanged blob SHA skips content fetch
 // ---------------------------------------------------------------------------
 
-test('poll does not fetch content for files with unchanged blob SHA', async () => {
+test('it does not fetch content for files with unchanged blob SHA', async () => {
   let specsDirTreeSHA = 'specs-tree-sha-1';
   let specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
 
@@ -528,7 +538,7 @@ test('poll does not fetch content for files with unchanged blob SHA', async () =
 // SpecPoller — first poll with empty snapshot
 // ---------------------------------------------------------------------------
 
-test('poll treats first cycle as all files being new', async () => {
+test('it treats the first poll cycle as all files being new', async () => {
   const specFiles = [
     { path: 'a.md', sha: 'sha-a', type: 'blob' as const },
     { path: 'b.md', sha: 'sha-b', type: 'blob' as const },
@@ -557,7 +567,7 @@ test('poll treats first cycle as all files being new', async () => {
 // SpecPoller — tree entries of type 'tree' (subdirectories) are ignored
 // ---------------------------------------------------------------------------
 
-test('poll ignores tree entries that are not blobs', async () => {
+test('it ignores tree entries that are not blobs', async () => {
   const specFiles: TreeEntry[] = [
     { path: 'workflow', sha: 'subdir-sha', type: 'tree' },
     { path: 'workflow/engine.md', sha: 'blob-sha-1', type: 'blob' },
