@@ -1300,7 +1300,9 @@ const RAW_RUNTIME_STATE =
           ["@octokit/rest", "npm:22.0.0"],\
           ["@sear/agentic-workflow", "workspace:agentic-workflow"],\
           ["@types/node", "npm:25.2.2"],\
+          ["@types/react", "npm:19.2.13"],\
           ["ink", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.2.0"],\
+          ["ink-testing-library", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.0.0"],\
           ["react", "npm:18.3.1"],\
           ["ts-pattern", "npm:5.7.1"],\
           ["tsx", "npm:4.20.3"],\
@@ -1369,6 +1371,16 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["@types/node", "npm:25.2.2"],\
           ["undici-types", "npm:7.16.0"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["@types/react", [\
+      ["npm:19.2.13", {\
+        "packageLocation": "./.yarn/cache/@types-react-npm-19.2.13-19be05944a-e512dc53b8.zip/node_modules/@types/react/",\
+        "packageDependencies": [\
+          ["@types/react", "npm:19.2.13"],\
+          ["csstype", "npm:3.2.3"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -1635,6 +1647,15 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/convert-to-spaces-npm-2.0.1-c08fae1ac6-d90aa0e3b6.zip/node_modules/convert-to-spaces/",\
         "packageDependencies": [\
           ["convert-to-spaces", "npm:2.0.1"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["csstype", [\
+      ["npm:3.2.3", {\
+        "packageLocation": "./.yarn/cache/csstype-npm-3.2.3-741053244e-cd29c51e70.zip/node_modules/csstype/",\
+        "packageDependencies": [\
+          ["csstype", "npm:3.2.3"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -2000,7 +2021,7 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/__virtual__/ink-virtual-a44fc609c1/0/cache/ink-npm-5.2.0-b7b8889cf6-5fdf8097d7.zip/node_modules/ink/",\
         "packageDependencies": [\
           ["@alcalzone/ansi-tokenize", "npm:0.1.3"],\
-          ["@types/react", null],\
+          ["@types/react", "npm:19.2.13"],\
           ["@types/react-devtools-core", null],\
           ["ansi-escapes", "npm:7.3.0"],\
           ["ansi-styles", "npm:6.2.3"],\
@@ -2033,6 +2054,32 @@ const RAW_RUNTIME_STATE =
           "@types/react-devtools-core",\
           "@types/react",\
           "react-devtools-core",\
+          "react"\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["ink-testing-library", [\
+      ["npm:4.0.0", {\
+        "packageLocation": "./.yarn/cache/ink-testing-library-npm-4.0.0-06cc10e681-88d9b70c1e.zip/node_modules/ink-testing-library/",\
+        "packageDependencies": [\
+          ["ink-testing-library", "npm:4.0.0"]\
+        ],\
+        "linkType": "SOFT"\
+      }],\
+      ["virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.0.0", {\
+        "packageLocation": "./.yarn/__virtual__/ink-testing-library-virtual-013ca5d901/0/cache/ink-testing-library-npm-4.0.0-06cc10e681-88d9b70c1e.zip/node_modules/ink-testing-library/",\
+        "packageDependencies": [\
+          ["@types/ink", null],\
+          ["@types/react", "npm:19.2.13"],\
+          ["ink", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.2.0"],\
+          ["ink-testing-library", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.0.0"],\
+          ["react", "npm:18.3.1"]\
+        ],\
+        "packagePeers": [\
+          "@types/ink",\
+          "@types/react",\
+          "ink",\
           "react"\
         ],\
         "linkType": "HARD"\
@@ -2541,7 +2588,7 @@ const RAW_RUNTIME_STATE =
       ["virtual:a44fc609c1845e08bb35a0b72337e2970f594b48dbf1415f9d8940b1d73806dcfda6aa890f21d96973ae37ca9b22a955b3a610c25af9c21cbd68dc36c12b4fa7#npm:0.29.2", {\
         "packageLocation": "./.yarn/__virtual__/react-reconciler-virtual-e5edaa94d7/0/cache/react-reconciler-npm-0.29.2-9982426dcb-94f48ddc34.zip/node_modules/react-reconciler/",\
         "packageDependencies": [\
-          ["@types/react", null],\
+          ["@types/react", "npm:19.2.13"],\
           ["loose-envify", "npm:1.4.0"],\
           ["react", "npm:18.3.1"],\
           ["react-reconciler", "virtual:a44fc609c1845e08bb35a0b72337e2970f594b48dbf1415f9d8940b1d73806dcfda6aa890f21d96973ae37ca9b22a955b3a610c25af9c21cbd68dc36c12b4fa7#npm:0.29.2"],\
@@ -3247,7 +3294,7 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/__virtual__/zustand-virtual-08fbad78da/0/cache/zustand-npm-5.0.11-306837c672-61836b48da.zip/node_modules/zustand/",\
         "packageDependencies": [\
           ["@types/immer", null],\
-          ["@types/react", null],\
+          ["@types/react", "npm:19.2.13"],\
           ["@types/use-sync-external-store", null],\
           ["immer", null],\
           ["react", "npm:18.3.1"],\
