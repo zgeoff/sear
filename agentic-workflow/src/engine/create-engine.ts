@@ -76,6 +76,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     queryFactory: deps?.queryFactory ?? buildQueryFactory(),
     loggingEnabled: resolved.logging.agentSessions,
     logsDir: resolved.logging.logsDir,
+    logError: (message, error) => logger.error(message, { error: String(error) }),
   });
 
   const dispatch = createDispatch(

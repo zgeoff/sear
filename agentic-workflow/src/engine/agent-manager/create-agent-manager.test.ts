@@ -108,7 +108,7 @@ type SetupOverrides = {
   logsDir?: string;
 };
 
-function setupTest(overrides?: Partial<SetupOverrides>): SetupContext {
+function setupTest(overrides?: SetupOverrides): SetupContext {
   const emitter = createEventEmitter();
   const worktreeManager = createMockWorktreeManager();
   const events: EngineEvent[] = [];
@@ -135,6 +135,7 @@ function setupTest(overrides?: Partial<SetupOverrides>): SetupContext {
     queryFactory,
     loggingEnabled: overrides?.loggingEnabled ?? false,
     logsDir: overrides?.logsDir ?? '/tmp/logs',
+    logError: () => {},
   });
 
   return { manager, emitter, worktreeManager, events, mockQueries, queryParams };

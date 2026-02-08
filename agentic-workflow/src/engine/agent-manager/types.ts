@@ -28,6 +28,8 @@ export type QueryFactoryParams = {
   abortController: AbortController;
 };
 
+export type LogError = (message: string, error: unknown) => void;
+
 export type AgentManagerDeps = {
   emitter: EventEmitter;
   worktreeManager: WorktreeManager;
@@ -39,6 +41,7 @@ export type AgentManagerDeps = {
   queryFactory: QueryFactory;
   loggingEnabled: boolean;
   logsDir: string;
+  logError: LogError;
 };
 
 export type DispatchImplementorParams = {

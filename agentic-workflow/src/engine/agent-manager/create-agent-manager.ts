@@ -27,6 +27,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     queryFactory,
     loggingEnabled,
     logsDir,
+    logError,
   } = deps;
 
   const issueAgents = new Map<number, AgentSessionTracker>();
@@ -457,9 +458,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     try {
       await appendFile(logger.logFilePath, content);
-    } catch {
+    } catch (error) {
       // Write failure is non-fatal — disable logging for the remainder of this session
       logger.disabled = true;
+      logError('Agent session log write failed', error);
     }
   }
 }
