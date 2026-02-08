@@ -1,0 +1,97 @@
+import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+
+type WorktreeResult = {
+  worktreePath: string;
+  branch: string;
+  created: boolean; // true if newly created, false if reused
+};
+
+type ExecGit = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
+
+type WorktreeManagerDeps = {
+  repoRoot: string;
+  execGit?: ExecGit;
+};
+
+type WorktreeManager = {
+  createOrReuse(issueNumber: number): Promise<WorktreeResult>;
+  remove(issueNumber: number): Promise<void>;
+};
+
+function buildWorktreePath(repoRoot: string, issueNumber: number): string {
+  return resolve(repoRoot, '.worktrees', `issue-${issueNumber}`);
+}
+
+function buildBranchName(issueNumber: number): string {
+  return `issue-${issueNumber}`;
+}
+
+function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManager {
+  const { repoRoot } = deps;
+  const execGit: ExecGit =
+    deps.execGit ?? ((args) => execFileAsync('git', args, { cwd: repoRoot }));
+
+  async function listWorktrees(): Promise<string[]> {
+    const { stdout } = await execGit(['worktree', 'list', '--porcelain']);
+    const paths: string[] = [];
+    for (const line of stdout.split('\n')) {
+      if (line.startsWith('worktree ')) {
+        paths.push(line.slice('worktree '.length));
+      }
+    }
+    return paths;
+  }
+
+  async function branchExists(branch: string): Promise<boolean> {
+    try {
+      await execGit(['rev-parse', '--verify', `refs/heads/${branch}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function worktreeIsRegistered(worktreePath: string): Promise<boolean> {
+    const paths = await listWorktrees();
+    return paths.includes(worktreePath);
+  }
+
+  return {
+    async createOrReuse(issueNumber) {
+      const worktreePath = buildWorktreePath(repoRoot, issueNumber);
+      const branch = buildBranchName(issueNumber);
+
+      const registered = await worktreeIsRegistered(worktreePath);
+      if (registered) {
+        return { worktreePath, branch, created: false };
+      }
+
+      const hasBranch = await branchExists(branch);
+
+      if (hasBranch) {
+        // Branch exists but worktree is not registered.
+        // This can happen when the worktree directory was manually deleted.
+        // Prune stale worktree entries, then re-add pointing at the existing branch.
+        await execGit(['worktree', 'prune']);
+        await execGit(['worktree', 'add', worktreePath, branch]);
+        return { worktreePath, branch, created: false };
+      }
+
+      // Fresh: create a new branch from main and attach it to a new worktree.
+      await execGit(['worktree', 'add', '-b', branch, worktreePath, 'main']);
+      return { worktreePath, branch, created: true };
+    },
+
+    async remove(issueNumber) {
+      const worktreePath = buildWorktreePath(repoRoot, issueNumber);
+      await execGit(['worktree', 'remove', worktreePath, '--force']);
+    },
+  };
+}
+
+export { createWorktreeManager, buildWorktreePath, buildBranchName };
+export type { WorktreeManager, WorktreeResult, WorktreeManagerDeps, ExecGit };
