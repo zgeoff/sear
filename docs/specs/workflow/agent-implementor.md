@@ -273,6 +273,7 @@ Any unresolved items, blocker references, or follow-up needed.
 - `gh` CLI -- Authenticated via `scripts/workflow/gh.sh` wrapper (see `github-cli.md`).
 - Project testing framework -- Tests must be runnable locally via the commands defined in `CLAUDE.md`.
 - `CLAUDE.md` -- Code style, naming conventions, and patterns that the agent must conform to.
+- Agent Bash Tool Validator (`scripts/workflow/validate-bash.sh`) -- PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-tool-bash-validator.md`.
 
 ## References
 
