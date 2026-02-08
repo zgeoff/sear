@@ -146,40 +146,40 @@ function resolveIssueState(
   }
 
   return match(issue.statusLabel)
-    .with(P.union('pending', 'unblocked', 'needs-changes'), () => {
+    .with(P.union('pending', 'unblocked', 'needs-changes'), (): IssueState => {
       const details = issueDetails.get(issue.number);
       if (!details) {
-        return { view: 'loading', issue } as IssueState;
+        return { view: 'loading', issue };
       }
-      return { view: 'issueDetails', issue, details } as IssueState;
+      return { view: 'issueDetails', issue, details };
     })
-    .with('review', () => {
+    .with('review', (): IssueState => {
       const pr = prDetails.get(issue.number);
       if (!pr) {
-        return { view: 'loading', issue } as IssueState;
+        return { view: 'loading', issue };
       }
-      return { view: 'prSummary', issue, pr } as IssueState;
+      return { view: 'prSummary', issue, pr };
     })
-    .with(P.union('needs-refinement', 'blocked'), () => {
+    .with(P.union('needs-refinement', 'blocked'), (): IssueState => {
       const details = issueDetails.get(issue.number);
       if (!details) {
-        return { view: 'loading', issue } as IssueState;
+        return { view: 'loading', issue };
       }
-      return { view: 'issueDetailsWithGuidance', issue, details } as IssueState;
+      return { view: 'issueDetailsWithGuidance', issue, details };
     })
-    .with('approved', () => {
+    .with('approved', (): IssueState => {
       const pr = prDetails.get(issue.number);
       if (!pr) {
-        return { view: 'loading', issue } as IssueState;
+        return { view: 'loading', issue };
       }
-      return { view: 'prApproved', issue, pr } as IssueState;
+      return { view: 'prApproved', issue, pr };
     })
-    .otherwise(() => {
+    .otherwise((): IssueState => {
       const details = issueDetails.get(issue.number);
       if (!details) {
-        return { view: 'loading', issue } as IssueState;
+        return { view: 'loading', issue };
       }
-      return { view: 'issueDetails', issue, details } as IssueState;
+      return { view: 'issueDetails', issue, details };
     });
 }
 
