@@ -17,7 +17,21 @@ export async function getIssueDetails(
     number: data.number,
     title: data.title,
     body: data.body ?? '',
-    labels: data.labels.map((label) => (typeof label === 'string' ? label : (label.name ?? ''))),
+    labels: extractLabelNames(data.labels),
     createdAt: data.created_at,
   };
+}
+
+function extractLabelNames(labels: (string | { name?: string })[]): string[] {
+  const result: string[] = [];
+  for (const label of labels) {
+    if (typeof label === 'string') {
+      result.push(label);
+      continue;
+    }
+    if (label.name != null) {
+      result.push(label.name);
+    }
+  }
+  return result;
 }
