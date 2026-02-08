@@ -12,7 +12,7 @@
 <br />
 
 [Getting Started](#getting-started) • [Commands](#commands) • [Architecture](#architecture) •
-[License](#license)
+[Development Workflow](#development-workflow) • [License](#license)
 
 </div>
 
@@ -72,6 +72,39 @@ sear/
 - **Linting/Formatting** — Biome
 - **Testing** — Vitest
 - **Git Hooks** — Lefthook
+
+## Development Workflow
+
+This project uses an AI-assisted development workflow where specifications are the source of truth
+and all task state lives in GitHub Issues.
+
+### Lifecycle
+
+1. **Spec** — Human authors and approves a specification using structured templates
+2. **Plan** — A Planner agent decomposes the spec into scoped GitHub Issues with labels,
+   dependencies, and priority
+3. **Implement** — Human assigns a task; an Implementor agent writes code and tests in an isolated
+   git worktree
+4. **Review** — A Reviewer agent verifies acceptance criteria, spec conformance, and code quality
+5. **Integrate** — Human merges the approved PR and closes the issue
+
+### Roles
+
+| Role            | Responsibility                                                      |
+| --------------- | ------------------------------------------------------------------- |
+| **Human**       | Authors specs, assigns tasks, resolves escalations, merges PRs      |
+| **Planner**     | Decomposes specs into task issues                                   |
+| **Implementor** | Executes assigned tasks (one per agent, parallelized via worktrees) |
+| **Reviewer**    | Reviews PRs against spec and acceptance criteria                    |
+
+Only the Human can approve spec changes and merge code. Agents escalate ambiguity rather than
+interpret.
+
+### Control Plane
+
+A TUI application (`yarn agentic-workflow`) orchestrates the workflow — polling GitHub for state
+changes, auto-dispatching agents where policy allows, and surfacing actionable items for human
+decision-making. See [`docs/specs/workflow/`](docs/specs/workflow/) for full specifications.
 
 ## License
 
