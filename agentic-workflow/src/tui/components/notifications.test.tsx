@@ -1,18 +1,21 @@
 import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
-import type { Notification } from '../types';
+import type { IssueStatusChangedNotification, Notification } from '../types';
 import { handleNotificationsInput, NotificationsPane } from './notifications';
 import type { NotificationsPaneProps } from './types';
 
 type PartialKeyState = { upArrow?: boolean; downArrow?: boolean; return?: boolean };
 
-function buildNotification(overrides?: Partial<Notification>): Notification {
+function buildNotification(overrides?: Partial<IssueStatusChangedNotification>): Notification {
   return {
     id: 'notif-1',
     timestamp: '2026-02-08T10:30:45.000Z',
     eventType: 'issueStatusChanged',
-    summary: 'Issue #1 status changed from pending to in-progress',
+    issueNumber: 1,
+    oldStatus: 'pending',
+    newStatus: 'in-progress',
+    summary: '#1: pending → in-progress',
     ...overrides,
   };
 }
@@ -73,8 +76,7 @@ test('it displays notifications with timestamps and event indicators', () => {
     buildNotification({
       id: 'notif-1',
       timestamp: '2026-02-08T10:30:45.000Z',
-      eventType: 'issueStatusChanged',
-      summary: 'Issue #1 status changed from pending to in-progress',
+      summary: '#1: pending → in-progress',
     }),
   ];
 
@@ -82,7 +84,7 @@ test('it displays notifications with timestamps and event indicators', () => {
 
   const frame = lastFrame();
   expect(frame).toContain('<->');
-  expect(frame).toContain('Issue #1 status changed from pending to in-progress');
+  expect(frame).toContain('#1: pending → in-progress');
 });
 
 test('it shows newest notifications at the top of the list', () => {
@@ -120,7 +122,7 @@ test('it shows a copy indicator for notifications with a clipboard command', () 
     buildNotification({
       id: 'notif-1',
       clipboardCommand: 'claude -p "fix the spec"',
-      summary: 'Issue #3 needs spec refinement',
+      summary: '#3 needs refinement',
     }),
   ];
 
@@ -133,7 +135,7 @@ test('it does not show a copy indicator for notifications without a clipboard co
   const notifications = [
     buildNotification({
       id: 'notif-1',
-      summary: 'Issue #1 status changed',
+      summary: '#1: pending → in-progress',
     }),
   ];
 
@@ -143,7 +145,7 @@ test('it does not show a copy indicator for notifications without a clipboard co
 });
 
 test('it shows the correct indicator for each event type', () => {
-  const types = [
+  const types: Array<{ eventType: Notification['eventType']; indicator: string }> = [
     { eventType: 'agentStarted', indicator: '>>>' },
     { eventType: 'agentCompleted', indicator: '[v]' },
     { eventType: 'agentFailed', indicator: '[!]' },
@@ -155,14 +157,13 @@ test('it shows the correct indicator for each event type', () => {
     { eventType: 'dispatchReady', indicator: '[+]' },
     { eventType: 'recoveryPerformed', indicator: '[r]' },
     { eventType: 'issueRemoved', indicator: '[d]' },
+    { eventType: 'startup', indicator: '[v]' },
   ];
 
   for (const { eventType, indicator } of types) {
-    const notifications = [
-      buildNotification({ id: `notif-${eventType}`, eventType, summary: `Test ${eventType}` }),
-    ];
+    const notification = buildTypedNotification(eventType, `notif-${eventType}`);
 
-    const { lastFrame } = setupRenderTest({ notifications });
+    const { lastFrame } = setupRenderTest({ notifications: [notification] });
 
     expect(lastFrame()).toContain(indicator);
   }
@@ -355,3 +356,55 @@ test('it opens the correct URL when selecting a specific notification in reverse
 
   expect(openURL).toHaveBeenCalledWith('https://github.com/owner/repo/issues/2');
 });
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildTypedNotification(eventType: Notification['eventType'], id: string): Notification {
+  const base = {
+    id,
+    timestamp: '2026-02-08T10:30:45.000Z',
+    summary: `Test ${eventType}`,
+  };
+
+  switch (eventType) {
+    case 'agentStarted':
+      return { ...base, eventType, agentType: 'implementor', issueNumber: 1 };
+    case 'agentCompleted':
+      return { ...base, eventType, agentType: 'implementor', issueNumber: 1 };
+    case 'agentFailed':
+      return {
+        ...base,
+        eventType,
+        agentType: 'implementor',
+        issueNumber: 1,
+        error: 'err',
+        sessionID: 'sess-1',
+      };
+    case 'agentSkipped':
+      return { ...base, eventType, agentType: 'implementor', issueNumber: 1 };
+    case 'issueStatusChanged':
+      return {
+        ...base,
+        eventType,
+        issueNumber: 1,
+        oldStatus: 'pending',
+        newStatus: 'in-progress',
+      };
+    case 'specChanged':
+      return { ...base, eventType, specFileName: 'test.md' };
+    case 'recoveryPerformed':
+      return { ...base, eventType, issueNumber: 1 };
+    case 'dispatchReady':
+      return { ...base, eventType, issueNumber: 1 };
+    case 'notification':
+      return { ...base, eventType, issueNumber: 1, notificationType: 'approved' };
+    case 'notificationDismissed':
+      return { ...base, eventType, issueNumber: 1 };
+    case 'issueRemoved':
+      return { ...base, eventType, issueNumber: 1 };
+    case 'startup':
+      return { ...base, eventType, issueCount: 5, recoveriesPerformed: 0 };
+  }
+}

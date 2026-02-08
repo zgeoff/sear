@@ -1,13 +1,25 @@
 import { match } from 'ts-pattern';
 import { createStore } from 'zustand/vanilla';
-import type { EngineEvent } from '../types';
+import type { AgentType, EngineEvent } from '../types';
 import type {
+  AgentCompletedNotification,
+  AgentFailedNotification,
+  AgentSkippedNotification,
+  AgentStartedNotification,
+  BaseNotification,
   CreateEngineStoreConfig,
+  DispatchReadyNotification,
+  EngineEventNotification,
   EngineStore,
   EngineStoreState,
   FocusedPane,
+  IssueRemovedNotification,
+  IssueStatusChangedNotification,
   LastFailure,
-  Notification,
+  NotificationDismissedNotification,
+  RecoveryPerformedNotification,
+  Repository,
+  SpecChangedNotification,
   TaskAgentType,
   TrackedIssue,
 } from './types';
@@ -17,11 +29,13 @@ const STREAM_BUFFER_LIMIT = 10_000;
 const PANE_ORDER: FocusedPane[] = ['issueList', 'detailPane', 'notifications'];
 
 export function createEngineStore(config: CreateEngineStoreConfig) {
-  const { engine, repository } = config;
+  const { engine } = config;
+  const repository = parseRepository(config.repository);
 
   let notificationCounter = 0;
 
   const store = createStore<EngineStore>((set, get) => ({
+    repository,
     issues: new Map(),
     notifications: [],
     agentStreams: new Map(),
@@ -109,11 +123,15 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         const prDetails = markCacheStale(state.prDetails, e.issueNumber);
 
         const oldStatusText = e.oldStatus ?? 'none';
-        const notification = buildNotification(
-          'issueStatusChanged',
-          `Issue #${e.issueNumber} status changed from ${oldStatusText} to ${e.newStatus}`,
-          e.issueNumber,
-        );
+        const notification: IssueStatusChangedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'issueStatusChanged',
+          issueNumber: e.issueNumber,
+          oldStatus: e.oldStatus,
+          newStatus: e.newStatus,
+          summary: `#${e.issueNumber}: ${oldStatusText} → ${e.newStatus}`,
+          contextURL: buildIssueURL(repository, e.issueNumber),
+        };
 
         store.setState({
           issues,
@@ -126,11 +144,14 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         const state = store.getState();
 
         if (e.agentType === 'planner') {
-          const specPathsText = e.specPaths?.join(', ') ?? '';
-          const notification = buildNotification(
-            'agentStarted',
-            `Planner started for ${specPathsText}`,
-          );
+          const specCount = e.specPaths?.length ?? 0;
+          const notification: AgentStartedNotification = {
+            ...buildBaseNotification(),
+            eventType: 'agentStarted',
+            agentType: 'planner',
+            specCount,
+            summary: `Planner started for ${specCount} specs`,
+          };
           store.setState({
             plannerRunning: true,
             notifications: [...state.notifications, notification],
@@ -153,12 +174,15 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         const agentStreams = new Map(state.agentStreams);
         agentStreams.set(issueNumber, []);
 
-        const agentTypeLabel = e.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-        const notification = buildNotification(
-          'agentStarted',
-          `${agentTypeLabel} started for issue #${issueNumber}`,
+        const agentTypeLabel = formatAgentType(e.agentType);
+        const notification: AgentStartedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'agentStarted',
+          agentType: e.agentType,
           issueNumber,
-        );
+          summary: `${agentTypeLabel} started for #${issueNumber}`,
+          contextURL: buildIssueURL(repository, issueNumber),
+        };
 
         store.setState({
           issues,
@@ -172,7 +196,12 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         const state = store.getState();
 
         if (e.agentType === 'planner') {
-          const notification = buildNotification('agentCompleted', 'Planner completed');
+          const notification: AgentCompletedNotification = {
+            ...buildBaseNotification(),
+            eventType: 'agentCompleted',
+            agentType: 'planner',
+            summary: 'Planner completed',
+          };
           store.setState({
             plannerRunning: false,
             notifications: [...state.notifications, notification],
@@ -191,12 +220,15 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           });
         }
 
-        const agentTypeLabel = e.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-        const notification = buildNotification(
-          'agentCompleted',
-          `${agentTypeLabel} completed for issue #${issueNumber}`,
+        const agentTypeLabel = formatAgentType(e.agentType);
+        const notification: AgentCompletedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'agentCompleted',
+          agentType: e.agentType,
           issueNumber,
-        );
+          summary: `${agentTypeLabel} completed for #${issueNumber}`,
+          contextURL: buildIssueURL(repository, issueNumber),
+        };
 
         const updates: Partial<EngineStoreState> = {
           issues,
@@ -217,7 +249,14 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         const state = store.getState();
 
         if (e.agentType === 'planner') {
-          const notification = buildNotification('agentFailed', `Planner failed — ${e.error}`);
+          const notification: AgentFailedNotification = {
+            ...buildBaseNotification(),
+            eventType: 'agentFailed',
+            agentType: 'planner',
+            error: e.error,
+            sessionID: e.sessionID,
+            summary: `Planner failed — ${e.error}`,
+          };
           store.setState({
             plannerRunning: false,
             notifications: [...state.notifications, notification],
@@ -243,12 +282,17 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           });
         }
 
-        const agentTypeLabel = e.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-        const notification = buildNotification(
-          'agentFailed',
-          `${agentTypeLabel} failed for issue #${issueNumber} — ${e.error}`,
+        const agentTypeLabel = formatAgentType(e.agentType);
+        const notification: AgentFailedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'agentFailed',
+          agentType: e.agentType,
           issueNumber,
-        );
+          error: e.error,
+          sessionID: e.sessionID,
+          summary: `${agentTypeLabel} failed for #${issueNumber} — ${e.error}`,
+          contextURL: buildIssueURL(repository, issueNumber),
+        };
 
         store.setState({
           issues,
@@ -260,24 +304,35 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
 
         let summary: string;
         if (e.agentType === 'planner') {
-          summary = 'Planner skipped — already running (paths deferred)';
+          summary = 'Planner skipped — paths deferred';
         } else {
-          const agentTypeLabel = e.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-          summary = `${agentTypeLabel} skipped for issue #${e.issueNumber} — already running`;
+          const agentTypeLabel = formatAgentType(e.agentType);
+          summary = `${agentTypeLabel} skipped for #${e.issueNumber}`;
         }
 
-        const notification = buildNotification('agentSkipped', summary, e.issueNumber);
+        const notification: AgentSkippedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'agentSkipped',
+          agentType: e.agentType,
+          summary,
+        };
+        if (e.issueNumber !== undefined) {
+          notification.issueNumber = e.issueNumber;
+          notification.contextURL = buildIssueURL(repository, e.issueNumber);
+        }
         store.setState({
           notifications: [...state.notifications, notification],
         });
       })
       .with({ type: 'dispatchReady' }, (e) => {
         const state = store.getState();
-        const notification = buildNotification(
-          'dispatchReady',
-          `Issue #${e.issueNumber} ready for dispatch`,
-          e.issueNumber,
-        );
+        const notification: DispatchReadyNotification = {
+          ...buildBaseNotification(),
+          eventType: 'dispatchReady',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} ready for dispatch`,
+          contextURL: buildIssueURL(repository, e.issueNumber),
+        };
         store.setState({
           notifications: [...state.notifications, notification],
         });
@@ -285,22 +340,31 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       .with({ type: 'notification' }, (e) => {
         const state = store.getState();
 
+        const notificationType = e.statusLabel as 'needs-refinement' | 'blocked' | 'approved';
+
         let summary: string;
         if (e.statusLabel === 'needs-refinement') {
-          summary = `Issue #${e.issueNumber} needs spec refinement — ${e.resolutionGuidance}`;
+          summary = `#${e.issueNumber} needs refinement — ${e.resolutionGuidance}`;
         } else if (e.statusLabel === 'blocked') {
-          summary = `Issue #${e.issueNumber} blocked — ${e.resolutionGuidance}`;
+          summary = `#${e.issueNumber} blocked — ${e.resolutionGuidance}`;
         } else {
-          summary = `Issue #${e.issueNumber} approved — ready to merge`;
+          summary = `#${e.issueNumber} approved — ready to merge`;
         }
 
-        const notification = buildNotification(
-          'notification',
+        const notification: EngineEventNotification = {
+          ...buildBaseNotification(),
+          eventType: 'notification',
+          issueNumber: e.issueNumber,
+          notificationType,
           summary,
-          e.issueNumber,
-          e.contextURL,
-          e.clipboardCommand,
-        );
+          contextURL: e.contextURL,
+        };
+        if (e.resolutionGuidance !== undefined) {
+          notification.resolutionGuidance = e.resolutionGuidance;
+        }
+        if (e.clipboardCommand !== undefined) {
+          notification.clipboardCommand = e.clipboardCommand;
+        }
 
         store.setState({
           notifications: [...state.notifications, notification],
@@ -312,11 +376,13 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       })
       .with({ type: 'notificationDismissed' }, (e) => {
         const state = store.getState();
-        const notification = buildNotification(
-          'notificationDismissed',
-          `Issue #${e.issueNumber} notification dismissed`,
-          e.issueNumber,
-        );
+        const notification: NotificationDismissedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'notificationDismissed',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} dismissed`,
+          contextURL: buildIssueURL(repository, e.issueNumber),
+        };
         store.setState({
           notifications: [...state.notifications, notification],
         });
@@ -337,11 +403,13 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
 
         const selectedIssue = state.selectedIssue === e.issueNumber ? null : state.selectedIssue;
 
-        const notification = buildNotification(
-          'issueRemoved',
-          `Issue #${e.issueNumber} removed`,
-          e.issueNumber,
-        );
+        const notification: IssueRemovedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'issueRemoved',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} removed`,
+          contextURL: buildIssueURL(repository, e.issueNumber),
+        };
 
         store.setState({
           issues,
@@ -354,23 +422,27 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       })
       .with({ type: 'recoveryPerformed' }, (e) => {
         const state = store.getState();
-        const notification = buildNotification(
-          'recoveryPerformed',
-          `Issue #${e.issueNumber} recovered from stale in-progress`,
-          e.issueNumber,
-        );
+        const notification: RecoveryPerformedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'recoveryPerformed',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} recovered from stale`,
+          contextURL: buildIssueURL(repository, e.issueNumber),
+        };
         store.setState({
           notifications: [...state.notifications, notification],
         });
       })
       .with({ type: 'specChanged' }, (e) => {
         const state = store.getState();
-        const notification = buildNotification(
-          'specChanged',
-          `Spec changed: ${e.filePath}`,
-          undefined,
-          `https://github.com/${repository}/commit/${e.commitSHA}`,
-        );
+        const specFileName = extractFileName(e.filePath);
+        const notification: SpecChangedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'specChanged',
+          specFileName,
+          summary: `Spec changed: ${specFileName}`,
+          contextURL: `https://github.com/${config.repository}/commit/${e.commitSHA}`,
+        };
         store.setState({
           notifications: [...state.notifications, notification],
         });
@@ -378,30 +450,13 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       .exhaustive();
   }
 
-  function buildNotification(
-    eventType: string,
-    summary: string,
-    issueNumber?: number,
-    contextURL?: string,
-    clipboardCommand?: string,
-  ): Notification {
+  function buildBaseNotification(): BaseNotification {
     notificationCounter++;
-    const notification: Notification = {
+    return {
       id: `notif-${notificationCounter}`,
       timestamp: new Date().toISOString(),
-      eventType,
-      summary,
+      summary: '',
     };
-    if (issueNumber !== undefined) {
-      notification.issueNumber = issueNumber;
-    }
-    if (contextURL !== undefined) {
-      notification.contextURL = contextURL;
-    }
-    if (clipboardCommand !== undefined) {
-      notification.clipboardCommand = clipboardCommand;
-    }
-    return notification;
   }
 
   function subscribeToAgentStream(issueNumber: number) {
@@ -566,6 +621,28 @@ function markCacheStale<T extends { stale: boolean }>(
   const updated = new Map(cache);
   updated.set(issueNumber, { ...entry, stale: true });
   return updated;
+}
+
+function parseRepository(repositoryString: string): Repository {
+  const parts = repositoryString.split('/');
+  return { owner: parts[0] ?? '', repo: parts[1] ?? '' };
+}
+
+function buildIssueURL(repo: Repository, issueNumber: number): string {
+  return `https://github.com/${repo.owner}/${repo.repo}/issues/${issueNumber}`;
+}
+
+function formatAgentType(agentType: AgentType): string {
+  return match(agentType)
+    .with('implementor', () => 'Implementor')
+    .with('reviewer', () => 'Reviewer')
+    .with('planner', () => 'Planner')
+    .exhaustive();
+}
+
+function extractFileName(filePath: string): string {
+  const parts = filePath.split('/');
+  return parts[parts.length - 1] ?? filePath;
 }
 
 export function selectRunningAgentCount(state: EngineStoreState): number {
