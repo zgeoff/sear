@@ -15,16 +15,20 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@anthropic-ai/claude-agent-sdk@npm:0.1.5":
-  version: 0.1.5
-  resolution: "@anthropic-ai/claude-agent-sdk@npm:0.1.5"
+"@anthropic-ai/claude-agent-sdk@npm:0.2.37":
+  version: 0.2.37
+  resolution: "@anthropic-ai/claude-agent-sdk@npm:0.2.37"
   dependencies:
     "@img/sharp-darwin-arm64": "npm:^0.33.5"
     "@img/sharp-darwin-x64": "npm:^0.33.5"
     "@img/sharp-linux-arm": "npm:^0.33.5"
     "@img/sharp-linux-arm64": "npm:^0.33.5"
     "@img/sharp-linux-x64": "npm:^0.33.5"
+    "@img/sharp-linuxmusl-arm64": "npm:^0.33.5"
+    "@img/sharp-linuxmusl-x64": "npm:^0.33.5"
     "@img/sharp-win32-x64": "npm:^0.33.5"
+  peerDependencies:
+    zod: ^4.0.0
   dependenciesMeta:
     "@img/sharp-darwin-arm64":
       optional: true
@@ -36,9 +40,13 @@ __metadata:
       optional: true
     "@img/sharp-linux-x64":
       optional: true
+    "@img/sharp-linuxmusl-arm64":
+      optional: true
+    "@img/sharp-linuxmusl-x64":
+      optional: true
     "@img/sharp-win32-x64":
       optional: true
-  checksum: 10c0/7d1d72e1d1fb9be68542ba5ffac3b55ae755a87a0083e18312152015c39388dae61d1527b2dc4785eed9a79957b179bed1ab663ea2f55a646ba372ab3d816d74
+  checksum: 10c0/ee02211d0516deaf558678c24fe838a14aedc888735f7a32531b1aa7bc100fcb20077e4ada288a99a1df2c6bdd10cdd8a1bdbe26bbd203224f47a440cd1f55aa
   languageName: node
   linkType: hard
 
@@ -556,6 +564,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@img/sharp-libvips-linuxmusl-arm64@npm:1.0.4":
+  version: 1.0.4
+  resolution: "@img/sharp-libvips-linuxmusl-arm64@npm:1.0.4"
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@img/sharp-libvips-linuxmusl-x64@npm:1.0.4":
+  version: 1.0.4
+  resolution: "@img/sharp-libvips-linuxmusl-x64@npm:1.0.4"
+  conditions: os=linux & cpu=x64 & libc=musl
+  languageName: node
+  linkType: hard
+
 "@img/sharp-linux-arm64@npm:^0.33.5":
   version: 0.33.5
   resolution: "@img/sharp-linux-arm64@npm:0.33.5"
@@ -589,6 +611,30 @@ __metadata:
     "@img/sharp-libvips-linux-x64":
       optional: true
   conditions: os=linux & cpu=x64 & libc=glibc
+  languageName: node
+  linkType: hard
+
+"@img/sharp-linuxmusl-arm64@npm:^0.33.5":
+  version: 0.33.5
+  resolution: "@img/sharp-linuxmusl-arm64@npm:0.33.5"
+  dependencies:
+    "@img/sharp-libvips-linuxmusl-arm64": "npm:1.0.4"
+  dependenciesMeta:
+    "@img/sharp-libvips-linuxmusl-arm64":
+      optional: true
+  conditions: os=linux & cpu=arm64 & libc=musl
+  languageName: node
+  linkType: hard
+
+"@img/sharp-linuxmusl-x64@npm:^0.33.5":
+  version: 0.33.5
+  resolution: "@img/sharp-linuxmusl-x64@npm:0.33.5"
+  dependencies:
+    "@img/sharp-libvips-linuxmusl-x64": "npm:1.0.4"
+  dependenciesMeta:
+    "@img/sharp-libvips-linuxmusl-x64":
+      optional: true
+  conditions: os=linux & cpu=x64 & libc=musl
   languageName: node
   linkType: hard
 
@@ -1109,7 +1155,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@sear/agentic-workflow@workspace:agentic-workflow"
   dependencies:
-    "@anthropic-ai/claude-agent-sdk": "npm:0.1.5"
+    "@anthropic-ai/claude-agent-sdk": "npm:0.2.37"
     "@octokit/auth-app": "npm:7.2.0"
     "@octokit/rest": "npm:22.0.0"
     "@types/node": "npm:25.2.2"

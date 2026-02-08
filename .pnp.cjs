@@ -56,16 +56,31 @@ const RAW_RUNTIME_STATE =
       }]\
     ]],\
     ["@anthropic-ai/claude-agent-sdk", [\
-      ["npm:0.1.5", {\
-        "packageLocation": "./.yarn/unplugged/@anthropic-ai-claude-agent-sdk-npm-0.1.5-a640d34bdf/node_modules/@anthropic-ai/claude-agent-sdk/",\
+      ["npm:0.2.37", {\
+        "packageLocation": "./.yarn/unplugged/@anthropic-ai-claude-agent-sdk-virtual-9ff7768165/node_modules/@anthropic-ai/claude-agent-sdk/",\
         "packageDependencies": [\
-          ["@anthropic-ai/claude-agent-sdk", "npm:0.1.5"],\
+          ["@anthropic-ai/claude-agent-sdk", "npm:0.2.37"]\
+        ],\
+        "linkType": "SOFT"\
+      }],\
+      ["virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:0.2.37", {\
+        "packageLocation": "./.yarn/unplugged/@anthropic-ai-claude-agent-sdk-virtual-9ff7768165/node_modules/@anthropic-ai/claude-agent-sdk/",\
+        "packageDependencies": [\
+          ["@anthropic-ai/claude-agent-sdk", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:0.2.37"],\
           ["@img/sharp-darwin-arm64", "npm:0.33.5"],\
           ["@img/sharp-darwin-x64", "npm:0.33.5"],\
           ["@img/sharp-linux-arm", "npm:0.33.5"],\
           ["@img/sharp-linux-arm64", "npm:0.33.5"],\
           ["@img/sharp-linux-x64", "npm:0.33.5"],\
-          ["@img/sharp-win32-x64", "npm:0.33.5"]\
+          ["@img/sharp-linuxmusl-arm64", "npm:0.33.5"],\
+          ["@img/sharp-linuxmusl-x64", "npm:0.33.5"],\
+          ["@img/sharp-win32-x64", "npm:0.33.5"],\
+          ["@types/zod", null],\
+          ["zod", null]\
+        ],\
+        "packagePeers": [\
+          "@types/zod",\
+          "zod"\
         ],\
         "linkType": "HARD"\
       }]\
@@ -640,6 +655,24 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["@img/sharp-libvips-linuxmusl-arm64", [\
+      ["npm:1.0.4", {\
+        "packageLocation": "./.yarn/unplugged/@img-sharp-libvips-linuxmusl-arm64-npm-1.0.4-c63b2fb991/node_modules/@img/sharp-libvips-linuxmusl-arm64/",\
+        "packageDependencies": [\
+          ["@img/sharp-libvips-linuxmusl-arm64", "npm:1.0.4"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["@img/sharp-libvips-linuxmusl-x64", [\
+      ["npm:1.0.4", {\
+        "packageLocation": "./.yarn/unplugged/@img-sharp-libvips-linuxmusl-x64-npm-1.0.4-ea67a00cef/node_modules/@img/sharp-libvips-linuxmusl-x64/",\
+        "packageDependencies": [\
+          ["@img/sharp-libvips-linuxmusl-x64", "npm:1.0.4"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["@img/sharp-linux-arm", [\
       ["npm:0.33.5", {\
         "packageLocation": "./.yarn/unplugged/@img-sharp-linux-arm-npm-0.33.5-2c7cd6ba15/node_modules/@img/sharp-linux-arm/",\
@@ -666,6 +699,26 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["@img/sharp-libvips-linux-x64", "npm:1.0.4"],\
           ["@img/sharp-linux-x64", "npm:0.33.5"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["@img/sharp-linuxmusl-arm64", [\
+      ["npm:0.33.5", {\
+        "packageLocation": "./.yarn/unplugged/@img-sharp-linuxmusl-arm64-npm-0.33.5-686a8ec1a7/node_modules/@img/sharp-linuxmusl-arm64/",\
+        "packageDependencies": [\
+          ["@img/sharp-libvips-linuxmusl-arm64", "npm:1.0.4"],\
+          ["@img/sharp-linuxmusl-arm64", "npm:0.33.5"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["@img/sharp-linuxmusl-x64", [\
+      ["npm:0.33.5", {\
+        "packageLocation": "./.yarn/unplugged/@img-sharp-linuxmusl-x64-npm-0.33.5-b88b11869b/node_modules/@img/sharp-linuxmusl-x64/",\
+        "packageDependencies": [\
+          ["@img/sharp-libvips-linuxmusl-x64", "npm:1.0.4"],\
+          ["@img/sharp-linuxmusl-x64", "npm:0.33.5"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -1296,7 +1349,7 @@ const RAW_RUNTIME_STATE =
       ["workspace:agentic-workflow", {\
         "packageLocation": "./agentic-workflow/",\
         "packageDependencies": [\
-          ["@anthropic-ai/claude-agent-sdk", "npm:0.1.5"],\
+          ["@anthropic-ai/claude-agent-sdk", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:0.2.37"],\
           ["@octokit/auth-app", "npm:7.2.0"],\
           ["@octokit/rest", "npm:22.0.0"],\
           ["@sear/agentic-workflow", "workspace:agentic-workflow"],\
