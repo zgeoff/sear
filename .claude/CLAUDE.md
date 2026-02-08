@@ -188,11 +188,11 @@ expect(result).toEqual(EMPTY_RESULT);
 
 ### Test utilities
 
-Place mock factories and test helpers under `test-utils/` within each package, one per file following the standard file organization rules:
+Place mock factories and test helpers under `src/test-utils/` within each package, one per file following the standard file organization rules:
 
 ```
-test-utils/create-mock-github-client.ts   → export createMockGitHubClient
-test-utils/build-valid-config.ts          → export buildValidConfig
+src/test-utils/create-mock-github-client.ts   → export createMockGitHubClient
+src/test-utils/build-valid-config.ts          → export buildValidConfig
 ```
 
 ### Filesystem mocking

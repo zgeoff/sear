@@ -1,4 +1,4 @@
-import type { EngineConfig } from '../src/types.js';
+import type { EngineConfig } from '../types.js';
 
 export function buildValidConfig(overrides?: Partial<EngineConfig>): EngineConfig {
   return {

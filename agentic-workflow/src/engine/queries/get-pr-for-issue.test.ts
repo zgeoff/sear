@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../../test-utils/create-mock-github-client.js';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.js';
 import { buildClosesPattern, getPRForIssue } from './get-pr-for-issue.js';
 import type { QueriesConfig } from './types.js';
 

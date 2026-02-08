@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { buildValidConfig } from '../../../test-utils/build-valid-config.js';
+import { buildValidConfig } from '../../test-utils/build-valid-config.js';
 import { validateConfig } from './validate-config.js';
 
 test('it accepts a valid config with all required fields', () => {
