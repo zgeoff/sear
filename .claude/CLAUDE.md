@@ -174,17 +174,17 @@ MSW is available for HTTP mocking in tests. Set up handlers per-package as neede
 
 ## Dependencies
 
-Always use **pinned (exact) versions** in `package.json` — no ranges, carets, tildes, or wildcards:
+Always install dependencies via `yarn add`, never by editing `package.json` directly. Yarn must run its resolution and PnP toolchain for dependencies to work.
 
-```json
-// Correct
-"zustand": "5.0.11"
+```bash
+# Correct
+yarn workspace @sear/agentic-workflow add zustand --exact
+yarn workspace @sear/agentic-workflow add -D vitest --exact
 
-// Wrong
-"zustand": "^5.0.11"
-"zustand": "~5.0.11"
-"zustand": "5.x"
+# Wrong — editing package.json by hand and running yarn install
 ```
+
+Always use **pinned (exact) versions** (`--exact` flag) — no ranges, carets, tildes, or wildcards.
 
 ## Tooling
 
@@ -284,6 +284,57 @@ serializeRunConfig(runConfig)   // convert structured -> string/JSON (format tra
 ```
 
 ## Code Style
+
+### File organization
+
+Each file has **one primary export** and is named after it. Don't put multiple public APIs in a single file — split them into separate files instead.
+
+```
+// Wrong — multiple unrelated exports in one file
+config.ts → export validateConfig, buildResolvedConfig, loadConfig
+
+// Correct — one primary export per file, named after it
+config/validate-config.ts → export validateConfig
+config/load-config.ts     → export loadConfig
+config/types.ts           → shared types for the directory
+config/constants.ts       → shared constants for the directory
+```
+
+**Secondary exports** are allowed when they exist to support the primary export — most commonly in mocks or test utilities where callers need access to internals for assertions:
+
+```ts
+// mocks/handlers/send-email.ts
+// Primary export: the MSW handler
+export const sendEmail = http.post('/api/send-email', ...);
+
+// Secondary export: allows tests to assert what was sent
+export const mockEmails: SentEmail[] = [];
+```
+
+**Multiple functions per file** are fine as unexported helpers that compose into the primary export. Order them from the main implementation at the top to the lowest-level building blocks at the bottom:
+
+```ts
+// validate-config.ts
+
+// Primary export — first in the file
+export function validateConfig(raw: RawConfig): ValidConfig {
+  const normalized = normalizeKeys(raw);
+  assertRequiredFields(normalized);
+  return normalized;
+}
+
+// Higher-level helper
+function normalizeKeys(raw: RawConfig): RawConfig {
+  return mapKeys(raw, (k) => k.toLowerCase());
+}
+
+// Lowest-level helper
+function assertRequiredFields(config: RawConfig): void {
+  for (const field of REQUIRED_FIELDS) {
+    if (!(field in config)) throw new Error(`Missing: ${field}`);
+  }
+}
+```
 
 ### Type assertions
 Never use type assertions (`as`) unless there is a genuine TypeScript error that cannot be resolved through correct typing. If the types are wrong, fix the types — don't cast around them. This includes `as unknown as X`, `as Record<string, unknown>`, `as any`, and similar escape hatches.
