@@ -2,12 +2,12 @@ import type { EngineConfig } from './src/types';
 
 const config: EngineConfig = {
   // Required: GitHub repository in owner/repo format
-  repository: 'owner/repo',
+  repository: 'zgeoff/sear',
 
   // Required: GitHub App credentials
-  githubAppID: 123456,
+  githubAppID: 2801903,
   githubAppPrivateKeyPath: './private-key.pem',
-  githubAppInstallationID: 789012,
+  githubAppInstallationID: 108185071,
 
   // Optional: Logging verbosity (default: 'info')
   // logLevel: 'debug',
