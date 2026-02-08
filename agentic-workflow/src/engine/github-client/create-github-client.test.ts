@@ -43,7 +43,10 @@ function setupTest() {
     },
   };
 
-  mockedOctokit.mockImplementation(() => mockOctokit);
+  // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression for `new`
+  mockedOctokit.mockImplementation(function () {
+    return mockOctokit;
+  });
 
   const config: GitHubClientConfig = {
     appID: 12345,
@@ -61,7 +64,10 @@ function setupTest() {
 // ---------------------------------------------------------------------------
 
 test('it creates the client with app auth using the provided credentials', () => {
-  mockedOctokit.mockImplementation(() => ({}));
+  // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression for `new`
+  mockedOctokit.mockImplementation(function () {
+    return {};
+  });
 
   const config: GitHubClientConfig = {
     appID: 42,
