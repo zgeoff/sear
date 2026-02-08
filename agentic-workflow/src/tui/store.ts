@@ -202,6 +202,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
             agentType: 'planner',
             summary: 'Planner completed',
           };
+          if (e.logFilePath !== undefined) {
+            notification.logFilePath = e.logFilePath;
+          }
           store.setState({
             plannerRunning: false,
             notifications: [...state.notifications, notification],
@@ -229,6 +232,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           summary: `${agentTypeLabel} completed for #${issueNumber}`,
           contextURL: buildIssueURL(repository, issueNumber),
         };
+        if (e.logFilePath !== undefined) {
+          notification.logFilePath = e.logFilePath;
+        }
 
         const updates: Partial<EngineStoreState> = {
           issues,
@@ -257,6 +263,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
             sessionID: e.sessionID,
             summary: `Planner failed — ${e.error}`,
           };
+          if (e.logFilePath !== undefined) {
+            notification.logFilePath = e.logFilePath;
+          }
           store.setState({
             plannerRunning: false,
             notifications: [...state.notifications, notification],
@@ -274,6 +283,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
             e.error,
             e.sessionID,
             e.agentType === 'implementor' ? e.worktreePath : undefined,
+            e.logFilePath,
           );
           issues.set(issueNumber, {
             ...existing,
@@ -293,6 +303,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           summary: `${agentTypeLabel} failed for #${issueNumber} — ${e.error}`,
           contextURL: buildIssueURL(repository, issueNumber),
         };
+        if (e.logFilePath !== undefined) {
+          notification.logFilePath = e.logFilePath;
+        }
 
         store.setState({
           issues,
@@ -602,10 +615,14 @@ function buildLastFailure(
   error: string,
   sessionID: string,
   worktreePath: string | undefined,
+  logFilePath: string | undefined,
 ): LastFailure {
   const failure: LastFailure = { agentType, error, sessionID };
   if (worktreePath !== undefined) {
     failure.worktreePath = worktreePath;
+  }
+  if (logFilePath !== undefined) {
+    failure.logFilePath = logFilePath;
   }
   return failure;
 }

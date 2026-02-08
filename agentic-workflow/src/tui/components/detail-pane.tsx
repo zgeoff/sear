@@ -1,4 +1,5 @@
 import { Box, Text, useInput } from 'ink';
+import Link from 'ink-link';
 import { useEffect, useRef, useState } from 'react';
 import { match, P } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
@@ -217,6 +218,14 @@ function FailureView(props: FailureViewProps) {
       <Text>Error: {props.failure.error}</Text>
       <Text>Session: {props.failure.sessionID}</Text>
       {props.failure.worktreePath && <Text>Worktree: {props.failure.worktreePath}</Text>}
+      {props.failure.logFilePath && (
+        <Text>
+          Log:{' '}
+          <Link url={`file://${props.failure.logFilePath}`} fallback={false}>
+            {props.failure.logFilePath}
+          </Link>
+        </Text>
+      )}
       <Text dimColor>Press Enter in the issue list to retry.</Text>
     </Box>
   );

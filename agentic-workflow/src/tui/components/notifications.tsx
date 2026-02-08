@@ -1,4 +1,5 @@
 import { Box, Text } from 'ink';
+import Link from 'ink-link';
 import { match } from 'ts-pattern';
 import type { Notification } from '../types';
 import type {
@@ -20,10 +21,19 @@ export function NotificationsPane(props: NotificationsPaneProps) {
         const timestamp = formatTimestamp(notification.timestamp);
         const indicator = getEventIndicator(notification.eventType);
         const copyIndicator = notification.clipboardCommand ? ' [copy]' : '';
+        const logFilePath = getLogFilePath(notification);
 
         return (
           <Text key={notification.id} inverse={isSelected}>
             {timestamp} {indicator} {notification.summary}
+            {logFilePath && (
+              <>
+                {' '}
+                <Link url={`file://${logFilePath}`} fallback={false}>
+                  <Text dimColor>(logs)</Text>
+                </Link>
+              </>
+            )}
             {copyIndicator}
           </Text>
         );
@@ -95,4 +105,11 @@ function getEventIndicator(eventType: string): string {
     .with('issueRemoved', () => '[d]')
     .with('startup', () => '[v]')
     .otherwise(() => '---');
+}
+
+function getLogFilePath(notification: Notification): string | undefined {
+  if (notification.eventType === 'agentCompleted' || notification.eventType === 'agentFailed') {
+    return notification.logFilePath;
+  }
+  return undefined;
 }
