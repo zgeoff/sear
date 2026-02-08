@@ -1,3 +1,8 @@
+// Narrow interface over @octokit/rest's Octokit client. Only the methods and
+// response shapes actually used by production code are declared here, which
+// keeps tests type-safe without casts — mocks satisfy this interface naturally
+// while Octokit's deeply generic types would require `as never` everywhere.
+
 // ---------------------------------------------------------------------------
 // Issues
 // ---------------------------------------------------------------------------
