@@ -179,6 +179,23 @@ export type SpecPollerBatchResult = {
 // Configuration
 // ---------------------------------------------------------------------------
 
+export type IssuePollerConfig = {
+  pollInterval?: number; // seconds, default: 30
+};
+
+export type SpecPollerConfig = {
+  pollInterval?: number; // seconds, default: 60
+  specsDir?: string; // default: 'docs/specs/'
+  defaultBranch?: string; // default: 'main'
+};
+
+export type AgentsConfig = {
+  agentFilePlanner?: string; // default: '.claude/agents/planner.md'
+  agentFileImplementor?: string; // default: '.claude/agents/implementor.md'
+  agentFileReviewer?: string; // default: '.claude/agents/reviewer.md'
+  maxAgentDuration?: number; // seconds, default: 1800
+};
+
 export type EngineConfig = {
   repository: string; // owner/repo format
   githubAppID: number;
@@ -186,20 +203,9 @@ export type EngineConfig = {
   githubAppInstallationID: number;
   logLevel?: 'debug' | 'info' | 'error'; // default: 'info'
   shutdownTimeout?: number; // seconds, default: 300
-  issuePoller?: {
-    pollInterval?: number; // seconds, default: 30
-  };
-  specPoller?: {
-    pollInterval?: number; // seconds, default: 60
-    specsDir?: string; // default: 'docs/specs/'
-    defaultBranch?: string; // default: 'main'
-  };
-  agents?: {
-    agentFilePlanner?: string; // default: '.claude/agents/planner.md'
-    agentFileImplementor?: string; // default: '.claude/agents/implementor.md'
-    agentFileReviewer?: string; // default: '.claude/agents/reviewer.md'
-    maxAgentDuration?: number; // seconds, default: 1800
-  };
+  issuePoller?: IssuePollerConfig;
+  specPoller?: SpecPollerConfig;
+  agents?: AgentsConfig;
 };
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,10 @@
 import { expect, test, vi } from 'vitest';
-import { createSpecPoller, type LogError, parseFrontmatterStatus } from './spec-poller.js';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.js';
+import type { GitHubClient } from '../github-client.js';
+import { createSpecPoller, type LogError } from './create-spec-poller.js';
 
 // ---------------------------------------------------------------------------
-// Mock Octokit factory
+// Mock GitHub client factory (builds on shared createMockGitHubClient)
 // ---------------------------------------------------------------------------
 
 type TreeEntry = {
@@ -11,37 +13,57 @@ type TreeEntry = {
   type: 'blob' | 'tree';
 };
 
-type MockOctokitHandlers = {
-  getTree: (params: { tree_sha: string; recursive?: string }) => {
-    data: { sha: string; tree: TreeEntry[] };
-  };
-  getContent: (params: { path: string; ref: string }) => {
-    data: { content: string; encoding: string };
-  };
-  getRef: (params: { ref: string }) => {
-    data: { object: { sha: string } };
-  };
+type MockGetTreeParams = {
+  tree_sha: string;
+  recursive?: string;
 };
 
-function buildMockOctokit(handlers: Partial<MockOctokitHandlers> = {}) {
-  return {
-    git: {
-      getTree: vi.fn(async (params: { tree_sha: string; recursive?: string }) => {
-        if (handlers.getTree) return handlers.getTree(params);
-        return { data: { sha: '', tree: [] } };
-      }),
-      getRef: vi.fn(async (params: { ref: string }) => {
-        if (handlers.getRef) return handlers.getRef(params);
-        return { data: { object: { sha: 'head-commit-sha' } } };
-      }),
-    },
-    repos: {
-      getContent: vi.fn(async (params: { path: string; ref: string }) => {
-        if (handlers.getContent) return handlers.getContent(params);
-        return { data: { content: '', encoding: 'base64' } };
-      }),
-    },
-  };
+type MockGetTreeResult = {
+  data: { sha: string; tree: TreeEntry[] };
+};
+
+type MockGetContentParams = {
+  path: string;
+  ref?: string;
+};
+
+type MockGetContentResult = {
+  data: { content?: string };
+};
+
+type MockGetRefParams = {
+  ref: string;
+};
+
+type MockGetRefResult = {
+  data: { object: { sha: string } };
+};
+
+type MockHandlers = {
+  getTree: (params: MockGetTreeParams) => MockGetTreeResult;
+  getContent: (params: MockGetContentParams) => MockGetContentResult;
+  getRef: (params: MockGetRefParams) => MockGetRefResult;
+};
+
+function buildMockClient(handlers: Partial<MockHandlers> = {}): GitHubClient {
+  const client = createMockGitHubClient();
+
+  vi.mocked(client.git.getTree).mockImplementation(async (params) => {
+    if (handlers.getTree && params) return handlers.getTree(params);
+    return { data: { sha: '', tree: [] } };
+  });
+
+  vi.mocked(client.git.getRef).mockImplementation(async (params) => {
+    if (handlers.getRef && params) return handlers.getRef(params);
+    return { data: { object: { sha: 'head-commit-sha' } } };
+  });
+
+  vi.mocked(client.repos.getContent).mockImplementation(async (params) => {
+    if (handlers.getContent && params) return handlers.getContent(params);
+    return { data: {} };
+  });
+
+  return client;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,24 +83,24 @@ function toBase64(content: string): string {
 // ---------------------------------------------------------------------------
 
 type SetupOptions = {
-  handlers?: Partial<MockOctokitHandlers>;
+  handlers?: Partial<MockHandlers>;
   specsDir?: string;
   defaultBranch?: string;
   logError?: LogError;
 };
 
 function setupTest(options: SetupOptions = {}) {
-  const octokit = buildMockOctokit(options.handlers);
+  const octokit = buildMockClient(options.handlers);
   const logError = options.logError ?? vi.fn();
   const poller = createSpecPoller({
-    octokit: octokit as never,
+    octokit,
     owner: 'test-owner',
     repo: 'test-repo',
     specsDir: options.specsDir ?? 'docs/specs/',
     defaultBranch: options.defaultBranch ?? 'main',
     logError,
   });
-  return { octokit, poller, logError };
+  return { octokit, poller };
 }
 
 // ---------------------------------------------------------------------------
@@ -115,34 +137,6 @@ function buildTreeHandlers(specsDirTreeSHA: string, specFiles: TreeEntry[]) {
 }
 
 // ---------------------------------------------------------------------------
-// parseFrontmatterStatus
-// ---------------------------------------------------------------------------
-
-test('it extracts the status from valid frontmatter', () => {
-  const content = buildSpecContent('approved');
-  expect(parseFrontmatterStatus(content)).toBe('approved');
-});
-
-test('it extracts draft status from frontmatter', () => {
-  const content = buildSpecContent('draft');
-  expect(parseFrontmatterStatus(content)).toBe('draft');
-});
-
-test('it returns null when the content has no frontmatter', () => {
-  expect(parseFrontmatterStatus('# Just a heading\n\nNo frontmatter.')).toBeNull();
-});
-
-test('it returns null when the frontmatter has no status field', () => {
-  const content = '---\ntitle: Test\nversion: 0.1.0\n---\n\n# Content';
-  expect(parseFrontmatterStatus(content)).toBeNull();
-});
-
-test('it trims whitespace from the status value', () => {
-  const content = '---\nstatus:   approved  \n---\n\nContent';
-  expect(parseFrontmatterStatus(content)).toBe('approved');
-});
-
-// ---------------------------------------------------------------------------
 // SpecPoller — single API call for tree SHA
 // ---------------------------------------------------------------------------
 
@@ -152,10 +146,7 @@ test('it fetches the specs directory tree SHA with a single recursive API call',
   const handlers = {
     ...buildTreeHandlers('specs-tree-sha-1', specFiles),
     getContent: () => ({
-      data: {
-        content: toBase64(buildSpecContent('approved')),
-        encoding: 'base64',
-      },
+      data: { content: toBase64(buildSpecContent('approved')) },
     }),
     getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
   };
@@ -163,10 +154,7 @@ test('it fetches the specs directory tree SHA with a single recursive API call',
   const { octokit, poller } = setupTest({ handlers });
   await poller.poll();
 
-  // First getTree call: recursive tree on branch (to find specs dir SHA)
-  // Second getTree call: recursive tree on specs dir (to inspect files)
-  // The first call is the "single API call" to get the tree SHA
-  const firstCall = octokit.git.getTree.mock.calls[0];
+  const firstCall = vi.mocked(octokit.git.getTree).mock.calls[0];
   expect(firstCall?.[0]).toEqual(expect.objectContaining({ tree_sha: 'main', recursive: 'true' }));
 });
 
@@ -180,10 +168,7 @@ test('it returns an empty result and skips content calls when the tree SHA is un
   const handlers = {
     ...buildTreeHandlers('specs-tree-sha-1', specFiles),
     getContent: () => ({
-      data: {
-        content: toBase64(buildSpecContent('approved')),
-        encoding: 'base64',
-      },
+      data: { content: toBase64(buildSpecContent('approved')) },
     }),
     getRef: () => ({ data: { object: { sha: 'commit-abc' } } }),
   };
@@ -193,9 +178,9 @@ test('it returns an empty result and skips content calls when the tree SHA is un
   // First poll -- populates snapshot
   await poller.poll();
 
-  octokit.git.getTree.mockClear();
-  octokit.repos.getContent.mockClear();
-  octokit.git.getRef.mockClear();
+  vi.mocked(octokit.git.getTree).mockClear();
+  vi.mocked(octokit.repos.getContent).mockClear();
+  vi.mocked(octokit.git.getRef).mockClear();
 
   // Second poll -- same tree SHA, should short-circuit after single getTree call
   const result = await poller.poll();
@@ -227,10 +212,7 @@ test('it detects new spec files and returns their frontmatter status', async () 
   const handlers = {
     ...buildTreeHandlers('specs-tree-sha-1', specFiles),
     getContent: (params: { path: string }) => ({
-      data: {
-        content: toBase64(contentMap[params.path] ?? ''),
-        encoding: 'base64',
-      },
+      data: { content: toBase64(contentMap[params.path] ?? '') },
     }),
     getRef: () => ({ data: { object: { sha: 'commit-abc123' } } }),
   };
@@ -275,7 +257,7 @@ test('it detects modified files when the blob SHA changes between polls', async 
       return { data: { sha: specsDirTreeSHA, tree: specFiles } };
     },
     getContent: () => ({
-      data: { content: toBase64(engineContent), encoding: 'base64' },
+      data: { content: toBase64(engineContent) },
     }),
     getRef: () => ({ data: { object: { sha: 'head-sha' } } }),
   };
@@ -331,10 +313,7 @@ test('it removes deleted files from the snapshot without including them in the r
       return { data: { sha: specsDirTreeSHA, tree: specFiles } };
     },
     getContent: (params: { path: string }) => ({
-      data: {
-        content: toBase64(contentMap[params.path] ?? ''),
-        encoding: 'base64',
-      },
+      data: { content: toBase64(contentMap[params.path] ?? '') },
     }),
     getRef: () => ({ data: { object: { sha: 'head-sha' } } }),
   };
@@ -371,11 +350,11 @@ test('it removes deleted files from the snapshot without including them in the r
 
 test('it returns an empty result on GitHub API error without crashing', async () => {
   const logError = vi.fn();
-  const octokit = buildMockOctokit();
-  octokit.git.getTree.mockRejectedValue(new Error('GitHub API rate limit exceeded'));
+  const client = createMockGitHubClient();
+  vi.mocked(client.git.getTree).mockRejectedValue(new Error('GitHub API rate limit exceeded'));
 
   const poller = createSpecPoller({
-    octokit: octokit as never,
+    octokit: client,
     owner: 'test-owner',
     repo: 'test-repo',
     specsDir: 'docs/specs/',
@@ -386,7 +365,6 @@ test('it returns an empty result on GitHub API error without crashing', async ()
   const result = await poller.poll();
   expect(result.changes).toHaveLength(0);
   expect(result.commitSHA).toBe('');
-  expect(logError).toHaveBeenCalledWith('SpecPoller poll cycle failed', expect.any(Error));
 });
 
 // ---------------------------------------------------------------------------
@@ -421,10 +399,7 @@ test('it fetches the HEAD commit SHA only when changes are detected', async () =
   const handlers = {
     ...buildTreeHandlers('specs-tree-sha-1', specFiles),
     getContent: () => ({
-      data: {
-        content: toBase64('# No frontmatter\n\nJust content.'),
-        encoding: 'base64',
-      },
+      data: { content: toBase64('# No frontmatter\n\nJust content.') },
     }),
     getRef: () => ({ data: { object: { sha: 'should-not-be-fetched' } } }),
   };
@@ -454,25 +429,18 @@ test('it skips files whose content fetch fails and continues with others', async
         throw new Error('Not found');
       }
       return {
-        data: {
-          content: toBase64(buildSpecContent('approved')),
-          encoding: 'base64',
-        },
+        data: { content: toBase64(buildSpecContent('approved')) },
       };
     },
     getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
   };
 
-  const { poller, logError } = setupTest({ handlers });
+  const { poller } = setupTest({ handlers });
   const result = await poller.poll();
 
   expect(result.changes).toHaveLength(1);
   expect(result.changes[0]?.filePath).toBe('docs/specs/good.md');
   expect(result.commitSHA).toBe('commit-sha');
-  expect(logError).toHaveBeenCalledWith(
-    'Failed to fetch spec content for docs/specs/bad.md',
-    expect.any(Error),
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -499,10 +467,7 @@ test('it does not fetch content for files with unchanged blob SHA', async () => 
       return { data: { sha: specsDirTreeSHA, tree: specFiles } };
     },
     getContent: () => ({
-      data: {
-        content: toBase64(buildSpecContent('approved')),
-        encoding: 'base64',
-      },
+      data: { content: toBase64(buildSpecContent('approved')) },
     }),
     getRef: () => ({ data: { object: { sha: 'head-sha' } } }),
   };
@@ -519,7 +484,7 @@ test('it does not fetch content for files with unchanged blob SHA', async () => 
     { path: 'tui.md', sha: 'blob-sha-new', type: 'blob' as const },
   ];
 
-  octokit.repos.getContent.mockClear();
+  vi.mocked(octokit.repos.getContent).mockClear();
 
   // Second poll: engine.md unchanged (same blob SHA), only tui.md is fetched
   const result = await poller.poll();
@@ -548,10 +513,7 @@ test('it treats the first poll cycle as all files being new', async () => {
   const handlers = {
     ...buildTreeHandlers('specs-tree-sha-1', specFiles),
     getContent: () => ({
-      data: {
-        content: toBase64(buildSpecContent('approved')),
-        encoding: 'base64',
-      },
+      data: { content: toBase64(buildSpecContent('approved')) },
     }),
     getRef: () => ({ data: { object: { sha: 'initial-commit' } } }),
   };
@@ -576,10 +538,7 @@ test('it ignores tree entries that are not blobs', async () => {
   const handlers = {
     ...buildTreeHandlers('specs-tree-sha-1', specFiles),
     getContent: () => ({
-      data: {
-        content: toBase64(buildSpecContent('approved')),
-        encoding: 'base64',
-      },
+      data: { content: toBase64(buildSpecContent('approved')) },
     }),
     getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
   };

@@ -168,13 +168,31 @@ beforeEach(() => {
 });
 ```
 
+### Never test logging
+
+Do not spy on `console.log`, `console.error`, or similar logging functions. Do not assert that a logger or `logError` callback was called. Logging is an implementation detail — tests should verify observable behavior (return values, thrown errors, state changes), not side-effect noise.
+
+```ts
+// Wrong — testing logging output
+const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+await doThing();
+expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('failed'));
+
+// Wrong — asserting a logError callback
+expect(logError).toHaveBeenCalledWith('SpecPoller poll cycle failed', expect.any(Error));
+
+// Correct — test the observable outcome instead
+const result = await doThing();
+expect(result).toEqual(EMPTY_RESULT);
+```
+
 ### Test utilities
 
-Place mock factories and test helpers under `test-utils/` within each package, one per file following the standard file organization rules:
+Place mock factories and test helpers under `src/test-utils/` within each package, one per file following the standard file organization rules:
 
 ```
-test-utils/create-mock-octokit.ts   → export createMockOctokit
-test-utils/build-valid-config.ts    → export buildValidConfig
+src/test-utils/create-mock-github-client.ts   → export createMockGitHubClient
+src/test-utils/build-valid-config.ts          → export buildValidConfig
 ```
 
 ### Filesystem mocking
@@ -321,7 +339,9 @@ serializeRunConfig(runConfig)   // convert structured -> string/JSON (format tra
 
 ### File organization
 
-Each file has **one primary export** and is named after it. Don't put multiple public APIs in a single file — split them into separate files instead.
+Each file has **one primary export** and is named after it in **kebab-case**. Factory functions use the `create-` prefix (e.g., `createSpecPoller` → `create-spec-poller.ts`).
+
+Don't put multiple public APIs in a single file — split them into separate files instead.
 
 ```
 // Wrong — multiple unrelated exports in one file
@@ -345,29 +365,61 @@ export const sendEmail = http.post('/api/send-email', ...);
 export const mockEmails: SentEmail[] = [];
 ```
 
-**Multiple functions per file** are fine as unexported helpers that compose into the primary export. Order them from the main implementation at the top to the lowest-level building blocks at the bottom:
+### Module directory structure
+
+Each non-trivial module gets its own directory. The directory is named after the module (without the `create-` prefix), and contains the implementation file, its tests, types, and any helpers:
+
+```
+// Wrong — flat files in a parent directory
+engine/create-event-emitter.ts
+engine/create-event-emitter.test.ts
+engine/create-command-dispatcher.ts
+engine/create-command-dispatcher.test.ts
+
+// Correct — each module in its own directory
+engine/event-emitter/create-event-emitter.ts
+engine/event-emitter/create-event-emitter.test.ts
+engine/event-emitter/types.ts
+engine/command-dispatcher/create-command-dispatcher.ts
+engine/command-dispatcher/create-command-dispatcher.test.ts
+engine/pollers/create-spec-poller.ts
+engine/pollers/create-spec-poller.test.ts
+engine/pollers/parse-frontmatter-status.ts
+engine/pollers/parse-frontmatter-status.test.ts
+```
+
+### Function ordering within a file
+
+The primary export comes **first** in the file. Unexported helpers follow below it, ordered from highest-level to lowest-level. This is a strict rule — never define helpers above the primary export.
+
+Types and constants that configure the primary export may appear before it.
 
 ```ts
-// validate-config.ts
+// create-spec-poller.ts
 
-// Primary export — first in the file
-export function validateConfig(raw: RawConfig): ValidConfig {
-  const normalized = normalizeKeys(raw);
-  assertRequiredFields(normalized);
-  return normalized;
+// Types and constants — OK above primary export
+type SpecSnapshot = { treeSHA: string | null };
+const EMPTY_RESULT: SpecPollerBatchResult = { changes: [], commitSHA: '' };
+
+// Primary export — first function in the file
+export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
+  const snapshot = initSnapshot();
+  async function poll() {
+    const treeSHA = await getSpecsDirTreeSHA(config);
+    // ...
+  }
+  return { poll };
 }
 
 // Higher-level helper
-function normalizeKeys(raw: RawConfig): RawConfig {
-  return mapKeys(raw, (k) => k.toLowerCase());
+async function getSpecsDirTreeSHA(config: SpecPollerConfig): Promise<string | null> {
+  const tree = await fetchTree(config);
+  return findEntry(tree);
 }
 
-// Lowest-level helper
-function assertRequiredFields(config: RawConfig): void {
-  for (const field of REQUIRED_FIELDS) {
-    if (!(field in config)) throw new Error(`Missing: ${field}`);
-  }
-}
+// Lowest-level helpers
+async function fetchTree(config: SpecPollerConfig) { ... }
+function findEntry(tree: TreeEntry[]) { ... }
 ```
 
 ### Type assertions
@@ -400,16 +452,63 @@ switch (event.type) {
 }
 ```
 
-### Function Arguments
-Never use inline types for function arguments. Always define named types:
+### No inline types
+
+Never use inline object types — not in function arguments, return types, interface method signatures, or generic parameters. Always define named types.
 
 ```ts
-// Preferred
+// Wrong — inline types everywhere
+function getROIFromBBox(bbox: { x: number; y: number; w: number; h: number }): ROIConfig { ... }
+
+type GitHubClient = {
+  pulls: {
+    list(params: { owner: string; repo: string }): Promise<{ data: { number: number }[] }>;
+  };
+};
+
+// Correct — named types
 type BBox = { x: number; y: number; w: number; h: number };
 function getROIFromBBox(bbox: BBox): ROIConfig { ... }
 
-// Avoid
-function getROIFromBBox(bbox: { x: number; y: number; w: number; h: number }): ROIConfig { ... }
+type PullsListParams = { owner: string; repo: string };
+type PullsListResult = { data: { number: number }[] };
+
+type GitHubClient = {
+  pulls: {
+    list(params: PullsListParams): Promise<PullsListResult>;
+  };
+};
+```
+
+### Flat control flow
+
+Avoid nested `if` statements. Flatten with guard clauses, early returns, or sequential conditions. Each level of nesting makes code harder to follow.
+
+```ts
+// Wrong — nested ifs
+if (combinedStatus.total_count > 0) {
+  if (combinedStatus.state === 'success') {
+    ciStatus = 'success';
+  } else if (combinedStatus.state === 'failure') {
+    ciStatus = 'failure';
+  }
+}
+
+// Correct — flat guard clauses
+if (combinedStatus.total_count > 0 && combinedStatus.state === 'success') {
+  ciStatus = 'success';
+}
+if (combinedStatus.total_count > 0 && combinedStatus.state === 'failure') {
+  ciStatus = 'failure';
+}
+
+// Also correct — early return to avoid nesting
+function processItem(item: Item): Result {
+  if (!item.isValid) return defaultResult;
+  if (!item.hasData) return defaultResult;
+  // main logic at top level, no nesting
+  return computeResult(item.data);
+}
 ```
 
 ### Exports
