@@ -17,6 +17,7 @@ The TUI is the user-facing module of the control plane. It renders a three-pane 
 - Must remain responsive while agents are running. No blocking operations on the main render loop.
 - Must not make GitHub API calls or invoke agents directly. All state changes flow through engine commands.
 - Must render correctly in terminals with a minimum width of 120 columns and 30 rows.
+- Must fill the terminal viewport exactly — no terminal scrolling. The dashboard height is bounded to `stdout.rows` and width to `stdout.columns`. Pane heights are derived from terminal dimensions and update on resize.
 
 ## Specification
 
@@ -52,42 +53,119 @@ flowchart LR
 └──────────────────┴──────────────────┴──────────────────┘
 ```
 
+The dashboard fills the terminal viewport exactly — its height is `stdout.rows` and its width is `stdout.columns`. No content extends beyond the viewport (no terminal scrolling). On terminal resize, the layout reflows to the new dimensions. Each pane's scrollable area is computed from the available height minus chrome (headers, horizontal rules, status bars). The three panes divide horizontal space equally (each gets one-third of `stdout.columns`).
+
 The issue list pane has focus by default on startup. The user navigates between panes and interacts with items using keyboard controls.
 
 ### Panes
 
+#### Shared List Primitives
+
+All list-based panes (notifications, issue list) share a common visual foundation implemented as reusable `List` and `ListItem` components.
+
+**Pane header:** The pane label renders in full caps (e.g., `NOTIFICATIONS`, `ISSUES`) followed by a full-width horizontal rule (`─`). The header is visually distinct from the scrollable list content below it. The header has 1-character horizontal padding on each side.
+
+**Item padding:** Each list item has 1-character horizontal padding on each side, matching the header. This keeps content visually inset from the pane border.
+
+**Alternating row backgrounds:** Odd-indexed visible rows render with a dimmed background to visually distinguish adjacent items. Even-indexed rows use the terminal's default background. The index is based on visible position (after scroll windowing), not the item's index in the underlying data.
+
+**Selection highlighting:** The currently selected item renders with inverse video (foreground and background colors swapped). Only the focused pane shows a selection highlight.
+
+**Single-line truncation:** Each list item occupies exactly one terminal line. Content exceeding the available pane width is truncated with a trailing ellipsis (`…`).
+
+**Scroll windowing:** The pane header and horizontal rule are fixed — they never scroll off-screen. The scrollable area begins below the rule and displays as many items as the remaining pane height allows. When items exceed visible rows, the list scrolls within this area via keyboard navigation (`↑`/`↓`/`j`/`k`) or mouse scroll wheel. The viewport uses scroll-by-one: it shifts by exactly one row when the selection moves outside the currently visible window. Mouse scroll moves the viewport without changing the selected item. If the user mouse-scrolls away from the selected item then presses a navigation key, the viewport snaps back to keep the selection visible before applying the navigation.
+
+**Terminal hyperlinks:** Specific text elements render as clickable terminal hyperlinks via the OSC 8 protocol (`ink-link`). In terminals that do not support OSC 8, text renders normally without click behavior — no URL suffix is appended, since all linked resources are also accessible via keyboard actions (`Enter` to open in browser). Fallback is disabled (`fallback={false}`).
+
 #### Notifications Pane
 
-A scrollable, chronological event history. Newest notifications appear at the top.
+A scrollable, chronological event history. Newest notifications appear at the top. Uses the shared list primitives for header, alternating rows, selection highlighting, single-line truncation, and scroll windowing.
 
-**Content:** Each notification is a single-line entry showing a timestamp, event type icon, and summary text. Notifications that carry a clipboard command (e.g., `needs-refinement`) display a copy indicator. Notifications persist for the entire session as scrollable history.
+**Item format:** Each notification renders as a single line:
 
-**Events surfaced as notifications:**
+```
+{indicator} [HH:MM] {content}{copy-indicator}
+```
 
-| Engine Event | Notification Text |
-|-------------|-------------------|
-| `agentStarted` | "{AgentType} started for issue #{N}" (Implementor/Reviewer) or "Planner started for {spec paths}" (Planner) |
-| `agentCompleted` | "{AgentType} completed for issue #{N}" (Implementor/Reviewer) or "Planner completed" (Planner) |
-| `agentFailed` | "{AgentType} failed for issue #{N} — {error}" (Implementor/Reviewer) or "Planner failed — {error}" (Planner). Includes session ID. |
-| `issueStatusChanged` | Issue #N status changed from X to Y |
-| `specChanged` | "Spec changed: {filePath}". The `contextURL` is constructed from the commit SHA (for Enter/browser diff action). |
-| `recoveryPerformed` | Issue #N recovered from stale in-progress |
-| `notification` (engine) | `needs-refinement`: "Issue #{N} needs spec refinement — {resolutionGuidance}". `blocked`: "Issue #{N} blocked — {resolutionGuidance}". `approved`: "Issue #{N} approved — ready to merge". |
-| `agentSkipped` | "{AgentType} skipped for issue #{N} — already running" (Implementor/Reviewer) or "Planner skipped — already running (paths deferred)" (Planner) |
-| `dispatchReady` | "Issue #{N} ready for dispatch" |
-| `notificationDismissed` | Issue #N notification dismissed |
+- **Indicator** — A colored glyph identifying the event type (see indicator table).
+- **Timestamp** — Local wall-clock time in `[HH:MM]` format.
+- **Content** — Notification text with semantic highlighting (see rendering rules).
+- **Copy indicator** — ` [copy]` suffix, present only when the notification has a `clipboardCommand`.
 
-**Interaction:** When the notifications pane is focused, arrow keys scroll through entries. Enter on a notification opens the relevant context:
+Notifications persist for the entire session as scrollable history.
 
-| Event Type | Enter Action |
-|-----------|-------------|
-| Issue-related events | Open issue in browser |
-| Agent completed (Implementor) | Open PR in browser (if PR exists) |
-| Spec changed | Open file diff in browser |
+**Notification indicators:**
+
+| Event Type | Glyph | Color |
+|-----------|-------|-------|
+| `dispatchReady` | `●` | Green |
+| `agentStarted` | `▶` | Blue |
+| `agentCompleted` | `✓` | Green |
+| `agentFailed` | `✗` | Red |
+| `agentSkipped` | `–` | Yellow |
+| `issueStatusChanged` | `→` | Cyan |
+| `specChanged` | `~` | Magenta |
+| `recoveryPerformed` | `↻` | Yellow |
+| `notification` (`approved`) | `★` | Green |
+| `notification` (`needs-refinement`, `blocked`) | `★` | Yellow |
+| `notificationDismissed` | `×` | Dim |
+| `issueRemoved` | `−` | Dim |
+| `startup` | `✓` | Green |
+
+**Notification text:**
+
+| Engine Event | Notification Content |
+|-------------|---------------------|
+| `agentStarted` | `{AgentType} started for #{N}` (task agents) — `Planner started for {N} specs` (Planner) |
+| `agentCompleted` | `{AgentType} completed for #{N}` (task agents) — `Planner completed` (Planner) |
+| `agentFailed` | `{AgentType} failed for #{N} — {error}` (task agents) — `Planner failed — {error}` (Planner). Note: session ID is available on the `AgentFailedNotification` type for programmatic access but is not rendered in the notification text. |
+| `issueStatusChanged` | `#{N}: {oldStatus} → {newStatus}` (e.g., `#39: none → pending`). When `oldStatus` is `null` (first detection), render as `none`. |
+| `specChanged` | `Spec changed: {fileName}` (filename only, directories stripped). `contextURL` links to the commit diff. |
+| `recoveryPerformed` | `#{N} recovered from stale` |
+| `notification` (`needs-refinement`) | `#{N} needs refinement — {resolutionGuidance}` |
+| `notification` (`blocked`) | `#{N} blocked — {resolutionGuidance}` |
+| `notification` (`approved`) | `#{N} approved — ready to merge` |
+| `agentSkipped` | `{AgentType} skipped for #{N}` (task agents) — `Planner skipped — paths deferred` (Planner) |
+| `dispatchReady` | `#{N} ready for dispatch` |
+| `notificationDismissed` | `#{N} dismissed` |
+| `issueRemoved` | `#{N} removed` |
+
+**Semantic highlighting:**
+
+Notification content is composed of color-coded, optionally-linked segments. The `summary` field retains a plain-text version for logging and accessibility.
+
+| Entity | Style | Hyperlink |
+|--------|-------|-----------|
+| Agent names (`Implementor`, `Reviewer`, `Planner`) | Bold cyan | — |
+| Issue references (`#{N}`) | Bold | Issue URL (`https://github.com/{owner}/{repo}/issues/{N}`) |
+| Status labels (`pending`, `in-progress`, etc.) | Status color (see table below) | — |
+| Spec filenames | Magenta | Commit diff URL (from `contextURL`) |
+| Error messages | Red | — |
+| All other text | Default | — |
+
+**Status label colors:**
+
+| Status | Color |
+|--------|-------|
+| `pending`, `unblocked`, `needs-changes` | Default |
+| `in-progress` | Blue |
+| `review` | Cyan |
+| `needs-refinement`, `blocked` | Yellow |
+| `approved` | Green |
+| `none` (first detection) | Dim |
+
+**Interaction:** When the notifications pane is focused, arrow keys scroll through entries. Enter opens the notification's `contextURL` in the user's default browser. If the notification has no `contextURL`, Enter is a no-op.
+
+The store sets `contextURL` when creating each notification:
+
+- **Issue-related notifications** — `contextURL` is the issue URL. This applies to all notifications with an `issueNumber`.
+- **`agentCompleted` (Implementor)** and **`notification` (`approved`)** — `contextURL` is set to the issue URL initially, then updated asynchronously to the PR URL via `getPRForIssue` (in-place update; no-op if the notification no longer exists).
+- **`specChanged`** — `contextURL` is the commit diff URL.
+- **Planner notifications** (no `issueNumber`) — No `contextURL`. Enter is a no-op.
 
 #### Issue List Pane
 
-A prioritized list of all open issues with the `task:implement` label. This is the primary interaction point — the user dispatches agents, monitors progress, and navigates to external resources from this pane.
+A prioritized list of all open issues with the `task:implement` label. This is the primary interaction point — the user dispatches agents, monitors progress, and navigates to external resources from this pane. Uses the shared list primitives for header, alternating rows, selection highlighting, single-line truncation, and scroll windowing.
 
 **Planner visibility:** Planner sessions do not appear in the issue list (they operate on specs, not task issues). Planner activity is visible only through notifications — `agentStarted`, `agentCompleted`, and `agentFailed` events for the Planner are surfaced in the notifications pane.
 
@@ -119,6 +197,7 @@ A prioritized list of all open issues with the `task:implement` label. This is t
 |------------|-------------|
 | `pending`, `unblocked`, `needs-changes` | Show dispatch confirmation: "Dispatch Implementor for #N? [y/n]". On `y`, send `dispatchImplementor` command. On `n`/`Escape`, dismiss. |
 | `in-progress` (agent running) | Show cancel confirmation: "Cancel agent for #N? [y/n]". On `y`, send `cancelAgent` command. On `n`/`Escape`, dismiss. |
+| `in-progress` (no agent) | Show dispatch confirmation (same as `pending`). This is a transient state — engine recovery will reset it to `pending` shortly. |
 | `review` (Reviewer running) | Show cancel confirmation: "Cancel Reviewer for #N? [y/n]". On `y`, send `cancelAgent` command. On `n`/`Escape`, dismiss. |
 | `review` (no agent) | Open PR in browser (if PR exists). If no PR found, show "No PR found" in detail pane. |
 | `needs-refinement` | Open issue in browser |
@@ -127,8 +206,6 @@ A prioritized list of all open issues with the `task:implement` label. This is t
 | Failed | Show retry confirmation: "Retry {agentType} for #N? [y/n]" (agent type from `lastFailure`). On `y`, clear `lastFailure` and dispatch the appropriate agent (`dispatchImplementor` for Implementor failures, `dispatchReviewer` for Reviewer failures). On `n`/`Escape`, dismiss. |
 
 **Empty state:** When the issue list is empty (no `task:implement` issues exist), the pane displays "No issues tracked". Arrow keys and Enter are no-ops. `selectedIssue` remains `null`.
-
-The list displays as many issues as terminal height allows. If there are more issues than visible rows, the list scrolls to keep the selected item in view.
 
 #### Detail Pane
 
@@ -145,7 +222,7 @@ Displays context-aware content based on the currently selected issue in the issu
 | Failed (TUI overlay) | Error details, session ID, preserved worktree path (if Implementor), retry prompt | `lastFailure` from Zustand store |
 | No issue selected (`selectedIssue` is `null`) | Empty state: "No issue selected" | N/A |
 
-**On-demand fetching:** When the user selects an issue, the store checks its `issueDetails`/`prDetails` caches. If the data is not cached, it calls the engine's query interface to fetch it. A loading indicator is shown in the detail pane while the fetch is in progress.
+**On-demand fetching:** When the user selects an issue, the store checks its `issueDetails`/`prDetails` caches. If the data is not cached, it calls the engine's query interface to fetch it. A spinner with "Loading…" text is shown in the detail pane while the fetch is in progress.
 
 **Agent output streaming:** When viewing a running agent, the detail pane renders from the `agentStreams` buffer. The stream auto-scrolls to show the latest output. The user can scroll up to review earlier output; auto-scroll resumes when the user scrolls back to the bottom.
 
@@ -160,8 +237,9 @@ The TUI uses Zustand for state management. A single store holds all TUI state de
 The engine store is created once at startup and subscribes to all engine events. It exposes:
 
 **State** (see `EngineStoreState` in Type Definitions):
+- `repository` — `{ owner: string; repo: string }`. Set once at initialization from the engine config. Used to construct issue, PR, and commit URLs for hyperlinks and `contextURL`.
 - `issues` — Map of issue number → `TrackedIssue`. Populated from `issueStatusChanged` events. Includes agent status (`agentRunning`, `agentType`) and optional `lastFailure` (error, session ID, worktree path).
-- `notifications` — Chronological `Notification[]`. Each entry has a context URL (for Enter/browser) and an optional clipboard command (for `c` keybinding).
+- `notifications` — `Notification[]` (discriminated union on `eventType`). New notifications are prepended (index 0 is the newest). Each variant carries typed fields for its event — see Type Definitions.
 - `agentStreams` — Map of issue number → `string[]` buffer. Populated by subscribing to the engine's `getAgentStream` on `agentStarted`.
 - `issueDetails` — Cache of `CachedIssueDetails`. Populated via `getIssueDetails` when the user selects an issue. Invalidated on `issueStatusChanged`.
 - `prDetails` — Cache of `CachedPRDetails`. Populated via `getPRForIssue` when the user selects a review/approved issue. Invalidated on `issueStatusChanged`.
@@ -189,15 +267,15 @@ The engine store is created once at startup and subscribes to all engine events.
 
 | Event | Store Update |
 |-------|-------------|
-| `issueStatusChanged` | Upsert issue in `issues` (creates entry on first detection with `oldStatus: null`). Clears `lastFailure` if status changed — **unless `isRecovery` is true** (recovery events must not clear the failure overlay; only user-initiated retry or a subsequent non-recovery poll clears it). Marks `issueDetails`/`prDetails` cache for this issue as stale (see stale-while-revalidate below). |
+| `issueStatusChanged` | Add notification ("#{N}: {oldStatus} → {newStatus}"). Upsert issue in `issues` (creates entry on first detection with `oldStatus: null`). Clears `lastFailure` if status changed — **unless `isRecovery` is true** (recovery events must not clear the failure overlay; only user-initiated retry or a subsequent non-recovery poll clears it). Marks `issueDetails`/`prDetails` cache for this issue as stale (see stale-while-revalidate below). |
 | `agentStarted` | **Planner:** set `plannerRunning: true`, add notification, skip issue state and stream subscription. **Implementor/Reviewer:** set `agentRunning: true` and `agentType` on the issue identified by `issueNumber`. Clear any existing `agentStreams` buffer for this issue (from a previous run), then subscribe to `getAgentStream(issueNumber)` and begin buffering in `agentStreams`. |
 | `agentCompleted` | **Planner:** set `plannerRunning: false`, add notification. **Implementor:** set `agentRunning: false` on the issue, add notification with the issue URL as `contextURL` initially, then call `getPRForIssue` asynchronously and update the notification's `contextURL` to the PR URL when it resolves (this is an exception to the append-only rule — in-place URL update only; no-op if the notification no longer exists). **Reviewer:** set `agentRunning: false` on the issue, mark `prDetails` as stale (Reviewer may have added approval or posted review comments), add notification. |
 | `agentFailed` | **Planner:** set `plannerRunning: false`, add notification, no `lastFailure`. **Implementor/Reviewer:** set `agentRunning: false` on the issue identified by `issueNumber`, record `lastFailure` with `agentType`, error, session ID, and worktree path (Implementor only). |
 | `agentSkipped` | No issue state change. Notification added. |
-| `dispatchReady` | No issue state change (the issue's status was already updated by `issueStatusChanged`). Notification added ("Issue #{N} ready for dispatch"). |
-| `notification` (engine event) | Add notification entry to history. Set `contextURL` from the engine event's `contextURL`. For `approved` status, the engine provides the issue URL initially — the store calls `getPRForIssue` asynchronously and updates `contextURL` to the PR URL when resolved (same in-place update pattern as `agentCompleted` Implementor). If `clipboardCommand` is present, include it in the notification for `c` keybinding. Note: this is a specific engine event type for notify-only tier issues — distinct from the TUI's concept of "notifications" (all engine events appear in the notifications pane). |
-| `notificationDismissed` | Add dismissal entry to notification history ("Issue #N notification dismissed"). Does not remove previous notification entries — the notification history is append-only. |
-| `issueRemoved` | Remove issue from `issues` map. Clear associated `agentStreams`, `issueDetails`, and `prDetails` caches. If the removed issue is the currently `selectedIssue`, reset `selectedIssue` to `null`. Note: the engine guarantees `agentFailed` is emitted before `issueRemoved` for the same issue (if an agent was running). Handlers should be defensive — check issue existence before updating. |
+| `dispatchReady` | No issue state change (the issue's status was already updated by `issueStatusChanged`). Notification added ("#{N} ready for dispatch"). |
+| `notification` (engine event) | Add notification entry to history. Map the engine event's `statusLabel` to the `EngineEventNotification.notificationType` field (`'needs-refinement'`, `'blocked'`, or `'approved'`). Set `contextURL` from the engine event's `contextURL`. For `approved` status, the engine provides the issue URL initially — the store calls `getPRForIssue` asynchronously and updates `contextURL` to the PR URL when resolved (same in-place update pattern as `agentCompleted` Implementor). If `clipboardCommand` is present, include it in the notification for `c` keybinding. Note: this is a specific engine event type for notify-only tier issues — distinct from the TUI's concept of "notifications" (all engine events appear in the notifications pane). |
+| `notificationDismissed` | Add dismissal entry to notification history ("#{N} dismissed"). Does not remove previous notification entries — the notification history is append-only. |
+| `issueRemoved` | Add notification ("#{N} removed"). Remove issue from `issues` map. Clear associated `agentStreams`, `issueDetails`, and `prDetails` caches. If the removed issue is the currently `selectedIssue`, reset `selectedIssue` to `null`. Note: the engine guarantees `agentFailed` is emitted before `issueRemoved` for the same issue (if an agent was running). Handlers should be defensive — check issue existence before updating. |
 | `recoveryPerformed` | Notification added. Issue state updated via the accompanying synthetic `issueStatusChanged` (emitted by the engine alongside `recoveryPerformed`). |
 | `specChanged` | Notification added. No issue state change. |
 
@@ -240,15 +318,103 @@ type TrackedIssue = {
   };
 };
 
-type Notification = {
+// Discriminated union for notifications. Each variant carries typed fields
+// for its event, enabling per-type rendering and type guards. The summary
+// field is a plain-text fallback for logging and accessibility; the
+// component builds rich rendering from the typed fields.
+type BaseNotification = {
   id: string; // unique, generated by store
   timestamp: string; // ISO 8601
-  eventType: string; // engine event type that triggered this notification
-  issueNumber?: number; // present for issue-related events, absent for spec/planner events
-  summary: string; // human-readable one-line summary
+  summary: string; // plain-text rendering for logging/accessibility
   contextURL?: string; // URL opened by Enter (issue, PR, or commit)
   clipboardCommand?: string; // CLI command copied by 'c' keybinding
 };
+
+type AgentStartedNotification = BaseNotification & {
+  eventType: 'agentStarted';
+  agentType: 'implementor' | 'reviewer' | 'planner';
+  issueNumber?: number; // present for task agents, absent for Planner
+  specCount?: number; // always present when agentType is 'planner' (number of specs in batch)
+};
+
+type AgentCompletedNotification = BaseNotification & {
+  eventType: 'agentCompleted';
+  agentType: 'implementor' | 'reviewer' | 'planner';
+  issueNumber?: number;
+};
+
+type AgentFailedNotification = BaseNotification & {
+  eventType: 'agentFailed';
+  agentType: 'implementor' | 'reviewer' | 'planner';
+  issueNumber?: number;
+  error: string;
+  sessionID: string;
+};
+
+type AgentSkippedNotification = BaseNotification & {
+  eventType: 'agentSkipped';
+  agentType: 'implementor' | 'reviewer' | 'planner';
+  issueNumber?: number;
+};
+
+type IssueStatusChangedNotification = BaseNotification & {
+  eventType: 'issueStatusChanged';
+  issueNumber: number;
+  oldStatus: string | null; // null on first detection
+  newStatus: string;
+};
+
+type SpecChangedNotification = BaseNotification & {
+  eventType: 'specChanged';
+  specFileName: string; // filename only, no directory path
+};
+
+type RecoveryPerformedNotification = BaseNotification & {
+  eventType: 'recoveryPerformed';
+  issueNumber: number;
+};
+
+type DispatchReadyNotification = BaseNotification & {
+  eventType: 'dispatchReady';
+  issueNumber: number;
+};
+
+type EngineEventNotification = BaseNotification & {
+  eventType: 'notification';
+  issueNumber: number;
+  notificationType: 'needs-refinement' | 'blocked' | 'approved';
+  resolutionGuidance?: string;
+};
+
+type NotificationDismissedNotification = BaseNotification & {
+  eventType: 'notificationDismissed';
+  issueNumber: number;
+};
+
+type IssueRemovedNotification = BaseNotification & {
+  eventType: 'issueRemoved';
+  issueNumber: number;
+};
+
+type StartupNotification = BaseNotification & {
+  eventType: 'startup';
+  issueCount: number;
+  recoveriesPerformed: number;
+};
+
+type Notification =
+  | AgentStartedNotification
+  | AgentCompletedNotification
+  | AgentFailedNotification
+  | AgentSkippedNotification
+  | IssueStatusChangedNotification
+  | SpecChangedNotification
+  | RecoveryPerformedNotification
+  | DispatchReadyNotification
+  | EngineEventNotification
+  | NotificationDismissedNotification
+  | IssueRemovedNotification
+  | StartupNotification;
 
 type FocusedPane = 'issueList' | 'detailPane' | 'notifications';
 
@@ -269,7 +435,11 @@ type CachedPRDetails = {
   stale: boolean;
 };
 
+type Repository = { owner: string; repo: string };
+
 type EngineStoreState = {
+  // Configuration (set once at initialization)
+  repository: Repository;
   // Derived from engine events
   issues: Map<number, TrackedIssue>;
   notifications: Notification[];
@@ -300,6 +470,15 @@ type EngineStore = EngineStoreState & EngineStoreActions;
 
 ### Keyboard Controls
 
+**Prompt rendering:** All confirmation prompts render as a centered overlay with a single-line border, positioned in the middle of the terminal viewport. Implemented as a reusable `Confirm` component.
+
+```
+┌───────────────────────────────┐
+│  Dispatch Implementor for #39? │
+│             [y/n]              │
+└───────────────────────────────┘
+```
+
 **Prompt exclusivity:** Only one confirmation prompt can be active at a time. While a confirmation prompt is visible (dispatch, cancel, retry, or quit), other prompt-triggering keys (`Enter`, `q`) are ignored until the active prompt is dismissed via `y`, `n`, or `Escape`.
 
 #### Global
@@ -324,8 +503,8 @@ type EngineStore = EngineStoreState & EngineStoreActions;
 
 | Key | Action |
 |-----|--------|
-| `↑` / `k` | Scroll up |
-| `↓` / `j` | Scroll down |
+| `↑` / `k` | Move selection up |
+| `↓` / `j` | Move selection down |
 | `Enter` | Open notification context in browser |
 | `c` | Copy clipboard command to system clipboard (only for notifications that have one — e.g., `needs-refinement`). No-op if the notification has no clipboard command. |
 
@@ -353,9 +532,9 @@ The `{owner}/{repo}` values come from the engine's `repository` config.
 On startup, the TUI:
 
 1. Initializes the `useEngine()` hook with the engine instance.
-2. Calls `engine.start()`, which returns a `Promise<StartupResult>` that resolves after startup recovery and the first IssuePoller and SpecPoller cycles both complete. The TUI shows a loading indicator until the Promise resolves.
-3. Renders the three-pane layout with the issue list focused.
-4. Displays a startup summary notification using the `StartupResult`: "Startup complete: {issueCount} issues tracked, {recoveriesPerformed} recoveries performed" (recoveries omitted if zero).
+2. Calls `engine.start()`, which returns a `Promise<StartupResult>` that resolves after startup recovery and the first IssuePoller and SpecPoller cycles both complete. The TUI shows a centered loading spinner with "Starting…" text until the Promise resolves. The three-pane layout is not rendered during startup.
+3. Renders the three-pane layout with the issue list focused. If issues exist, the first issue in sort order is auto-selected (`selectedIssue` is set). If no issues exist, `selectedIssue` remains `null`.
+4. Displays a startup summary notification using the `StartupResult`: "Startup complete: {issueCount} issues tracked, {recoveriesPerformed} recoveries performed" (recoveries clause omitted if zero).
 
 ### Shutdown
 
@@ -375,6 +554,8 @@ When the user presses `q`:
 - [ ] Given the TUI starts, when the dashboard renders, then three panes are visible: notifications, issue list, and detail pane.
 - [ ] Given the TUI starts, when the dashboard renders, then the issue list pane has focus.
 - [ ] Given the terminal is at least 120 columns wide and 30 rows tall, when the TUI renders, then all three panes are visible without overlap or truncation.
+- [ ] Given the TUI is running, when the terminal is resized, then the layout reflows to fill the new dimensions without terminal scrolling.
+- [ ] Given the TUI is running, when content exceeds the available pane height, then the content scrolls within the pane — the overall dashboard never exceeds the terminal viewport.
 
 ### Issue List
 
@@ -396,13 +577,32 @@ When the user presses `q`:
 - [ ] Given the user scrolls up in the agent stream, when new output arrives, then auto-scroll is paused until the user scrolls back to the bottom.
 - [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the preserved worktree path.
 
+### Shared List Primitives
+
+- [ ] Given any list-based pane renders, when the pane header is displayed, then the label is in full caps with a horizontal rule (`─`) separator below.
+- [ ] Given a list has multiple items, when the list renders, then odd-indexed visible rows have a dimmed background and even-indexed rows have the default background.
+- [ ] Given a list item is selected in the focused pane, when the list renders, then the selected item is displayed with inverse video.
+- [ ] Given a list item's content exceeds the pane width, when the item renders, then the content is truncated with a trailing ellipsis (`…`).
+- [ ] Given more items exist than the pane height allows, when the user navigates past the visible window, then the list scrolls by one row to keep the selected item visible while the pane header remains fixed.
+- [ ] Given more items exist than the pane height allows, when the user scrolls with the mouse wheel, then the viewport moves without changing the selected item and the pane header remains fixed.
+- [ ] Given the user has mouse-scrolled away from the selected item, when they press a navigation key, then the viewport snaps back to the selection before applying the navigation.
+- [ ] Given a text element is a terminal hyperlink, when rendered in a supported terminal, then it is clickable. In unsupported terminals, no URL suffix is appended.
+
 ### Notifications
 
-- [ ] Given an engine event occurs, when the notification is added, then it appears at the top of the notifications pane with a timestamp and event summary.
+- [ ] Given an engine event occurs, when the notification is added, then it appears at the top of the notifications pane with a colored indicator glyph, timestamp in `[HH:MM]` format, and semantically highlighted content.
 - [ ] Given notifications exist, when the user scrolls the notifications pane, then all session notifications are accessible (scrollable history).
 - [ ] Given an issue-related notification is selected, when the user presses Enter, then the issue is opened in the user's browser.
 - [ ] Given a notification with a clipboard command is selected, when the user presses `c`, then the command is copied to the system clipboard.
 - [ ] Given a notification without a clipboard command is selected, when the user presses `c`, then nothing happens (no-op).
+- [ ] Given a notification contains an issue reference (`#{N}`), when it renders, then the issue number is bold and rendered as a terminal hyperlink to the issue URL.
+- [ ] Given a notification contains an agent name, when it renders, then the agent name (`Implementor`, `Reviewer`, `Planner`) is displayed in bold cyan.
+- [ ] Given a notification contains status labels, when it renders, then each status label is colored according to the status label color table.
+- [ ] Given a notification for `specChanged`, when it renders, then only the filename is shown (directories stripped) and it is a terminal hyperlink to the commit diff.
+- [ ] Given an `issueStatusChanged` notification, when it renders, then the format is `#{N}: {oldStatus} → {newStatus}`.
+- [ ] Given a notification with a `contextURL`, when the user presses Enter, then the URL is opened in the browser.
+- [ ] Given a Planner notification with no `contextURL`, when the user presses Enter, then nothing happens (no-op).
+- [ ] Given an `issueRemoved` notification, when it renders, then the indicator is `−` in dim color and the content is `#{N} removed`.
 
 ### Keyboard Navigation
 
@@ -411,6 +611,7 @@ When the user presses `q`:
 - [ ] Given any pane is focused, when the user presses `q`, then a quit confirmation prompt is displayed.
 - [ ] Given the quit confirmation prompt is displayed, when the user presses `y`, then the shutdown sequence begins.
 - [ ] Given the quit confirmation prompt is displayed, when the user presses `n` or `Escape`, then the prompt is dismissed and focus returns to the previous pane.
+- [ ] Given a confirmation prompt is displayed, then it renders as a centered bordered overlay.
 - [ ] Given the issue list is focused, when the user presses `j` or `↓`, then the selection moves down one item.
 
 ### Failure Overlay
@@ -444,3 +645,4 @@ When the user presses `q`:
 ## References
 
 - [Ink](https://github.com/vadimdemedes/ink) — React for the terminal (TUI framework)
+- [ink-link](https://github.com/sindresorhus/ink-link) — Terminal hyperlinks (OSC 8) for Ink
