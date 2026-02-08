@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine
-version: 0.2.0
+version: 0.3.0
 last_updated: 2026-02-08
 status: approved
 ---
@@ -211,8 +211,8 @@ The engine emits typed events for discrete state changes. Events drive reactive 
 | `issueStatusChanged` | Issue number, title, old status, new status, priority label, creation date, `isRecovery` flag (true for synthetic events from recovery) | IssuePoller (or Engine Core for synthetic recovery events) |
 | `specChanged` | File path, frontmatter status, commit SHA | Engine Core (from SpecPoller results) |
 | `agentStarted` | Agent type, issue number or spec paths, session ID | Agent Manager |
-| `agentCompleted` | Agent type, issue number or spec paths, session ID | Agent Manager |
-| `agentFailed` | Agent type, issue number or spec paths, error details, session ID, worktree path (Implementor only) | Agent Manager |
+| `agentCompleted` | Agent type, issue number or spec paths, session ID, log file path (when logging enabled) | Agent Manager |
+| `agentFailed` | Agent type, issue number or spec paths, error details, session ID, worktree path (Implementor only), log file path (when logging enabled) | Agent Manager |
 | `agentSkipped` | Agent type, issue number or spec paths (deferred) | Agent Manager |
 | `dispatchReady` | Issue number, status label | Dispatch Logic |
 | `notification` | Issue number, status label, clipboard command (optional — present for `needs-refinement`, absent for `blocked`). Note: this is a specific engine event type for notify-only tier issues, distinct from the TUI's "notification" concept (the TUI surfaces all engine events as notification entries in the notifications pane). | Dispatch Logic |
@@ -296,6 +296,81 @@ Each agent session receives trigger-specific context as its initial prompt:
 | Implementor | Issue number |
 | Reviewer | Issue number |
 
+### Agent Session Logging
+
+When `logging.agentSessions` is enabled, the Agent Manager writes a human-readable transcript of each agent session to disk. Logs capture the full SDK message stream — session metadata, assistant text, tool invocations, result summaries, and unrecognized message types.
+
+**File lifecycle:**
+
+1. When a session starts (SDK `init` message received), create the log file at `{logsDir}/{timestamp}-{agentType}[-{context}].log` where:
+   - `timestamp` is `Date.now()` (milliseconds since epoch)
+   - `agentType` is `planner`, `implementor`, or `reviewer`
+   - `[-{context}]` is `-{issueNumber}` for Implementor/Reviewer, omitted entirely (including the dash) for Planner
+   - Examples: `1738934400000-implementor-42.log`, `1738934400000-planner.log`
+2. Write the session header immediately.
+3. As each SDK message arrives, format and append it to the file.
+4. When the session ends (success, failure, or cancellation), write a footer with the outcome, then close the file. The footer must be written before the terminal event (`agentCompleted` / `agentFailed`) is emitted, so that `logFilePath` points to a complete file. The `Outcome` line uses one of three values: `completed` (SDK reports success), `failed` (SDK reports error or session throws), or `cancelled` (user cancellation, shutdown, or timeout). Cancellation flows through `agentFailed` at the event level, but the log footer preserves the distinction.
+
+**Log file format:**
+
+```
+=== Agent Session ===
+Type:       planner
+Session ID: abc-123
+Spec Paths: docs/specs/workflow/control-plane-tui.md
+Started:    2026-02-08T19:21:39.000Z
+
+=== Messages ===
+
+[19:21:39] SYSTEM init
+  Model: claude-opus-4-6
+  CWD: /home/geoff/projects/sear
+  Tools: Read, Write, Edit, Bash, Glob, Grep
+
+[19:21:40] ASSISTANT
+  Let me read the spec file to understand the changes.
+
+[19:21:40] ASSISTANT
+  [tool_use] Read
+
+[19:21:42] ASSISTANT
+  I've read the spec. Let me create the task issues...
+
+[19:21:50] RESULT success
+  Duration: 11.0s
+  Cost:     $0.15
+  Turns:    5
+  Tokens:   5000 in / 2000 out
+
+=== Session End ===
+Outcome:  completed
+Finished: 2026-02-08T19:21:50.000Z
+```
+
+**Context-specific header fields:**
+
+| Agent | Header field |
+|-------|-------------|
+| Planner | `Spec Paths: {comma-separated paths}` |
+| Implementor | `Issue: #{issueNumber}` |
+| Reviewer | `Issue: #{issueNumber}` |
+
+**Message formatting by type:**
+
+All `[HH:MM:SS]` timestamps are UTC. Each SDK `assistant` message may contain multiple content blocks (text and tool_use mixed). The Agent Manager writes one `[HH:MM:SS] ASSISTANT` line per content block, not per SDK message.
+
+| SDK Message Type | Format |
+|------------------|--------|
+| `system` + `init` | `[HH:MM:SS] SYSTEM init` followed by model, CWD, available tools |
+| `assistant` (text block) | `[HH:MM:SS] ASSISTANT` followed by text content, indented (2 spaces) |
+| `assistant` (tool_use block) | `[HH:MM:SS] ASSISTANT` followed by `[tool_use] {toolName}` (name only, no input/output) |
+| `result` | `[HH:MM:SS] RESULT {subtype}` followed by available session metadata (duration, cost, turns, token counts — logged if present in the SDK result message) |
+| All other types | `[HH:MM:SS] UNKNOWN {type}` followed by raw JSON of the message. This intentionally includes SDK message types like `user` and `tool_result` — they receive the generic treatment rather than dedicated formatting. |
+
+**Error handling:** Log writing failures are non-fatal. If the `logsDir` directory cannot be created or the log file cannot be opened, the Agent Manager skips logging for the remainder of that session — no `logFilePath` is included in the terminal event. If a write fails mid-session (e.g., disk full), the Agent Manager disables logging for the remainder of that session and logs a warning via the structured logger. The `logFilePath` field is still included in the terminal event, pointing to the partial file — a partial transcript is more useful than no transcript. In all cases, agent session behavior is unaffected.
+
+**Log file path in events:** When agent session logging is enabled, `AgentCompletedEvent` and `AgentFailedEvent` include a `logFilePath` field with the absolute path to the session log file. The field is absent when: logging is disabled, the log file could not be created, or the session ended before the SDK `init` message was received (no file was opened).
+
 ### Recovery
 
 #### Startup Recovery
@@ -364,6 +439,15 @@ At startup, the engine parses `repository` into `owner` and `repo` strings (spli
 | `agentFileReviewer` | `string` | Path to the Reviewer agent definition file | `.claude/agents/reviewer.md` |
 | `maxAgentDuration` | `number` | Maximum seconds an agent session can run before being cancelled. Applies to all agent types. When exceeded, the engine cancels the session and performs crash recovery. | `1800` (30 min) |
 
+#### Logging
+
+| Setting | Type | Description | Default |
+|---------|------|-------------|---------|
+| `agentSessions` | `boolean` | Enable writing agent session transcripts to disk. When enabled, the Agent Manager writes one log file per agent session capturing the full SDK message stream. | `false` |
+| `logsDir` | `string` | Directory for agent session log files. Absolute paths are used as-is. Relative paths are resolved from the engine's working directory (the repository root, i.e., `process.cwd()`). Created automatically if it does not exist. | `logs` |
+
+When `agentSessions` is `false` (default), no log files are created and agent events do not include `logFilePath`. The `logsDir` setting is ignored when `agentSessions` is disabled.
+
 ### Logging
 
 The engine logs structured events at the following levels:
@@ -382,6 +466,9 @@ The engine logs structured events at the following levels:
 | Recovery performed | `info` | Issue number, old status, new status |
 | Shutdown initiated | `info` | Reason |
 | Shutdown complete | `info` | Agents terminated count |
+| Agent session transcript | (file) | Full SDK message stream written to `{logsDir}/{timestamp}-{agentType}[-{context}].log`. One file per session. Only when `logging.agentSessions` is enabled. |
+
+Entries with level `(file)` represent disk writes handled by the Agent Manager, not the structured logger. See Agent Session Logging for format details.
 
 ### Error Handling
 
@@ -486,6 +573,7 @@ type AgentCompletedEvent = {
   issueNumber?: number;
   specPaths?: string[];
   sessionID: string;
+  logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
 type AgentFailedEvent = {
@@ -496,6 +584,7 @@ type AgentFailedEvent = {
   error: string;
   sessionID: string;
   worktreePath?: string; // present for Implementor
+  logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
 type AgentSkippedEvent = {
@@ -652,6 +741,10 @@ type EngineConfig = {
     agentFileReviewer?: string; // default: '.claude/agents/reviewer.md'
     maxAgentDuration?: number; // seconds, default: 1800
   };
+  logging?: {
+    agentSessions?: boolean; // default: false
+    logsDir?: string; // default: 'logs'
+  };
 };
 ```
 
@@ -734,6 +827,19 @@ type Engine = {
 - [ ] Given `getAgentStream` is called for an issue with a running agent, when the agent produces output, then the returned async iterable yields output chunks.
 - [ ] Given `getAgentStream` is called for an issue with no running agent, when called, then it returns `null`.
 
+### Agent Session Logging
+
+- [ ] Given `logging.agentSessions` is `true`, when an agent session receives the SDK init message, then a log file is created at `{logsDir}/{timestamp}-{agentType}[-{context}].log` with a session header containing agent type, session ID, and context-specific fields (Spec Paths for Planner, Issue number for Implementor/Reviewer).
+- [ ] Given `logging.agentSessions` is `true`, when SDK messages arrive during the session, then each message is formatted and appended to the log file as it arrives (stream-write, not buffered).
+- [ ] Given `logging.agentSessions` is `true`, when an assistant message contains text blocks, then the text is written indented after `[HH:MM:SS] ASSISTANT`. When it contains tool_use blocks, then only the tool name is written (no input/output).
+- [ ] Given `logging.agentSessions` is `true`, when an SDK message of a type without dedicated formatting is received (including `user` and `tool_result`), then it is written as `[HH:MM:SS] UNKNOWN {type}` followed by the raw JSON of the message.
+- [ ] Given `logging.agentSessions` is `true`, when an agent session completes or fails, then a footer with the outcome is appended before the terminal event is emitted, and the `agentCompleted`/`agentFailed` event includes `logFilePath`.
+- [ ] Given `logging.agentSessions` is `false` (default), when an agent session runs, then no log file is created and agent events do not include `logFilePath`.
+- [ ] Given `logging.agentSessions` is `true` and the `logsDir` directory does not exist, when a session starts, then the directory is created automatically.
+- [ ] Given `logging.agentSessions` is `true`, when the log file cannot be created, then the Agent Manager skips logging for the remainder of that session and the agent session continues unaffected.
+- [ ] Given `logging.agentSessions` is `true`, when a write fails mid-session, then the Agent Manager disables logging for the remainder of that session, logs a warning, and `logFilePath` in the terminal event still points to the partial file.
+- [ ] Given `logging.agentSessions` is `true` and two agents run concurrently, when both sessions produce output, then each session writes to its own independent log file.
+
 ### Operational
 
 - [ ] Given the `shutdown` command is received, when running agents exist, then the engine waits up to `shutdownTimeout` seconds before cancelling them.
@@ -761,4 +867,4 @@ type Engine = {
 
 ## References
 
-- `control-plane-tui.md` — TUI specification (consumes the engine's four interfaces: events, commands, queries, streams)
+- `control-plane-tui.md` — TUI specification (consumes the engine's four interfaces: events, commands, queries, streams). Note: the TUI spec's notification types will need updating to surface `logFilePath` from `agentCompleted`/`agentFailed` events.
