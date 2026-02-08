@@ -53,13 +53,13 @@ type PRViewProps = {
 
 const SCROLL_STEP = 1;
 
-export function DetailPane({ store }: DetailPaneProps) {
-  const selectedIssue = useStore(store, (s) => s.selectedIssue);
-  const issues = useStore(store, (s) => s.issues);
-  const agentStreams = useStore(store, (s) => s.agentStreams);
-  const issueDetails = useStore(store, (s) => s.issueDetails);
-  const prDetails = useStore(store, (s) => s.prDetails);
-  const focusedPane = useStore(store, (s) => s.focusedPane);
+export function DetailPane(props: DetailPaneProps) {
+  const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
+  const issues = useStore(props.store, (s) => s.issues);
+  const agentStreams = useStore(props.store, (s) => s.agentStreams);
+  const issueDetails = useStore(props.store, (s) => s.issueDetails);
+  const prDetails = useStore(props.store, (s) => s.prDetails);
+  const focusedPane = useStore(props.store, (s) => s.focusedPane);
 
   const [scrollOffset, setScrollOffset] = useState(0);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -187,19 +187,19 @@ function NoIssueSelected() {
   return <Text>No issue selected</Text>;
 }
 
-function LoadingView({ issue }: LoadingViewProps) {
+function LoadingView(props: LoadingViewProps) {
   return (
     <Box flexDirection="column">
       <Text bold>
-        #{issue.number} {issue.title}
+        #{props.issue.number} {props.issue.title}
       </Text>
       <Text dimColor>Loading...</Text>
     </Box>
   );
 }
 
-function FailureView({ issue, failure }: FailureViewProps) {
-  const agentLabel = failure.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
+function FailureView(props: FailureViewProps) {
+  const agentLabel = props.failure.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
 
   return (
     <Box flexDirection="column">
@@ -207,109 +207,110 @@ function FailureView({ issue, failure }: FailureViewProps) {
         Agent Failure
       </Text>
       <Text>
-        Issue: #{issue.number} {issue.title}
+        Issue: #{props.issue.number} {props.issue.title}
       </Text>
       <Text>Agent: {agentLabel}</Text>
-      <Text>Error: {failure.error}</Text>
-      <Text>Session: {failure.sessionID}</Text>
-      {failure.worktreePath && <Text>Worktree: {failure.worktreePath}</Text>}
+      <Text>Error: {props.failure.error}</Text>
+      <Text>Session: {props.failure.sessionID}</Text>
+      {props.failure.worktreePath && <Text>Worktree: {props.failure.worktreePath}</Text>}
       <Text dimColor>Press Enter in the issue list to retry.</Text>
     </Box>
   );
 }
 
-function StreamingView({ issue, chunks, scrollOffset }: StreamingViewProps) {
-  const agentLabel = issue.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-  const visible = chunks.slice(scrollOffset);
+function StreamingView(props: StreamingViewProps) {
+  const agentLabel = props.issue.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
+  const visible = props.chunks.slice(props.scrollOffset);
 
   return (
     <Box flexDirection="column">
       <Text bold>
-        {agentLabel} output for #{issue.number}
+        {agentLabel} output for #{props.issue.number}
       </Text>
       {visible.map((chunk, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: stream chunks have no stable identity
-        <Text key={scrollOffset + i}>{chunk}</Text>
+        <Text key={props.scrollOffset + i}>{chunk}</Text>
       ))}
     </Box>
   );
 }
 
-function IssueDetailsView({ issue, details, scrollOffset }: IssueDetailsViewProps) {
-  const lines = details.body.split('\n');
-  const visible = lines.slice(scrollOffset);
+function IssueDetailsView(props: IssueDetailsViewProps) {
+  const lines = props.details.body.split('\n');
+  const visible = lines.slice(props.scrollOffset);
 
   return (
     <Box flexDirection="column">
       <Text bold>
-        #{issue.number} {issue.title}
+        #{props.issue.number} {props.issue.title}
       </Text>
-      <Text dimColor>Labels: {details.labels.join(', ')}</Text>
-      {details.stale && <Text dimColor>(Refreshing...)</Text>}
+      <Text dimColor>Labels: {props.details.labels.join(', ')}</Text>
+      {props.details.stale && <Text dimColor>(Refreshing...)</Text>}
       <Text> </Text>
       {visible.map((line, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: text lines have no stable identity
-        <Text key={scrollOffset + i}>{line}</Text>
+        <Text key={props.scrollOffset + i}>{line}</Text>
       ))}
     </Box>
   );
 }
 
-function IssueDetailsWithGuidanceView({ issue, details, scrollOffset }: IssueDetailsViewProps) {
-  const statusDisplay = issue.statusLabel === 'needs-refinement' ? 'Needs Refinement' : 'Blocked';
-  const lines = details.body.split('\n');
-  const visible = lines.slice(scrollOffset);
+function IssueDetailsWithGuidanceView(props: IssueDetailsViewProps) {
+  const statusDisplay =
+    props.issue.statusLabel === 'needs-refinement' ? 'Needs Refinement' : 'Blocked';
+  const lines = props.details.body.split('\n');
+  const visible = lines.slice(props.scrollOffset);
 
   return (
     <Box flexDirection="column">
       <Text bold>
-        #{issue.number} {issue.title}
+        #{props.issue.number} {props.issue.title}
       </Text>
       <Text bold color="yellow">
         {statusDisplay}
       </Text>
-      <Text dimColor>Labels: {details.labels.join(', ')}</Text>
-      {details.stale && <Text dimColor>(Refreshing...)</Text>}
+      <Text dimColor>Labels: {props.details.labels.join(', ')}</Text>
+      {props.details.stale && <Text dimColor>(Refreshing...)</Text>}
       <Text> </Text>
       {visible.map((line, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: text lines have no stable identity
-        <Text key={scrollOffset + i}>{line}</Text>
+        <Text key={props.scrollOffset + i}>{line}</Text>
       ))}
     </Box>
   );
 }
 
-function PRSummaryView({ issue, pr }: PRViewProps) {
+function PRSummaryView(props: PRViewProps) {
   return (
     <Box flexDirection="column">
       <Text bold>
-        PR #{pr.number}: {pr.title}
+        PR #{props.pr.number}: {props.pr.title}
       </Text>
       <Text>
-        Issue: #{issue.number} {issue.title}
+        Issue: #{props.issue.number} {props.issue.title}
       </Text>
-      <Text>Changed files: {pr.changedFilesCount}</Text>
-      <Text>CI: {pr.ciStatus}</Text>
-      {pr.stale && <Text dimColor>(Refreshing...)</Text>}
+      <Text>Changed files: {props.pr.changedFilesCount}</Text>
+      <Text>CI: {props.pr.ciStatus}</Text>
+      {props.pr.stale && <Text dimColor>(Refreshing...)</Text>}
     </Box>
   );
 }
 
-function PRApprovedView({ issue, pr }: PRViewProps) {
+function PRApprovedView(props: PRViewProps) {
   return (
     <Box flexDirection="column">
       <Text bold color="green">
         Ready to Merge
       </Text>
       <Text bold>
-        PR #{pr.number}: {pr.title}
+        PR #{props.pr.number}: {props.pr.title}
       </Text>
       <Text>
-        Issue: #{issue.number} {issue.title}
+        Issue: #{props.issue.number} {props.issue.title}
       </Text>
-      <Text>Changed files: {pr.changedFilesCount}</Text>
-      <Text>CI: {pr.ciStatus}</Text>
-      {pr.stale && <Text dimColor>(Refreshing...)</Text>}
+      <Text>Changed files: {props.pr.changedFilesCount}</Text>
+      <Text>CI: {props.pr.ciStatus}</Text>
+      {props.pr.stale && <Text dimColor>(Refreshing...)</Text>}
     </Box>
   );
 }
