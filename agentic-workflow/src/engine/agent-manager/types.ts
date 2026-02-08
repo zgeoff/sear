@@ -37,6 +37,8 @@ export type AgentManagerDeps = {
   agentReviewer: string;
   maxAgentDuration: number;
   queryFactory: QueryFactory;
+  loggingEnabled: boolean;
+  logsDir: string;
 };
 
 export type DispatchImplementorParams = {

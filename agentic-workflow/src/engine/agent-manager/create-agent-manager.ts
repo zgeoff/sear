@@ -1,3 +1,4 @@
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { match, P } from 'ts-pattern';
 import type {
@@ -9,6 +10,11 @@ import type {
 } from '../../types';
 import type { AgentManager, AgentManagerDeps, AgentSessionTracker, OutputListener } from './types';
 
+type SessionLogger = {
+  logFilePath: string;
+  disabled: boolean;
+};
+
 export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const {
     emitter,
@@ -19,10 +25,15 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     agentReviewer,
     maxAgentDuration,
     queryFactory,
+    loggingEnabled,
+    logsDir,
   } = deps;
 
   const issueAgents = new Map<number, AgentSessionTracker>();
   let plannerSession: AgentSessionTracker | null = null;
+
+  // Per-session logging state, keyed by tracker reference identity
+  const sessionLoggers = new WeakMap<AgentSessionTracker, SessionLogger>();
 
   return {
     async dispatchImplementor(params) {
@@ -190,7 +201,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     try {
       for await (const message of tracker.query) {
-        processMessage(tracker, message);
+        await processMessage(tracker, message);
       }
 
       // If we reach here without a result message, treat as success
@@ -202,16 +213,21 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     // Check if we already got a result message that set the outcome
     if (tracker.done) return;
 
-    finishSession(tracker, sessionSucceeded, errorMessage, onCleanup);
+    await finishSession(tracker, sessionSucceeded, errorMessage, onCleanup);
   }
 
-  function processMessage(tracker: AgentSessionTracker, message: SDKMessage): void {
-    match(message)
-      .with({ type: 'system', subtype: 'init' }, (msg) => {
+  async function processMessage(tracker: AgentSessionTracker, message: SDKMessage): Promise<void> {
+    await match(message)
+      .with({ type: 'system', subtype: 'init' }, async (msg) => {
         tracker.sessionID = msg.session_id;
+
+        if (loggingEnabled) {
+          await initializeLogFile(tracker, msg);
+        }
+
         emitter.emit(buildStartedEvent(tracker));
       })
-      .with({ type: 'assistant' }, (msg) => {
+      .with({ type: 'assistant' }, async (msg) => {
         const text = extractTextFromAssistantMessage(msg.message);
         if (text) {
           tracker.outputChunks.push(text);
@@ -219,31 +235,37 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
             listener(text);
           }
         }
+
+        await logAssistantMessage(tracker, msg.message);
       })
-      .with({ type: 'result', subtype: 'success' }, () => {
-        finishSession(tracker, true, undefined, () => {
+      .with({ type: 'result', subtype: 'success' }, async (msg) => {
+        await logResultMessage(tracker, 'success', extractResultMetadata(msg));
+        await writeLogFooter(tracker, 'completed');
+        await finishSession(tracker, true, undefined, () => {
           removeFromTracking(tracker);
         });
       })
       .with(
         { type: 'result', subtype: P.union('error_max_turns', 'error_during_execution') },
-        () => {
-          finishSession(tracker, false, 'Agent session ended with error', () => {
+        async (msg) => {
+          await logResultMessage(tracker, msg.subtype, extractResultMetadata(msg));
+          await writeLogFooter(tracker, 'failed');
+          await finishSession(tracker, false, 'Agent session ended with error', () => {
             removeFromTracking(tracker);
           });
         },
       )
-      .otherwise(() => {
-        // Ignore other message types (user replays, stream events, compact boundaries)
+      .otherwise(async (msg) => {
+        await logUnknownMessage(tracker, msg);
       });
   }
 
-  function finishSession(
+  async function finishSession(
     tracker: AgentSessionTracker,
     succeeded: boolean,
     errorMessage: string | undefined,
     onCleanup: () => void,
-  ): void {
+  ): Promise<void> {
     if (tracker.done) return;
     tracker.done = true;
 
@@ -256,8 +278,11 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
     tracker.outputListeners.clear();
 
+    const logger = sessionLoggers.get(tracker);
+    const logFilePath = logger ? logger.logFilePath : undefined;
+
     if (succeeded) {
-      emitter.emit(buildCompletedEvent(tracker));
+      emitter.emit(buildCompletedEvent(tracker, logFilePath));
 
       if (tracker.agentType === 'implementor' && tracker.issueNumber !== undefined) {
         worktreeManager.remove(tracker.issueNumber).catch(() => {
@@ -267,7 +292,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       return;
     }
 
-    emitter.emit(buildFailedEvent(tracker, errorMessage ?? 'Unknown error'));
+    emitter.emit(buildFailedEvent(tracker, errorMessage ?? 'Unknown error', logFilePath));
     // Implementor worktrees are preserved on failure (no cleanup)
   }
 
@@ -284,7 +309,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
   }
 
-  function cancelSession(tracker: AgentSessionTracker, reason: string): void {
+  async function cancelSession(tracker: AgentSessionTracker, reason: string): Promise<void> {
     if (tracker.done) return;
 
     tracker.abortController.abort();
@@ -292,11 +317,156 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       // Interrupt may fail if the session is already done
     });
 
-    finishSession(tracker, false, reason, () => {
+    await writeLogFooter(tracker, 'cancelled');
+    await finishSession(tracker, false, reason, () => {
       removeFromTracking(tracker);
     });
   }
+
+  // ---------------------------------------------------------------------------
+  // Session logging helpers
+  // ---------------------------------------------------------------------------
+
+  async function initializeLogFile(
+    tracker: AgentSessionTracker,
+    initMessage: InitMessageShape,
+  ): Promise<void> {
+    const context = buildLogFileContext(tracker);
+    const timestamp = Date.now();
+    const fileName = context
+      ? `${timestamp}-${tracker.agentType}-${context}.log`
+      : `${timestamp}-${tracker.agentType}.log`;
+    const filePath = `${logsDir}/${fileName}`;
+
+    try {
+      await mkdir(logsDir, { recursive: true });
+
+      const header = buildSessionHeader(tracker, initMessage);
+      await writeFile(filePath, header);
+
+      sessionLoggers.set(tracker, { logFilePath: filePath, disabled: false });
+    } catch {
+      // Log file creation failure is non-fatal — skip logging for this session
+    }
+  }
+
+  async function logAssistantMessage(
+    tracker: AgentSessionTracker,
+    message: AssistantMessageContent,
+  ): Promise<void> {
+    const logger = sessionLoggers.get(tracker);
+    if (!logger || logger.disabled) return;
+
+    const content = message.content;
+    if (!Array.isArray(content)) return;
+
+    const lines: string[] = [];
+    const timestamp = formatUTCTime(new Date());
+
+    for (const block of content) {
+      if (typeof block !== 'object' || block === null || !('type' in block)) continue;
+
+      if (block.type === 'text') {
+        const textBlock = block as TextBlock;
+        lines.push(`[${timestamp}] ASSISTANT`);
+        const indented = textBlock.text
+          .split('\n')
+          .map((line) => `  ${line}`)
+          .join('\n');
+        lines.push(indented);
+        lines.push('');
+      }
+
+      if (block.type === 'tool_use') {
+        const toolBlock = block as ToolUseBlock;
+        lines.push(`[${timestamp}] ASSISTANT`);
+        lines.push(`  [tool_use] ${toolBlock.name}`);
+        lines.push('');
+      }
+    }
+
+    if (lines.length === 0) return;
+
+    await appendToLog(tracker, lines.join('\n'));
+  }
+
+  async function logResultMessage(
+    tracker: AgentSessionTracker,
+    subtype: string,
+    message: ResultMessageShape,
+  ): Promise<void> {
+    const logger = sessionLoggers.get(tracker);
+    if (!logger || logger.disabled) return;
+
+    const timestamp = formatUTCTime(new Date());
+    const lines: string[] = [];
+    lines.push(`[${timestamp}] RESULT ${subtype}`);
+
+    if (message.duration_ms !== undefined) {
+      lines.push(`  Duration: ${(message.duration_ms / 1000).toFixed(1)}s`);
+    }
+    if (message.total_cost_usd !== undefined) {
+      lines.push(`  Cost:     $${message.total_cost_usd.toFixed(2)}`);
+    }
+    if (message.num_turns !== undefined) {
+      lines.push(`  Turns:    ${message.num_turns}`);
+    }
+    if (message.usage !== undefined) {
+      lines.push(
+        `  Tokens:   ${message.usage.input_tokens} in / ${message.usage.output_tokens} out`,
+      );
+    }
+
+    lines.push('');
+    await appendToLog(tracker, lines.join('\n'));
+  }
+
+  async function logUnknownMessage(tracker: AgentSessionTracker, message: unknown): Promise<void> {
+    const logger = sessionLoggers.get(tracker);
+    if (!logger || logger.disabled) return;
+
+    const msg = message as { type?: string };
+    const type = msg.type ?? 'unknown';
+    const timestamp = formatUTCTime(new Date());
+
+    const lines: string[] = [];
+    lines.push(`[${timestamp}] UNKNOWN ${type}`);
+    lines.push(`  ${JSON.stringify(message)}`);
+    lines.push('');
+
+    await appendToLog(tracker, lines.join('\n'));
+  }
+
+  async function writeLogFooter(tracker: AgentSessionTracker, outcome: string): Promise<void> {
+    const logger = sessionLoggers.get(tracker);
+    if (!logger || logger.disabled) return;
+
+    const now = new Date();
+    const lines: string[] = [];
+    lines.push('=== Session End ===');
+    lines.push(`Outcome:  ${outcome}`);
+    lines.push(`Finished: ${now.toISOString()}`);
+    lines.push('');
+
+    await appendToLog(tracker, lines.join('\n'));
+  }
+
+  async function appendToLog(tracker: AgentSessionTracker, content: string): Promise<void> {
+    const logger = sessionLoggers.get(tracker);
+    if (!logger || logger.disabled) return;
+
+    try {
+      await appendFile(logger.logFilePath, content);
+    } catch {
+      // Write failure is non-fatal — disable logging for the remainder of this session
+      logger.disabled = true;
+    }
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Internal types
+// ---------------------------------------------------------------------------
 
 type StartSessionParams = {
   agentType: AgentType;
@@ -307,6 +477,43 @@ type StartSessionParams = {
   specPaths?: string[];
   worktreePath?: string;
 };
+
+type TextBlock = {
+  type: 'text';
+  text: string;
+};
+
+type ToolUseBlock = {
+  type: 'tool_use';
+  name: string;
+};
+
+type AssistantMessageContent = {
+  content: unknown;
+};
+
+type InitMessageShape = {
+  session_id: string;
+  model?: string;
+  cwd?: string;
+  tools?: Array<{ name?: string } | string>;
+};
+
+type ResultMessageUsage = {
+  input_tokens: number;
+  output_tokens: number;
+};
+
+type ResultMessageShape = {
+  duration_ms?: number;
+  total_cost_usd?: number;
+  num_turns?: number;
+  usage?: ResultMessageUsage;
+};
+
+// ---------------------------------------------------------------------------
+// Pure helpers (below the primary export)
+// ---------------------------------------------------------------------------
 
 function buildAsyncIterable(tracker: AgentSessionTracker): AsyncIterable<string> {
   return {
@@ -374,17 +581,25 @@ function buildStartedEvent(tracker: AgentSessionTracker): AgentStartedEvent {
   };
 }
 
-function buildCompletedEvent(tracker: AgentSessionTracker): AgentCompletedEvent {
+function buildCompletedEvent(
+  tracker: AgentSessionTracker,
+  logFilePath: string | undefined,
+): AgentCompletedEvent {
   return {
     type: 'agentCompleted',
     agentType: tracker.agentType,
     sessionID: tracker.sessionID,
     ...(tracker.issueNumber !== undefined && { issueNumber: tracker.issueNumber }),
     ...(tracker.specPaths && { specPaths: tracker.specPaths }),
+    ...(logFilePath !== undefined && { logFilePath }),
   };
 }
 
-function buildFailedEvent(tracker: AgentSessionTracker, error: string): AgentFailedEvent {
+function buildFailedEvent(
+  tracker: AgentSessionTracker,
+  error: string,
+  logFilePath: string | undefined,
+): AgentFailedEvent {
   return {
     type: 'agentFailed',
     agentType: tracker.agentType,
@@ -394,6 +609,7 @@ function buildFailedEvent(tracker: AgentSessionTracker, error: string): AgentFai
     ...(tracker.specPaths && { specPaths: tracker.specPaths }),
     ...(tracker.agentType === 'implementor' &&
       tracker.worktreePath && { worktreePath: tracker.worktreePath }),
+    ...(logFilePath !== undefined && { logFilePath }),
   };
 }
 
@@ -407,4 +623,89 @@ function buildSkippedEvent(
     ...(context.issueNumber !== undefined && { issueNumber: context.issueNumber }),
     ...(context.specPaths && { specPaths: context.specPaths }),
   };
+}
+
+function buildLogFileContext(tracker: AgentSessionTracker): string | undefined {
+  if (tracker.agentType === 'planner') return undefined;
+  if (tracker.issueNumber !== undefined) return String(tracker.issueNumber);
+  return undefined;
+}
+
+function buildSessionHeader(tracker: AgentSessionTracker, initMessage: InitMessageShape): string {
+  const lines: string[] = [];
+  lines.push('=== Agent Session ===');
+  lines.push(`Type:       ${tracker.agentType}`);
+  lines.push(`Session ID: ${tracker.sessionID}`);
+
+  if (tracker.agentType === 'planner' && tracker.specPaths) {
+    lines.push(`Spec Paths: ${tracker.specPaths.join(', ')}`);
+  }
+  if (
+    (tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
+    tracker.issueNumber !== undefined
+  ) {
+    lines.push(`Issue:      #${tracker.issueNumber}`);
+  }
+
+  lines.push(`Started:    ${new Date().toISOString()}`);
+  lines.push('');
+  lines.push('=== Messages ===');
+  lines.push('');
+
+  // Log the init message itself
+  const timestamp = formatUTCTime(new Date());
+  lines.push(`[${timestamp}] SYSTEM init`);
+  if (initMessage.model) {
+    lines.push(`  Model: ${initMessage.model}`);
+  }
+  if (initMessage.cwd) {
+    lines.push(`  CWD: ${initMessage.cwd}`);
+  }
+  if (initMessage.tools && Array.isArray(initMessage.tools)) {
+    const toolNames = initMessage.tools
+      .map((t) => {
+        if (typeof t === 'string') return t;
+        if (typeof t === 'object' && t !== null && 'name' in t && typeof t.name === 'string')
+          return t.name;
+        return '';
+      })
+      .filter(Boolean);
+    if (toolNames.length > 0) {
+      lines.push(`  Tools: ${toolNames.join(', ')}`);
+    }
+  }
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+function extractResultMetadata(message: Record<string, unknown>): ResultMessageShape {
+  const result: ResultMessageShape = {};
+
+  if (typeof message.duration_ms === 'number') {
+    result.duration_ms = message.duration_ms;
+  }
+  if (typeof message.total_cost_usd === 'number') {
+    result.total_cost_usd = message.total_cost_usd;
+  }
+  if (typeof message.num_turns === 'number') {
+    result.num_turns = message.num_turns;
+  }
+
+  const usage = message.usage;
+  if (typeof usage === 'object' && usage !== null) {
+    const u = usage as Record<string, unknown>;
+    if (typeof u.input_tokens === 'number' && typeof u.output_tokens === 'number') {
+      result.usage = { input_tokens: u.input_tokens, output_tokens: u.output_tokens };
+    }
+  }
+
+  return result;
+}
+
+function formatUTCTime(date: Date): string {
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
 }
