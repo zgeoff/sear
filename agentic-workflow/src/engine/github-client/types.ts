@@ -29,7 +29,7 @@ export type IssuesListForRepoParams = {
   owner: string;
   repo: string;
   labels: string;
-  state: string;
+  state: 'open' | 'closed' | 'all';
   per_page: number;
 };
 
@@ -66,7 +66,7 @@ export type IssuesRemoveLabelResult = {
 export type PullsListParams = {
   owner: string;
   repo: string;
-  state: string;
+  state: 'open' | 'closed' | 'all';
   per_page: number;
 };
 
@@ -201,6 +201,16 @@ export type GitRefData = {
 
 export type GitGetRefResult = {
   data: GitRefData;
+};
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+export type GitHubClientConfig = {
+  appID: number;
+  privateKey: string;
+  installationID: number;
 };
 
 // ---------------------------------------------------------------------------

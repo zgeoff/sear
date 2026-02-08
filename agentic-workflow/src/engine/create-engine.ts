@@ -1,7 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { createAppAuth } from '@octokit/auth-app';
-import { Octokit } from '@octokit/rest';
 import type { Engine, EngineConfig, EngineEvent } from '../types';
 import { createAgentManager } from './agent-manager/create-agent-manager';
 import type { AgentManager, QueryFactory } from './agent-manager/types';
@@ -13,6 +11,7 @@ import { createLogger } from './create-logger';
 import { createDispatch } from './dispatch/create-dispatch';
 import type { Dispatch } from './dispatch/types';
 import { createEventEmitter } from './event-emitter/create-event-emitter';
+import { createGitHubClient } from './github-client/create-github-client';
 import type { GitHubClient } from './github-client/types';
 import { createIssuePoller } from './pollers/create-issue-poller';
 import { createSpecPoller } from './pollers/create-spec-poller';
@@ -43,7 +42,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   const logger = createLogger(resolved);
   const repoRoot = deps?.repoRoot ?? process.cwd();
 
-  const octokit = deps?.octokit ?? buildOctokit(resolved);
+  const octokit = deps?.octokit ?? buildGitHubClient(resolved);
 
   const emitter = createEventEmitter();
   const recovery = createRecovery({ octokit, owner, repo, emitter });
@@ -328,25 +327,16 @@ function initiateShutdown(
 }
 
 // ---------------------------------------------------------------------------
-// Octokit factory
+// GitHub client factory (reads private key from disk, delegates to adapter)
 // ---------------------------------------------------------------------------
 
-function buildOctokit(config: ResolvedEngineConfig): GitHubClient {
+function buildGitHubClient(config: ResolvedEngineConfig): GitHubClient {
   const privateKey = readFileSync(config.githubAppPrivateKeyPath, 'utf-8');
-
-  const octokit = new Octokit({
-    authStrategy: createAppAuth,
-    auth: {
-      appId: config.githubAppID,
-      privateKey,
-      installationId: config.githubAppInstallationID,
-    },
+  return createGitHubClient({
+    appID: config.githubAppID,
+    privateKey,
+    installationID: config.githubAppInstallationID,
   });
-
-  // The Octokit instance satisfies GitHubClient at runtime. The type assertion
-  // is necessary because @octokit/rest's deeply generic types don't structurally
-  // match our narrow GitHubClient interface, even though the methods are compatible.
-  return octokit as unknown as GitHubClient;
 }
 
 // ---------------------------------------------------------------------------
