@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import { createAppAuth } from '@octokit/auth-app';
 import { Octokit } from '@octokit/rest';
-import type { Engine, EngineConfig, EngineEvent, StartupResult } from '../types';
+import type { Engine, EngineConfig, EngineEvent } from '../types';
 import { createAgentManager } from './agent-manager/create-agent-manager';
 import type { AgentManager, QueryFactory } from './agent-manager/types';
 import { createCommandDispatcher } from './command-dispatcher/create-command-dispatcher';
@@ -15,7 +16,7 @@ import { createEventEmitter } from './event-emitter/create-event-emitter';
 import type { GitHubClient } from './github-client/types';
 import { createIssuePoller } from './pollers/create-issue-poller';
 import { createSpecPoller } from './pollers/create-spec-poller';
-import type { IssuePoller, IssueSnapshot, SpecPoller } from './pollers/types';
+import type { IssuePoller, IssueSnapshot } from './pollers/types';
 import { getIssueDetails } from './queries/get-issue-details';
 import { getPRForIssue } from './queries/get-pr-for-issue';
 import type { QueriesConfig } from './queries/types';
@@ -73,7 +74,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     agentFileImplementor: resolved.agents.agentFileImplementor,
     agentFileReviewer: resolved.agents.agentFileReviewer,
     maxAgentDuration: resolved.agents.maxAgentDuration,
-    queryFactory: deps?.queryFactory ?? buildNoopQueryFactory(),
+    queryFactory: deps?.queryFactory ?? buildQueryFactory(),
   });
 
   const dispatch = createDispatch(
@@ -98,7 +99,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       handleDispatchImplementor(command.issueNumber, issuePoller, agentManager, logger);
     },
     dispatchReviewer(command) {
-      handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
+      handleDispatchReviewer(command.issueNumber, issuePoller, agentManager);
     },
     cancelAgent(command) {
       agentManager.cancelAgent(command.issueNumber);
@@ -273,7 +274,6 @@ function handleDispatchReviewer(
   issueNumber: number,
   issuePoller: IssuePoller,
   agentManager: AgentManager,
-  logger: Logger,
 ): void {
   const issue = issuePoller.getSnapshot().get(issueNumber);
 
@@ -353,10 +353,16 @@ function buildOctokit(config: ResolvedEngineConfig): GitHubClient {
 // Default query factory (production only -- tests inject their own)
 // ---------------------------------------------------------------------------
 
-function buildNoopQueryFactory(): QueryFactory {
-  return () => {
-    throw new Error(
-      'No queryFactory provided. Inject a queryFactory via the deps parameter for agent dispatch.',
-    );
+function buildQueryFactory(): QueryFactory {
+  return (params) => {
+    return query({
+      prompt: params.prompt,
+      options: {
+        cwd: params.cwd,
+        systemPrompt: params.systemPrompt,
+        abortController: params.abortController,
+        permissionMode: params.permissionMode,
+      },
+    });
   };
 }

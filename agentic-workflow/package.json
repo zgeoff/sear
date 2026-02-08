@@ -6,7 +6,8 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "start": "tsx src/index.ts",
+    "start": "tsx src/main.ts",
+    "dev": "tsx src/main.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -22,6 +23,8 @@
   },
   "devDependencies": {
     "@types/node": "25.2.2",
+    "@types/react": "19.2.13",
+    "ink-testing-library": "4.0.0",
     "typescript": "5.9.3",
     "vitest": "4.0.18"
   }
