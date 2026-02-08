@@ -1,0 +1,138 @@
+import type {
+  CrashRecoveryParams,
+  Recovery,
+  RecoveryConfig,
+  StartupRecoveryResult,
+} from './types.js';
+
+export function createRecovery(config: RecoveryConfig): Recovery {
+  return {
+    performStartupRecovery: () => performStartupRecovery(config),
+    performCrashRecovery: (params) => performCrashRecovery(config, params),
+  };
+}
+
+async function performStartupRecovery(config: RecoveryConfig): Promise<StartupRecoveryResult> {
+  const { octokit, owner, repo, emitter } = config;
+
+  const { data: issues } = await octokit.issues.listForRepo({
+    owner,
+    repo,
+    labels: 'task:implement,status:in-progress',
+    state: 'open',
+    per_page: 100,
+  });
+
+  let recoveriesPerformed = 0;
+
+  for (const issue of issues) {
+    await resetIssueToPending(octokit, owner, repo, issue.number);
+
+    const title = issue.title;
+    const priorityLabel = extractPriorityLabel(issue.labels);
+    const createdAt = issue.created_at;
+
+    emitter.emit({
+      type: 'recoveryPerformed',
+      issueNumber: issue.number,
+      oldStatus: 'in-progress',
+      newStatus: 'pending',
+    });
+
+    emitter.emit({
+      type: 'issueStatusChanged',
+      issueNumber: issue.number,
+      title,
+      oldStatus: 'in-progress',
+      newStatus: 'pending',
+      priorityLabel,
+      createdAt,
+      isRecovery: true,
+    });
+
+    recoveriesPerformed++;
+  }
+
+  return { recoveriesPerformed };
+}
+
+async function performCrashRecovery(
+  config: RecoveryConfig,
+  params: CrashRecoveryParams,
+): Promise<void> {
+  const { octokit, owner, repo, emitter } = config;
+  const { agentType, issueNumber, snapshot } = params;
+
+  if (agentType === 'planner') {
+    return;
+  }
+
+  if (agentType === 'reviewer') {
+    return;
+  }
+
+  const entry = snapshot.get(issueNumber);
+  if (!entry) {
+    return;
+  }
+
+  if (entry.statusLabel !== 'in-progress') {
+    return;
+  }
+
+  await resetIssueToPending(octokit, owner, repo, issueNumber);
+
+  snapshot.set(issueNumber, {
+    ...entry,
+    statusLabel: 'pending',
+  });
+
+  emitter.emit({
+    type: 'recoveryPerformed',
+    issueNumber,
+    oldStatus: 'in-progress',
+    newStatus: 'pending',
+  });
+
+  emitter.emit({
+    type: 'issueStatusChanged',
+    issueNumber,
+    title: entry.title,
+    oldStatus: 'in-progress',
+    newStatus: 'pending',
+    priorityLabel: entry.priorityLabel,
+    createdAt: entry.createdAt,
+    isRecovery: true,
+  });
+}
+
+async function resetIssueToPending(
+  octokit: RecoveryConfig['octokit'],
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): Promise<void> {
+  await octokit.issues.removeLabel({
+    owner,
+    repo,
+    issue_number: issueNumber,
+    name: 'status:in-progress',
+  });
+
+  await octokit.issues.addLabels({
+    owner,
+    repo,
+    issue_number: issueNumber,
+    labels: ['status:pending'],
+  });
+}
+
+function extractPriorityLabel(labels: (string | { name?: string })[]): string {
+  for (const label of labels) {
+    const name = typeof label === 'string' ? label : label.name;
+    if (name?.startsWith('priority:')) {
+      return name;
+    }
+  }
+  return '';
+}
