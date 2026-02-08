@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine
-version: 0.3.0
+version: 0.4.0
 last_updated: 2026-02-08
 status: approved
 ---
@@ -19,7 +19,7 @@ The engine is the core module of the control plane. It orchestrates independent 
 - Must not auto-dispatch the Planner for specs without `status: approved` in frontmatter.
 - Must reset `status:in-progress` issues to `status:pending` when no agent is running for them (startup recovery and crash recovery).
 - Must use `@octokit/rest` with `@octokit/auth-app` as the authentication strategy for all GitHub API interactions. Octokit is an implementation detail of the GitHub Client adapter — all engine code interacts with the `GitHubClient` interface, never with Octokit directly. No type assertions (`as`) are permitted at the adapter boundary or anywhere `GitHubClient` is consumed.
-- Must use `@anthropic-ai/claude-agent-sdk` for all agent invocations.
+- Must use `@anthropic-ai/claude-agent-sdk` (≥0.2.x) for all agent invocations via the v1 `query()` API.
 - Must detect spec changes remotely (via GitHub API), not from the local filesystem.
 - GitHub write operations are limited to recovery (status label resets). All other writes are performed by agents.
 
@@ -213,12 +213,12 @@ The engine emits typed events for discrete state changes. Events drive reactive 
 | `agentStarted` | Agent type, issue number or spec paths, session ID | Agent Manager |
 | `agentCompleted` | Agent type, issue number or spec paths, session ID, log file path (when logging enabled) | Agent Manager |
 | `agentFailed` | Agent type, issue number or spec paths, error details, session ID, worktree path (Implementor only), log file path (when logging enabled) | Agent Manager |
-| `agentSkipped` | Agent type, issue number or spec paths (deferred) | Agent Manager |
+| `agentSkipped` | Agent type, issue number or spec paths (deferred) | Agent Manager (per-issue guard) or Engine Core (Planner concurrency guard) |
 | `dispatchReady` | Issue number, status label | Dispatch Logic |
-| `notification` | Issue number, status label, clipboard command (optional — present for `needs-refinement`, absent for `blocked`). Note: this is a specific engine event type for notify-only tier issues, distinct from the TUI's "notification" concept (the TUI surfaces all engine events as notification entries in the notifications pane). | Dispatch Logic |
+| `notification` | Issue number, status label, `contextURL` (issue URL), `clipboardCommand` (optional — present for `needs-refinement`, absent for `blocked` and `approved`), `resolutionGuidance` (optional — present for `needs-refinement` and `blocked`, absent for `approved`). Note: this is a specific engine event type for notify-only tier issues, distinct from the TUI's "notification" concept (the TUI surfaces all engine events as notification entries in the notifications pane). | Dispatch Logic |
 | `notificationDismissed` | Issue number | Dispatch Logic |
 | `issueRemoved` | Issue number | IssuePoller |
-| `recoveryPerformed` | Issue number, old status, new status | Agent Manager |
+| `recoveryPerformed` | Issue number, old status, new status | Engine Core (startup recovery) or Agent Manager (crash recovery) |
 
 ### Command Interface
 
@@ -273,7 +273,7 @@ When the engine dispatches an agent:
 
 1. **Guard** — Check if an agent is already running for this issue. If so, emit `agentSkipped` and return.
 2. **Worktree** (Implementor only) — Create or reuse a worktree at `.worktrees/issue-<N>` on branch `issue-<N>`. See `control-plane.md` Worktree Isolation.
-3. **Create session** — Create an agent session via `@anthropic-ai/claude-agent-sdk`, configured with the agent definition file (`.claude/agents/<agent>.md`) as the system prompt and the working directory set to the worktree path (Implementor) or the repository root (Planner, Reviewer).
+3. **Create session** — Create an agent session via `query()` from `@anthropic-ai/claude-agent-sdk`. The SDK resolves the agent definition file (`.claude/agents/<agent>.md`), parses its YAML frontmatter, and applies the agent's system prompt, tools, model, skills, and hooks. See SDK Session Configuration below for the full call signature.
 4. **Capture session ID** — The SDK returns a `session_id` in its init message. Store this alongside the session handle.
 5. **Track** — Record the agent session as running for this issue/spec, including the session handle, session ID, and worktree path (if Implementor).
 6. **Emit** — Emit `agentStarted` with the session ID.
@@ -295,6 +295,57 @@ Each agent session receives trigger-specific context as its initial prompt:
 | Planner | Changed spec file paths (space-separated) |
 | Implementor | Issue number |
 | Reviewer | Issue number |
+
+### SDK Session Configuration
+
+The Agent Manager creates agent sessions using the v1 `query()` function from `@anthropic-ai/claude-agent-sdk`. The `agent` option tells the SDK to resolve the named agent definition from `.claude/agents/<name>.md` and apply its frontmatter configuration (system prompt, tools, model, skills, hooks) to the session. The engine controls session-level options (working directory, permissions, cancellation) directly.
+
+**Call signature:**
+
+```ts
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
+const q = query({
+  prompt: triggerContext,     // e.g., 'docs/specs/workflow/control-plane.md' or '42'
+  options: {
+    agent: agentName,         // e.g., 'planner', 'implementor', 'reviewer'
+    cwd: workingDirectory,    // worktree path (Implementor) or repo root (Planner, Reviewer)
+    settingSources: ['project'],
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    abortController,
+  },
+});
+```
+
+**Option details:**
+
+| Option | Value | Purpose |
+|--------|-------|---------|
+| `prompt` | Trigger context string | The initial user message. Space-separated spec paths (Planner), or issue number as string (Implementor, Reviewer). |
+| `agent` | Agent name from config | Tells the SDK to resolve `.claude/agents/<name>.md` and apply its frontmatter: `tools` (allowed tool set), `model`, `skills`, `hooks`, and the markdown body as the system prompt. |
+| `cwd` | Worktree or repo root | Implementor: `.worktrees/issue-<N>`. Planner, Reviewer: repository root. |
+| `settingSources` | `['project']` | Loads `.claude/agents/` definitions, `.claude/settings.json`, and CLAUDE.md project instructions. Required for the `agent` option to resolve agent files from the project. |
+| `permissionMode` | `'bypassPermissions'` | Agents run non-interactively. All tool invocations are auto-approved. |
+| `allowDangerouslySkipPermissions` | `true` | Required safety acknowledgment when using `bypassPermissions` (SDK ≥0.2.x). |
+| `abortController` | `AbortController` | Cancellation handle. The engine calls `abortController.abort()` for user cancellation, shutdown, and duration timeout. |
+
+**What the SDK resolves from the agent file:**
+
+The agent definition files (`.claude/agents/planner.md`, etc.) contain YAML frontmatter parsed by the SDK. The engine does not read or parse these files — the SDK handles resolution when `settingSources` includes `'project'` and the `agent` option is set.
+
+| Frontmatter field | SDK behavior |
+|-------------------|-------------|
+| `tools` | Sets the allowed tool set for the session (e.g., `Read, Grep, Glob, Bash`) |
+| `model` | Sets the model (e.g., `opus`) |
+| `skills` | Preloads named skills into the agent context (e.g., `github-workflow`) |
+| `hooks` | Registers hook callbacks (e.g., `PreToolUse` bash validator) |
+| `permissionMode` | Overridden by the engine's explicit `permissionMode` option |
+| (markdown body) | Used as the system prompt |
+
+**SDK isolation:** No file outside `engine/agent-manager/` may import from `@anthropic-ai/claude-agent-sdk`. The `QueryFactory` dependency injection seam (see below) ensures the SDK is mockable for testing.
+
+**QueryFactory:** The Agent Manager does not call `query()` directly. It receives a `QueryFactory` function as a dependency, enabling test doubles that simulate the SDK's async message stream without spawning real agent processes.
 
 ### Agent Session Logging
 
@@ -434,9 +485,9 @@ At startup, the engine parses `repository` into `owner` and `repo` strings (spli
 
 | Setting | Type | Description | Default |
 |---------|------|-------------|---------|
-| `agentFilePlanner` | `string` | Path to the Planner agent definition file | `.claude/agents/planner.md` |
-| `agentFileImplementor` | `string` | Path to the Implementor agent definition file | `.claude/agents/implementor.md` |
-| `agentFileReviewer` | `string` | Path to the Reviewer agent definition file | `.claude/agents/reviewer.md` |
+| `agentPlanner` | `string` | Agent name for the Planner. Passed as the `agent` option to the SDK, which resolves `.claude/agents/<name>.md`. | `'planner'` |
+| `agentImplementor` | `string` | Agent name for the Implementor. Passed as the `agent` option to the SDK, which resolves `.claude/agents/<name>.md`. | `'implementor'` |
+| `agentReviewer` | `string` | Agent name for the Reviewer. Passed as the `agent` option to the SDK, which resolves `.claude/agents/<name>.md`. | `'reviewer'` |
 | `maxAgentDuration` | `number` | Maximum seconds an agent session can run before being cancelled. Applies to all agent types. When exceeded, the engine cancels the session and performs crash recovery. | `1800` (30 min) |
 
 #### Logging
@@ -703,6 +754,23 @@ type PRDetailsResult = {
 type AgentStream = AsyncIterable<string> | null;
 ```
 
+#### Agent Manager
+
+```ts
+type QueryFactoryParams = {
+  prompt: string;
+  agent: string; // agent name, e.g., 'planner'
+  cwd: string;
+  abortController: AbortController;
+};
+
+// The factory abstracts the SDK's query() call. The default implementation
+// passes settingSources, permissionMode, and allowDangerouslySkipPermissions
+// alongside the caller-provided params. Test doubles return a mock Query
+// without spawning a real agent process.
+type QueryFactory = (params: QueryFactoryParams) => Query; // Query is from @anthropic-ai/claude-agent-sdk
+```
+
 #### SpecPoller Batch Result
 
 ```ts
@@ -736,9 +804,9 @@ type EngineConfig = {
     defaultBranch?: string; // default: 'main'
   };
   agents?: {
-    agentFilePlanner?: string; // default: '.claude/agents/planner.md'
-    agentFileImplementor?: string; // default: '.claude/agents/implementor.md'
-    agentFileReviewer?: string; // default: '.claude/agents/reviewer.md'
+    agentPlanner?: string; // agent name, default: 'planner'
+    agentImplementor?: string; // agent name, default: 'implementor'
+    agentReviewer?: string; // agent name, default: 'reviewer'
     maxAgentDuration?: number; // seconds, default: 1800
   };
   logging?: {
@@ -789,25 +857,33 @@ type Engine = {
 
 ### Dispatch
 
-- [ ] Given a spec's frontmatter status is `approved` and its tree SHA changed, when the SpecPoller emits `specChanged`, then the Planner is auto-dispatched with that spec path.
-- [ ] Given a spec's frontmatter status is `draft` and its tree SHA changed, when the SpecPoller emits `specChanged`, then the Planner is not dispatched for that spec.
+- [ ] Given the SpecPoller returns N changed files, when the Engine Core processes the batch, then N individual `specChanged` events are emitted (one per file).
+- [ ] Given a spec's frontmatter status is `approved` and its tree SHA changed, when the Engine Core emits `specChanged`, then the Planner is auto-dispatched with that spec path.
+- [ ] Given a spec's frontmatter status is `draft` and its tree SHA changed, when the Engine Core emits `specChanged`, then the Planner is not dispatched for that spec.
 - [ ] Given multiple approved specs changed in the same SpecPoller cycle, when the Planner is dispatched, then it receives all changed spec paths in a single invocation.
 - [ ] Given an issue status changed to `status:review`, when the IssuePoller emits the change, then the Reviewer is auto-dispatched for that issue.
 - [ ] Given an issue is `status:pending`, when the change is first detected, then a `dispatchReady` event is emitted.
 - [ ] Given an issue status changes to `status:unblocked` or `status:needs-changes`, when the IssuePoller emits the change, then a `dispatchReady` event is emitted.
 - [ ] Given the `dispatchReviewer` command is received for issue N, when no agent is running for issue N, then a Reviewer session is created.
 - [ ] Given the `dispatchReviewer` command is received for an issue not in the IssuePoller snapshot, when the command is processed, then it is a no-op.
-- [ ] Given an issue status changes to `status:needs-refinement`, when the IssuePoller emits the change, then a `notification` event is emitted with a clipboard-ready CLI command.
+- [ ] Given an issue status changes to `status:needs-refinement`, when the IssuePoller emits the change, then a `notification` event is emitted with a clipboard-ready CLI command, the issue URL as `contextURL`, and resolution guidance.
+- [ ] Given an issue status changes to `status:blocked`, when the IssuePoller emits the change, then a `notification` event is emitted with the issue URL as `contextURL` and resolution guidance.
+- [ ] Given an issue status changes to `status:approved`, when the IssuePoller emits the change, then a `notification` event is emitted with the issue URL as initial `contextURL` (async PR URL update by TUI).
 - [ ] Given a notification was emitted for an issue, when the issue's status changes on a subsequent poll, then `notificationDismissed` is emitted.
 
 ### Agent Lifecycle
 
 - [ ] Given the `dispatchImplementor` command is received for issue N, when no agent is running for issue N, then an Implementor session is created with the working directory set to a worktree at `.worktrees/issue-<N>`.
 - [ ] Given the `dispatchImplementor` command is received for issue N, when an agent is already running for issue N, then `agentSkipped` is emitted and no new session is created.
+- [ ] Given the `dispatchImplementor` command is received for an issue not in the IssuePoller snapshot, when the command is processed, then it is a no-op.
+- [ ] Given the `dispatchImplementor` command is received for an issue whose status is not in the user-dispatch set (`pending`, `unblocked`, `needs-changes`), when the command is processed, then it is a no-op.
 - [ ] Given an agent session is created, when the SDK returns a session ID, then the engine stores the session ID and includes it in the `agentStarted` event.
 - [ ] Given an Implementor agent session fails, when the `agentFailed` event is emitted, then it includes the session ID and preserved worktree path.
 - [ ] Given an Implementor agent session succeeds, when cleanup runs, then the worktree is removed.
 - [ ] Given an Implementor agent session fails, when the failure is detected, then the worktree is preserved.
+- [ ] Given the engine dispatches any agent, when `query()` is called, then the options include `agent` (agent name from config), `settingSources: ['project']`, `permissionMode: 'bypassPermissions'`, and `allowDangerouslySkipPermissions: true`.
+- [ ] Given the engine dispatches an Implementor for issue N, when `query()` is called, then `cwd` is set to the worktree path (`.worktrees/issue-<N>`). For Planner and Reviewer, `cwd` is the repository root.
+- [ ] Given the engine codebase, when inspected, then no file outside `engine/agent-manager/` imports from `@anthropic-ai/claude-agent-sdk`.
 
 ### Recovery
 
@@ -848,8 +924,11 @@ type Engine = {
 - [ ] Given the `cancelAgent` command is received for issue N, when an agent is running for it, then the session is cancelled, `agentFailed` is emitted, and crash recovery runs if applicable (Implementor with `status:in-progress` only).
 - [ ] Given the `cancelAgent` command is received for issue N, when no agent is running for it, then the command is a no-op.
 - [ ] Given an agent session has been running longer than `maxAgentDuration`, when the timer fires, then the session is cancelled and failure handling runs (including crash recovery if the issue is still `status:in-progress`).
+- [ ] Given the `cancelPlanner` command is received, when a Planner is running, then the Planner session is cancelled and `agentFailed` is emitted with a cancellation error.
+- [ ] Given the `cancelPlanner` command is received, when no Planner is running, then the command is a no-op.
 - [ ] Given a Planner is already running, when the SpecPoller detects new changes, then `agentSkipped` is emitted and the changes are deferred to the next cycle.
 - [ ] Given changes were deferred from a previous SpecPoller cycle, when the next cycle runs and the Planner is no longer running, then the deferred paths are merged with the new cycle's results and dispatched together.
+- [ ] Given deferred spec paths include a path whose frontmatter status changed to non-approved since deferral, when the merged set is dispatched, then the non-approved path is dropped from the batch.
 - [ ] Given an issue was present in the previous poll but is absent from the current poll results, when the IssuePoller processes the cycle, then `issueRemoved` is emitted.
 - [ ] Given an agent is running for issue N, when issue N is removed from the poll results (closed or label removed), then the agent session is cancelled, `agentFailed` is emitted, and `issueRemoved` is emitted.
 - [ ] Given recovery resets an issue to `status:pending`, when the recovery completes, then both `recoveryPerformed` and a synthetic `issueStatusChanged` are emitted so the TUI updates immediately.
@@ -858,7 +937,7 @@ type Engine = {
 
 - `@octokit/rest` — GitHub REST API client. Wrapped by the `GitHubClient` adapter; not imported directly outside `engine/github-client/`.
 - `@octokit/auth-app` — GitHub App authentication strategy for `@octokit/rest`. Handles JWT creation, installation token exchange, and automatic token refresh.
-- `@anthropic-ai/claude-agent-sdk` documentation — Required reading for implementing the Agent Manager. This spec assumes the SDK provides: session creation with a system prompt file path and working directory, a `session_id` returned in the init message, an async iterable message stream with typed content blocks, session cancellation, and `resume: sessionId` for resuming failed sessions. If the SDK API differs from these assumptions, the Agent Manager implementation must adapt accordingly.
+- `@anthropic-ai/claude-agent-sdk` (≥0.2.x) — The v1 `query()` API is used for all agent invocations. The `agent` option resolves agent definition files from `.claude/agents/`, and `settingSources: ['project']` loads project-level settings. The SDK handles frontmatter parsing, system prompt injection, tool configuration, model selection, skill preloading, and hook registration. See SDK Session Configuration for the full call signature and option details.
 - `control-plane.md` — Parent architecture spec (dispatch tiers, worktree isolation, recovery policy)
 - `workflow.md` — Status transition table, quality gates, escalation protocol
 - `agent-planner.md` — Planner agent definition (invoked by auto-dispatch)
@@ -867,4 +946,4 @@ type Engine = {
 
 ## References
 
-- `control-plane-tui.md` — TUI specification (consumes the engine's four interfaces: events, commands, queries, streams). Note: the TUI spec's notification types will need updating to surface `logFilePath` from `agentCompleted`/`agentFailed` events.
+- `control-plane-tui.md` — TUI specification (consumes the engine's four interfaces: events, commands, queries, streams)
