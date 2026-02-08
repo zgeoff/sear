@@ -85,7 +85,7 @@ function buildIssueStatusChanged(
 // issueStatusChanged
 // ---------------------------------------------------------------------------
 
-test('it upserts an issue in the issues map when issueStatusChanged is emitted', () => {
+test('it tracks a new issue when an issue status change is received', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 5, title: 'My issue', newStatus: 'pending' }));
@@ -100,7 +100,7 @@ test('it upserts an issue in the issues map when issueStatusChanged is emitted',
   expect(issue?.agentRunning).toBe(false);
 });
 
-test('it does not clear lastFailure when issueStatusChanged has isRecovery true', () => {
+test('it preserves the failure overlay when a status change is from crash recovery', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -123,7 +123,7 @@ test('it does not clear lastFailure when issueStatusChanged has isRecovery true'
   expect(issue?.lastFailure?.error).toBe('timeout');
 });
 
-test('it clears lastFailure when issueStatusChanged has isRecovery false', () => {
+test('it clears the failure overlay when a non-recovery status change is received', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -143,7 +143,7 @@ test('it clears lastFailure when issueStatusChanged has isRecovery false', () =>
   expect(store.getState().issues.get(1)?.lastFailure).toBeUndefined();
 });
 
-test('it clears lastFailure when issueStatusChanged has no isRecovery field', () => {
+test('it clears the failure overlay when a status change has no recovery flag', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -162,7 +162,7 @@ test('it clears lastFailure when issueStatusChanged has no isRecovery field', ()
   expect(store.getState().issues.get(1)?.lastFailure).toBeUndefined();
 });
 
-test('it marks issueDetails and prDetails as stale when issueStatusChanged fires', () => {
+test('it marks cached issue and PR details as stale when an issue status changes', () => {
   const { store, emit } = setupTest();
 
   const issueDetails = new Map(store.getState().issueDetails);
@@ -184,7 +184,7 @@ test('it marks issueDetails and prDetails as stale when issueStatusChanged fires
   expect(store.getState().prDetails.get(1)?.stale).toBe(true);
 });
 
-test('it adds a notification when issueStatusChanged is emitted', () => {
+test('it creates a notification when an issue status changes', () => {
   const { store, emit } = setupTest();
 
   emit(
@@ -206,7 +206,7 @@ test('it adds a notification when issueStatusChanged is emitted', () => {
 // agentStarted
 // ---------------------------------------------------------------------------
 
-test('it sets agentRunning and agentType when agentStarted is emitted for an Implementor', () => {
+test('it flags the issue as having a running agent when an implementor starts', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -224,7 +224,7 @@ test('it sets agentRunning and agentType when agentStarted is emitted for an Imp
   expect(issue?.agentType).toBe('implementor');
 });
 
-test('it clears existing agentStreams buffer and subscribes to stream on agentStarted', () => {
+test('it resets the stream buffer and subscribes to a new stream when an agent starts', () => {
   const { store, emit, engine } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -245,7 +245,7 @@ test('it clears existing agentStreams buffer and subscribes to stream on agentSt
   expect(engine.getAgentStream).toHaveBeenCalledWith(1);
 });
 
-test('it sets plannerRunning to true and skips stream subscription when Planner agentStarted is emitted', () => {
+test('it flags the planner as running and does not subscribe to a stream when the planner starts', () => {
   const { store, emit, engine } = setupTest();
 
   const event: AgentStartedEvent = {
@@ -268,7 +268,7 @@ test('it sets plannerRunning to true and skips stream subscription when Planner 
 // agentCompleted
 // ---------------------------------------------------------------------------
 
-test('it sets agentRunning to false and adds notification when Implementor agentCompleted is emitted', () => {
+test('it flags the agent as stopped and notifies when an implementor completes', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -293,7 +293,7 @@ test('it sets agentRunning to false and adds notification when Implementor agent
   expect(lastNotif?.summary).toBe('Implementor completed for issue #1');
 });
 
-test('it calls getPRForIssue to update notification contextURL when Implementor agentCompleted is emitted', async () => {
+test('it resolves the PR link on the notification when an implementor completes', async () => {
   const { store, emit, engine } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -322,7 +322,7 @@ test('it calls getPRForIssue to update notification contextURL when Implementor 
   });
 });
 
-test('it marks prDetails as stale when Reviewer agentCompleted is emitted', () => {
+test('it marks cached PR details as stale when a reviewer completes', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
@@ -355,7 +355,7 @@ test('it marks prDetails as stale when Reviewer agentCompleted is emitted', () =
   expect(store.getState().prDetails.get(1)?.stale).toBe(true);
 });
 
-test('it sets plannerRunning to false when Planner agentCompleted is emitted', () => {
+test('it flags the planner as not running when the planner completes', () => {
   const { store, emit } = setupTest();
 
   emit({
@@ -381,7 +381,7 @@ test('it sets plannerRunning to false when Planner agentCompleted is emitted', (
 // agentFailed
 // ---------------------------------------------------------------------------
 
-test('it records lastFailure with agentType, error, sessionID, and worktreePath for Implementor failure', () => {
+test('it records a failure with worktree path when an implementor fails', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -411,7 +411,7 @@ test('it records lastFailure with agentType, error, sessionID, and worktreePath 
   });
 });
 
-test('it records lastFailure without worktreePath for Reviewer failure', () => {
+test('it records a failure without worktree path when a reviewer fails', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
@@ -438,7 +438,7 @@ test('it records lastFailure without worktreePath for Reviewer failure', () => {
   });
 });
 
-test('it sets plannerRunning to false and does not record lastFailure for Planner failure', () => {
+test('it flags the planner as not running and skips failure recording when the planner fails', () => {
   const { store, emit } = setupTest();
 
   emit({
@@ -467,7 +467,7 @@ test('it sets plannerRunning to false and does not record lastFailure for Planne
 // issueRemoved
 // ---------------------------------------------------------------------------
 
-test('it removes issue and clears associated caches when issueRemoved is emitted', () => {
+test('it removes the issue and clears all associated caches when an issue is dropped', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -496,7 +496,7 @@ test('it removes issue and clears associated caches when issueRemoved is emitted
   expect(store.getState().selectedIssue).toBeNull();
 });
 
-test('it does not reset selectedIssue when a different issue is removed', () => {
+test('it keeps the selected issue when a different issue is removed', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -512,7 +512,7 @@ test('it does not reset selectedIssue when a different issue is removed', () => 
 // notification (engine event)
 // ---------------------------------------------------------------------------
 
-test('it adds notification with contextURL and calls getPRForIssue for approved status', async () => {
+test('it notifies with a PR link when an issue is approved', async () => {
   const { store, emit, engine } = setupTest();
 
   const event: NotificationEvent = {
@@ -535,7 +535,7 @@ test('it adds notification with contextURL and calls getPRForIssue for approved 
   });
 });
 
-test('it includes clipboardCommand in notification for needs-refinement status', () => {
+test('it includes a clipboard command in the notification when an issue needs refinement', () => {
   const { store, emit } = setupTest();
 
   const event: NotificationEvent = {
@@ -553,7 +553,7 @@ test('it includes clipboardCommand in notification for needs-refinement status',
   expect(notif?.clipboardCommand).toBe('claude -p "fix the spec"');
 });
 
-test('it creates notification with blocked summary for blocked status', () => {
+test('it notifies with guidance text when an issue is blocked', () => {
   const { store, emit } = setupTest();
 
   const event: NotificationEvent = {
@@ -574,7 +574,7 @@ test('it creates notification with blocked summary for blocked status', () => {
 // Other events
 // ---------------------------------------------------------------------------
 
-test('it adds notification for agentSkipped without changing issue state', () => {
+test('it notifies without altering the issue when an agent dispatch is skipped', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -590,7 +590,7 @@ test('it adds notification for agentSkipped without changing issue state', () =>
   expect(skipNotif?.summary).toBe('Implementor skipped for issue #1 — already running');
 });
 
-test('it adds notification for dispatchReady without changing issue state', () => {
+test('it notifies without altering the issue when an issue becomes ready for dispatch', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -606,7 +606,7 @@ test('it adds notification for dispatchReady without changing issue state', () =
   expect(readyNotif?.summary).toBe('Issue #1 ready for dispatch');
 });
 
-test('it adds notification for notificationDismissed', () => {
+test('it records a notification when a prior notification is dismissed', () => {
   const { store, emit } = setupTest();
 
   emit({ type: 'notificationDismissed', issueNumber: 3 });
@@ -616,7 +616,7 @@ test('it adds notification for notificationDismissed', () => {
   expect(notifications[0]?.summary).toBe('Issue #3 notification dismissed');
 });
 
-test('it adds notification for recoveryPerformed', () => {
+test('it notifies when an issue is recovered from a stale status', () => {
   const { store, emit } = setupTest();
 
   emit({
@@ -631,7 +631,7 @@ test('it adds notification for recoveryPerformed', () => {
   expect(notifications[0]?.summary).toBe('Issue #7 recovered from stale in-progress');
 });
 
-test('it adds notification for specChanged with contextURL from commitSHA', () => {
+test('it notifies with a commit link when a spec file changes', () => {
   const { store, emit } = setupTest();
 
   emit({
@@ -651,7 +651,7 @@ test('it adds notification for specChanged with contextURL from commitSHA', () =
 // Stream buffer limit (ring buffer)
 // ---------------------------------------------------------------------------
 
-test('it drops the oldest chunk when the stream buffer exceeds 10,000 chunks', async () => {
+test('it drops the oldest output when the stream buffer is full', async () => {
   const { store, emit, engine } = setupTest();
 
   const chunks: string[] = [];
@@ -697,7 +697,7 @@ test('it drops the oldest chunk when the stream buffer exceeds 10,000 chunks', a
 // Actions
 // ---------------------------------------------------------------------------
 
-test('it sends dispatchImplementor command and clears lastFailure when dispatchImplementor is called', () => {
+test('it dispatches an implementor and clears the failure overlay for that issue', () => {
   const { store, emit, sentCommands } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -717,7 +717,7 @@ test('it sends dispatchImplementor command and clears lastFailure when dispatchI
   expect(store.getState().issues.get(1)?.lastFailure).toBeUndefined();
 });
 
-test('it sends dispatchReviewer command and clears lastFailure when dispatchReviewer is called', () => {
+test('it dispatches a reviewer and clears the failure overlay for that issue', () => {
   const { store, emit, sentCommands } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
@@ -735,7 +735,7 @@ test('it sends dispatchReviewer command and clears lastFailure when dispatchRevi
   expect(store.getState().issues.get(1)?.lastFailure).toBeUndefined();
 });
 
-test('it sends cancelAgent command when cancelAgent is called', () => {
+test('it sends a cancel command to the engine when cancelling an agent', () => {
   const { store, sentCommands } = setupTest();
 
   store.getState().cancelAgent(5);
@@ -743,7 +743,7 @@ test('it sends cancelAgent command when cancelAgent is called', () => {
   expect(sentCommands).toContainEqual({ command: 'cancelAgent', issueNumber: 5 });
 });
 
-test('it sends shutdown command and sets shuttingDown when shutdown is called', () => {
+test('it enters shutdown mode and tells the engine to shut down', () => {
   const { store, sentCommands } = setupTest();
 
   store.getState().shutdown();
@@ -752,7 +752,7 @@ test('it sends shutdown command and sets shuttingDown when shutdown is called', 
   expect(store.getState().shuttingDown).toBe(true);
 });
 
-test('it cycles focus forward through panes', () => {
+test('it advances focus to the next pane when cycling forward', () => {
   const { store } = setupTest();
 
   expect(store.getState().focusedPane).toBe('issueList');
@@ -767,7 +767,7 @@ test('it cycles focus forward through panes', () => {
   expect(store.getState().focusedPane).toBe('issueList');
 });
 
-test('it cycles focus backward through panes', () => {
+test('it moves focus to the previous pane when cycling backward', () => {
   const { store } = setupTest();
 
   expect(store.getState().focusedPane).toBe('issueList');
@@ -786,7 +786,7 @@ test('it cycles focus backward through panes', () => {
 // selectIssue and stale-while-revalidate caching
 // ---------------------------------------------------------------------------
 
-test('it fetches issue details on selectIssue when not cached', async () => {
+test('it fetches issue details from the engine when selecting an uncached issue', async () => {
   const { store, emit, engine } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -803,7 +803,7 @@ test('it fetches issue details on selectIssue when not cached', async () => {
   });
 });
 
-test('it returns stale cached data immediately and re-fetches in the background', async () => {
+test('it returns stale data immediately while refreshing in the background', async () => {
   const { store, emit, engine } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -832,7 +832,7 @@ test('it returns stale cached data immediately and re-fetches in the background'
   });
 });
 
-test('it retains stale cached data when background re-fetch fails', async () => {
+test('it keeps the stale data when a background refresh fails', async () => {
   const { store, emit, engine } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -857,7 +857,7 @@ test('it retains stale cached data when background re-fetch fails', async () => 
 // runningAgentCount selector
 // ---------------------------------------------------------------------------
 
-test('it computes runningAgentCount as count of running agents plus planner', () => {
+test('it counts all running agents including the planner', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -887,7 +887,7 @@ test('it computes runningAgentCount as count of running agents plus planner', ()
   expect(selectRunningAgentCount(store.getState())).toBe(3);
 });
 
-test('it returns 0 for runningAgentCount when no agents are running', () => {
+test('it reports zero running agents when none have started', () => {
   const { store } = setupTest();
 
   expect(selectRunningAgentCount(store.getState())).toBe(0);
@@ -897,7 +897,7 @@ test('it returns 0 for runningAgentCount when no agents are running', () => {
 // Map immutability for Zustand change detection
 // ---------------------------------------------------------------------------
 
-test('it replaces the issues Map reference on every update', () => {
+test('it produces a new issues collection reference on every update', () => {
   const { store, emit } = setupTest();
 
   const initialMap = store.getState().issues;
@@ -907,7 +907,7 @@ test('it replaces the issues Map reference on every update', () => {
   expect(initialMap).not.toBe(updatedMap);
 });
 
-test('it replaces the agentStreams Map reference on agentStarted', () => {
+test('it produces a new stream buffer collection reference when an agent starts', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -927,7 +927,7 @@ test('it replaces the agentStreams Map reference on agentStarted', () => {
 // Notification fields
 // ---------------------------------------------------------------------------
 
-test('it generates unique notification IDs and includes timestamps', () => {
+test('it assigns unique IDs and timestamps to each notification', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -944,7 +944,7 @@ test('it generates unique notification IDs and includes timestamps', () => {
 // All engine events produce notifications
 // ---------------------------------------------------------------------------
 
-test('it produces a notification for every engine event type', () => {
+test('it produces a notification for every type of engine event', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
