@@ -1,15 +1,16 @@
 <div align="center">
 
+<img src="logo.png" alt="sear" width="128" />
+
 # sear
 
-**Something cool is cooking**
+**Real-time screen OCR and computer vision framework**
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/zgeoff/sear/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/zgeoff/sear/actions/workflows/main.yml)
 [![Node](https://img.shields.io/badge/node-%3E%3D24.0.0-brightgreen.svg)](https://nodejs.org)
 [![Yarn](https://img.shields.io/badge/yarn-4.12.0-2C8EBB.svg)](https://yarnpkg.com)
 [![TypeScript](https://img.shields.io/badge/typescript-5.9-3178C6.svg)](https://www.typescriptlang.org)
-
-<br />
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 [Getting Started](#getting-started) • [Commands](#commands) • [Architecture](#architecture) •
 [Development Workflow](#development-workflow) • [License](#license)
@@ -20,17 +21,7 @@
 
 ## Getting Started
 
-```bash
-# Clone the repo (zero install - no yarn install needed)
-git clone git@github.com:zgeoff/sear.git
-cd sear
-
-# Enable corepack for Yarn
-corepack enable
-
-# You're ready to go
-yarn build
-```
+Coming soon.
 
 ## Commands
 
@@ -55,10 +46,15 @@ yarn turbo run build --filter=@sear/core
 
 ## Architecture
 
+A modular, job-driven pipeline for capturing window/screen content and running OCR and CV analysis
+jobs. Each capture region (ROI) is independently scheduled, and results flow through a reactive
+pipeline built on Zustand stores.
+
 ```
 sear/
-├── apps/          # Applications (web, CLI, etc.)
-├── packages/      # Shared libraries and utilities
+├── apps/          # Applications (Electron-based inspector, etc.)
+├── packages/      # Shared libraries (@sear/core, @sear/tesseractjs, @sear/opencvjs, etc.)
+├── docs/          # Technical specs and design documents
 ├── biome.json     # Linting and formatting
 ├── turbo.json     # Build orchestration
 └── package.json   # Workspace root
@@ -66,7 +62,10 @@ sear/
 
 ### Stack
 
-- **Runtime** — Node.js 24+
+- **Runtime** — Node.js 24+ / Electron
+- **UI** — React, Zustand
+- **OCR** — Tesseract.js
+- **Computer Vision** — OpenCV.js
 - **Package Manager** — Yarn Berry (PnP + Zero Installs)
 - **Build System** — Turborepo
 - **Linting/Formatting** — Biome
@@ -75,39 +74,12 @@ sear/
 
 ## Development Workflow
 
-This project uses an AI-assisted development workflow where specifications are the source of truth
-and all task state lives in GitHub Issues.
+This project uses an AI-assisted development workflow — specs are the source of truth, task state
+lives in GitHub Issues, and agents handle planning, implementation, and review. A TUI control plane
+(`yarn agentic-workflow`) orchestrates it all.
 
-### Lifecycle
-
-1. **Spec** — Human authors and approves a specification using structured templates
-2. **Plan** — A Planner agent decomposes the spec into scoped GitHub Issues with labels,
-   dependencies, and priority
-3. **Implement** — Human assigns a task; an Implementor agent writes code and tests in an isolated
-   git worktree
-4. **Review** — A Reviewer agent verifies acceptance criteria, spec conformance, and code quality
-5. **Integrate** — Human merges the approved PR and closes the issue
-
-### Roles
-
-| Role            | Responsibility                                                      |
-| --------------- | ------------------------------------------------------------------- |
-| **Human**       | Authors specs, assigns tasks, resolves escalations, merges PRs      |
-| **Planner**     | Decomposes specs into task issues                                   |
-| **Implementor** | Executes assigned tasks (one per agent, parallelized via worktrees) |
-| **Reviewer**    | Reviews PRs against spec and acceptance criteria                    |
-
-Only the Human can approve spec changes and merge code. Agents escalate ambiguity rather than
-interpret.
-
-### Control Plane
-
-A TUI application (`yarn agentic-workflow`) orchestrates the workflow — polling GitHub for state
-changes, auto-dispatching agents where policy allows, and surfacing actionable items for human
-decision-making. See [`docs/specs/workflow/`](docs/specs/workflow/) for full specifications.
+See [`docs/specs/workflow/`](docs/specs/workflow/) for full specifications.
 
 ## License
 
 [MIT](LICENSE)
-
-</div>
