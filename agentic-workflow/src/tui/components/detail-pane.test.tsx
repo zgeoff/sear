@@ -427,6 +427,76 @@ test('it shows error details without a worktree path when a reviewer fails', asy
   });
 });
 
+test('it shows the log file path when a failure includes session log information', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Failed task',
+    oldStatus: null,
+    newStatus: 'in-progress',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, {
+      ...issue,
+      lastFailure: {
+        agentType: 'implementor',
+        error: 'process crashed',
+        sessionID: 'sess-abc-123',
+        worktreePath: '/home/user/.worktrees/issue-1',
+        logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+      },
+    });
+  }
+  store.setState({ issues, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Agent Failure');
+    expect(frame).toContain('/logs/2026-02-08T10-00-00Z-implementor-1.log');
+  });
+});
+
+test('it does not show a log file path when a failure has no session log information', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Failed task',
+    oldStatus: null,
+    newStatus: 'in-progress',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, {
+      ...issue,
+      lastFailure: {
+        agentType: 'implementor',
+        error: 'process crashed',
+        sessionID: 'sess-abc-123',
+      },
+    });
+  }
+  store.setState({ issues, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Agent Failure');
+    expect(frame).not.toContain('Log:');
+  });
+});
+
 test('it shows the failure overlay regardless of the issue status label', async () => {
   const { store, emit, lastFrame } = setupTest();
 
