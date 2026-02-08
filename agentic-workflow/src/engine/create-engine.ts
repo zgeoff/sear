@@ -22,11 +22,13 @@ import type { QueriesConfig } from './queries/types';
 import { createRecovery } from './recovery/create-recovery';
 import type { IssuePollerSnapshot, Recovery } from './recovery/types';
 import { createWorktreeManager } from './worktree-manager/create-worktree-manager';
+import type { WorktreeManager } from './worktree-manager/types';
 
 type EngineDeps = {
   octokit?: GitHubClient;
   queryFactory?: QueryFactory;
   repoRoot?: string;
+  worktreeManager?: WorktreeManager;
 };
 
 type PollerTimers = {
@@ -44,7 +46,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 
   const emitter = createEventEmitter();
   const recovery = createRecovery({ octokit, owner, repo, emitter });
-  const worktreeManager = createWorktreeManager({ repoRoot });
+  const worktreeManager = deps?.worktreeManager ?? createWorktreeManager({ repoRoot });
 
   const issuePoller = createIssuePoller({
     octokit,

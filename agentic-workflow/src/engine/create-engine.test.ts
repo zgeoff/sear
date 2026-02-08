@@ -1,10 +1,11 @@
 import { expect, type Mock, test, vi } from 'vitest';
 import { buildValidConfig } from '../test-utils/build-valid-config';
 import { createMockGitHubClient } from '../test-utils/create-mock-github-client';
-import type { EngineEvent, IssueStatusChangedEvent } from '../types';
+import type { AgentFailedEvent, EngineEvent, IssueStatusChangedEvent } from '../types';
 import type { QueryFactory, QueryFactoryParams } from './agent-manager/types';
 import { createEngine } from './create-engine';
 import type { GitHubClient } from './github-client/types';
+import type { WorktreeManager } from './worktree-manager/types';
 
 // ---------------------------------------------------------------------------
 // Test utilities
@@ -147,38 +148,79 @@ function setupMockGitHubClient(
   });
 }
 
-function setupTest(issueOverrides: ReturnType<typeof buildMockIssueData>[] = []) {
+function createMockWorktreeManager(): WorktreeManager {
+  return {
+    createOrReuse: vi.fn().mockResolvedValue({
+      worktreePath: '/tmp/test-repo/.worktrees/issue-42',
+      branch: 'issue-42',
+      created: true,
+    }),
+    remove: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+type SetupOptions = {
+  issues?: ReturnType<typeof buildMockIssueData>[];
+  autoComplete?: boolean;
+  shutdownTimeout?: number;
+};
+
+function setupTest(
+  issueOverridesOrOptions?: ReturnType<typeof buildMockIssueData>[] | SetupOptions,
+) {
+  const options: SetupOptions = Array.isArray(issueOverridesOrOptions)
+    ? { issues: issueOverridesOrOptions }
+    : (issueOverridesOrOptions ?? {});
+
+  const issues = options.issues ?? [];
+  const autoComplete = options.autoComplete ?? true;
+
   const octokit = createMockGitHubClient();
   const mockQueries: MockQuery[] = [];
+  const worktreeManager = createMockWorktreeManager();
 
   const queryFactory: QueryFactory = (params) => {
     const q = createMockQuery();
-    // Auto-complete the session immediately
-    q.pushMessage({
-      type: 'system',
-      subtype: 'init',
-      session_id: `session-${mockQueries.length + 1}`,
-    });
-    q.pushMessage({ type: 'result', subtype: 'success' });
-    q.end();
+    if (autoComplete) {
+      // Auto-complete the session immediately
+      q.pushMessage({
+        type: 'system',
+        subtype: 'init',
+        session_id: `session-${mockQueries.length + 1}`,
+      });
+      q.pushMessage({ type: 'result', subtype: 'success' });
+      q.end();
+    } else {
+      // Send init but leave session open for manual control
+      q.pushMessage({
+        type: 'system',
+        subtype: 'init',
+        session_id: `session-${mockQueries.length + 1}`,
+      });
+    }
     mockQueries.push(q);
     return q as unknown as ReturnType<QueryFactory>;
   };
 
-  const config = buildValidConfig();
+  const config = buildValidConfig(
+    options.shutdownTimeout !== undefined
+      ? { shutdownTimeout: options.shutdownTimeout }
+      : undefined,
+  );
 
-  setupMockGitHubClient(octokit, issueOverrides);
+  setupMockGitHubClient(octokit, issues);
 
   const engine = createEngine(config, {
     octokit,
     queryFactory,
     repoRoot: '/tmp/test-repo',
+    worktreeManager,
   });
 
   const events: EngineEvent[] = [];
   engine.on((event) => events.push(event));
 
-  return { engine, events, octokit, queryFactory, mockQueries, config };
+  return { engine, events, octokit, queryFactory, mockQueries, config, worktreeManager };
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +540,168 @@ test('it does not crash when a poll cycle throws a github API error', async () =
 
   const result = await engine.start();
   expect(result.issueCount).toBe(0);
+
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// Positive command routing
+// ---------------------------------------------------------------------------
+
+test('it dispatches an implementor agent when the issue is in a user-dispatch status', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, mockQueries } = setupTest({ issues, autoComplete: true });
+
+  await engine.start();
+
+  const queriesBeforeDispatch = mockQueries.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  expect(mockQueries.length).toBeGreaterThan(queriesBeforeDispatch);
+
+  const agentStarted = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentStarted.length).toBeGreaterThan(0);
+});
+
+test('it cancels a running agent and emits an agent-failed event', async () => {
+  const issues = [buildMockIssueData(42, 'review')];
+  const { engine, events, mockQueries } = setupTest({ issues, autoComplete: false });
+
+  await engine.start();
+
+  // Wait for auto-dispatch of reviewer (review status triggers auto-dispatch)
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Verify the agent started
+  const agentStarted = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentStarted.length).toBe(1);
+
+  engine.send({ command: 'cancelAgent', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const agentFailed = events.filter(
+    (e): e is AgentFailedEvent =>
+      e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentFailed.length).toBe(1);
+  expect(agentFailed[0]!.error).toContain('Cancelled');
+});
+
+test('it cancels running agents after shutdown timeout expires', async () => {
+  vi.useFakeTimers();
+
+  const issues = [buildMockIssueData(42, 'review')];
+  const { engine, events, mockQueries } = setupTest({
+    issues,
+    autoComplete: false,
+    shutdownTimeout: 5,
+  });
+
+  await engine.start();
+
+  // Wait for auto-dispatch of reviewer
+  await vi.advanceTimersByTimeAsync(50);
+
+  const agentStarted = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentStarted.length).toBe(1);
+
+  engine.send({ command: 'shutdown' });
+
+  // Advance past the shutdown timeout (5 seconds)
+  await vi.advanceTimersByTimeAsync(6000);
+
+  const agentFailed = events.filter(
+    (e): e is AgentFailedEvent =>
+      e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentFailed.length).toBe(1);
+
+  vi.useRealTimers();
+});
+
+test('it cancels a running agent when its issue is removed from the poller snapshot', async () => {
+  const octokit = createMockGitHubClient();
+  const mockQueries: MockQuery[] = [];
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  (octokit.issues.listForRepo as Mock).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount++;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(42, 'review')] };
+    }
+    // Second poll: issue removed
+    return { data: [] };
+  });
+  (octokit.issues.addLabels as Mock).mockResolvedValue({ data: {} });
+  (octokit.issues.removeLabel as Mock).mockResolvedValue({ data: {} });
+  (octokit.git.getTree as Mock).mockResolvedValue({
+    data: { sha: 'tree-sha-1', tree: [] },
+  });
+  (octokit.git.getRef as Mock).mockResolvedValue({
+    data: { object: { sha: 'commit-sha-1' } },
+  });
+  (octokit.pulls.list as Mock).mockResolvedValue({ data: [] });
+  (octokit.repos.getContent as Mock).mockResolvedValue({ data: { content: '' } });
+
+  const queryFactory: QueryFactory = () => {
+    const q = createMockQuery();
+    // Send init but don't auto-complete -- agent stays running
+    q.pushMessage({
+      type: 'system',
+      subtype: 'init',
+      session_id: `session-${mockQueries.length + 1}`,
+    });
+    mockQueries.push(q);
+    return q as unknown as ReturnType<QueryFactory>;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => events.push(event));
+
+  await engine.start();
+
+  // Wait for the auto-dispatched reviewer to start
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const started = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(started.length).toBe(1);
+
+  // Wait for the next poll cycle (1 second interval) to detect issue removal
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+
+  const issueRemoved = events.filter((e) => e.type === 'issueRemoved');
+  expect(issueRemoved.length).toBe(1);
+
+  const failed = events.filter(
+    (e): e is AgentFailedEvent =>
+      e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(failed.length).toBe(1);
 
   engine.send({ command: 'shutdown' });
 });
