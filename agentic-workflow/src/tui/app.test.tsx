@@ -1,22 +1,16 @@
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
-import type { Engine, EngineCommand, EngineEvent, StartupResult } from '../types';
+import type { StartupResult } from '../types';
 import { App } from './app';
+import { createMockEngine } from './test-utils/create-mock-engine';
 
-type EventHandler = (event: EngineEvent) => void;
-
-type MockEngineResult = {
-  engine: Engine;
-  emit: (event: EngineEvent) => void;
-  sentCommands: EngineCommand[];
+type DeferredStartResult = {
   resolveStart: (result: StartupResult) => void;
   rejectStart: (error: Error) => void;
   waitForStartCalled: () => Promise<void>;
 };
 
-function createMockEngine(): MockEngineResult {
-  const handlers: EventHandler[] = [];
-  const sentCommands: EngineCommand[] = [];
+function createDeferredStart(): DeferredStartResult & { start: () => Promise<StartupResult> } {
   let resolveStart: (result: StartupResult) => void = () => {};
   let rejectStart: (error: Error) => void = () => {};
   let resolveStartCalled: () => void = () => {};
@@ -24,56 +18,17 @@ function createMockEngine(): MockEngineResult {
     resolveStartCalled = resolve;
   });
 
-  const engine: Engine = {
-    start: vi.fn(
-      () =>
-        new Promise<StartupResult>((resolve, reject) => {
-          resolveStart = resolve;
-          rejectStart = reject;
-          resolveStartCalled();
-        }),
-    ),
-    on(handler) {
-      handlers.push(handler);
-      return () => {
-        const idx = handlers.indexOf(handler);
-        if (idx >= 0) handlers.splice(idx, 1);
-      };
-    },
-    send(command) {
-      sentCommands.push(command);
-    },
-    getIssueDetails: vi.fn(() =>
-      Promise.resolve({
-        number: 1,
-        title: 'Test',
-        body: 'body',
-        labels: ['task:implement'],
-        createdAt: '2026-01-01T00:00:00Z',
+  const start = vi.fn(
+    () =>
+      new Promise<StartupResult>((resolve, reject) => {
+        resolveStart = resolve;
+        rejectStart = reject;
+        resolveStartCalled();
       }),
-    ),
-    getPRForIssue: vi.fn(() =>
-      Promise.resolve({
-        number: 10,
-        title: 'PR Title',
-        changedFilesCount: 3,
-        ciStatus: 'success' as const,
-        url: 'https://github.com/owner/repo/pull/10',
-      }),
-    ),
-    getAgentStream: vi.fn(() => null),
-  };
-
-  function emit(event: EngineEvent) {
-    for (const handler of handlers) {
-      handler(event);
-    }
-  }
+  );
 
   return {
-    engine,
-    emit,
-    sentCommands,
+    start,
     resolveStart: (result) => resolveStart(result),
     rejectStart: (error) => rejectStart(error),
     waitForStartCalled: () => startCalledPromise,
@@ -81,9 +36,10 @@ function createMockEngine(): MockEngineResult {
 }
 
 function setupTest() {
-  const mock = createMockEngine();
+  const deferred = createDeferredStart();
+  const mock = createMockEngine({ start: deferred.start });
   const instance = render(<App engine={mock.engine} repository="owner/repo" />);
-  return { ...mock, ...instance };
+  return { ...mock, ...deferred, ...instance };
 }
 
 async function setupStartedTest(startupResult?: StartupResult) {

@@ -3,62 +3,12 @@ import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentStartedEvent,
-  Engine,
-  EngineCommand,
-  EngineEvent,
   IssueRemovedEvent,
   IssueStatusChangedEvent,
   NotificationEvent,
 } from '../types';
 import { createEngineStore, selectRunningAgentCount } from './store';
-
-type EventHandler = (event: EngineEvent) => void;
-
-function createMockEngine() {
-  const handlers: EventHandler[] = [];
-  const sentCommands: EngineCommand[] = [];
-
-  const engine: Engine = {
-    start: vi.fn(() => Promise.resolve({ issueCount: 0, recoveriesPerformed: 0 })),
-    on(handler) {
-      handlers.push(handler);
-      return () => {
-        const idx = handlers.indexOf(handler);
-        if (idx >= 0) handlers.splice(idx, 1);
-      };
-    },
-    send(command) {
-      sentCommands.push(command);
-    },
-    getIssueDetails: vi.fn(() =>
-      Promise.resolve({
-        number: 1,
-        title: 'Test',
-        body: 'body',
-        labels: ['task:implement'],
-        createdAt: '2026-01-01T00:00:00Z',
-      }),
-    ),
-    getPRForIssue: vi.fn(() =>
-      Promise.resolve({
-        number: 10,
-        title: 'PR Title',
-        changedFilesCount: 3,
-        ciStatus: 'success' as const,
-        url: 'https://github.com/owner/repo/pull/10',
-      }),
-    ),
-    getAgentStream: vi.fn(() => null),
-  };
-
-  function emit(event: EngineEvent) {
-    for (const handler of handlers) {
-      handler(event);
-    }
-  }
-
-  return { engine, emit, sentCommands };
-}
+import { createMockEngine } from './test-utils/create-mock-engine';
 
 function setupTest() {
   const { engine, emit, sentCommands } = createMockEngine();
