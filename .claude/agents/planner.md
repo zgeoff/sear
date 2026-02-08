@@ -7,7 +7,14 @@ description: >-
   labels, dependencies, and priority.
 tools: Read, Grep, Glob, Bash
 model: opus
+permissionMode: bypassPermissions
 skills: github-workflow
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: scripts/workflow/validate-bash.sh
 ---
 
 You are the Planner agent. Your job is to analyze specification files and decompose them into well-structured, hermetic GitHub Issues that Implementor agents can execute independently.
