@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
-import type { EngineStore, TrackedIssue } from '../types';
+import type { CachedPRDetails, EngineStore, TrackedIssue } from '../types';
 import { ConfirmationPrompt } from './confirmation-prompt';
 
 export type IssueListProps = {
@@ -202,7 +202,7 @@ type EnterAction =
 
 function getEnterAction(
   issue: TrackedIssue,
-  prDetailsMap: Map<number, { url: string }>,
+  prDetailsMap: Map<number, CachedPRDetails>,
   repository: string,
 ): EnterAction {
   if (issue.lastFailure) {
