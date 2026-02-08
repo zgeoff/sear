@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
-import { buildClosesPattern, getPRForIssue } from './get-pr-for-issue';
+import { buildClosingKeywordPattern, getPRForIssue } from './get-pr-for-issue';
 import type { QueriesConfig } from './types';
 
 function setupTest() {
@@ -13,48 +13,141 @@ function setupTest() {
   return { octokit, config };
 }
 
+function setupLinkedPR(octokit: ReturnType<typeof createMockGitHubClient>, body: string) {
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 20, body }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 20,
+      title: 'feat: test',
+      changed_files: 3,
+      html_url: 'https://github.com/test-owner/test-repo/pull/20',
+      head: { sha: 'abc123' },
+    },
+  });
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'success', total_count: 1 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+}
+
 // ---------------------------------------------------------------------------
-// buildClosesPattern
+// buildClosingKeywordPattern — keyword variants
+// ---------------------------------------------------------------------------
+
+test('it matches a closing reference with "Closes"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Closes #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Close"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Close #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Closed"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Closed #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Fixes"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Fixes #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Fix"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Fix #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Fixed"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Fixed #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Resolves"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Resolves #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Resolve"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Resolve #4')).toBe(true);
+});
+
+test('it matches a closing reference with "Resolved"', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('Resolved #4')).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// buildClosingKeywordPattern — case insensitivity
+// ---------------------------------------------------------------------------
+
+test('it matches closing keywords in lowercase', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('closes #4')).toBe(true);
+  expect(pattern.test('fixes #4')).toBe(true);
+  expect(pattern.test('resolves #4')).toBe(true);
+});
+
+test('it matches closing keywords in uppercase', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('CLOSES #4')).toBe(true);
+  expect(pattern.test('FIXES #4')).toBe(true);
+  expect(pattern.test('RESOLVES #4')).toBe(true);
+});
+
+test('it matches closing keywords in mixed case', () => {
+  const pattern = buildClosingKeywordPattern(4);
+  expect(pattern.test('cLoSeS #4')).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// buildClosingKeywordPattern — word boundary
 // ---------------------------------------------------------------------------
 
 test('it matches a closing reference at end of line', () => {
-  const pattern = buildClosesPattern(4);
+  const pattern = buildClosingKeywordPattern(4);
   expect(pattern.test('Closes #4')).toBe(true);
 });
 
 test('it matches a closing reference followed by whitespace', () => {
-  const pattern = buildClosesPattern(4);
+  const pattern = buildClosingKeywordPattern(4);
   expect(pattern.test('Closes #4 and more text')).toBe(true);
 });
 
 test('it matches a closing reference followed by punctuation', () => {
-  const pattern = buildClosesPattern(4);
+  const pattern = buildClosingKeywordPattern(4);
   expect(pattern.test('Closes #4.')).toBe(true);
   expect(pattern.test('Closes #4, also fixes things')).toBe(true);
 });
 
 test('it does not match a closing reference with extra trailing digits', () => {
-  const pattern = buildClosesPattern(4);
+  const pattern = buildClosingKeywordPattern(4);
   expect(pattern.test('Closes #42')).toBe(false);
 });
 
 test('it does not match a closing reference whose number merely starts with the target', () => {
-  const pattern = buildClosesPattern(4);
+  const pattern = buildClosingKeywordPattern(4);
   expect(pattern.test('Closes #40')).toBe(false);
 });
 
 test('it matches a closing reference on a new line in multiline text', () => {
-  const pattern = buildClosesPattern(4);
+  const pattern = buildClosingKeywordPattern(4);
   expect(pattern.test('Some text\nCloses #4\nMore text')).toBe(true);
 });
 
 test('it matches a closing reference followed by a closing parenthesis', () => {
-  const pattern = buildClosesPattern(4);
+  const pattern = buildClosingKeywordPattern(4);
   expect(pattern.test('(Closes #4)')).toBe(true);
 });
 
 // ---------------------------------------------------------------------------
-// getPRForIssue
+// getPRForIssue — PR linkage
 // ---------------------------------------------------------------------------
 
 test('it returns PR details when a linked pull request exists', async () => {
@@ -130,55 +223,73 @@ test('it avoids false matches when the issue number is a prefix of another numbe
   expect(result).toBeNull();
 });
 
-test('it finds a linked PR when the closing reference is followed by a period', async () => {
+test('it finds a linked PR when the body uses "Fixes" keyword', async () => {
   const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Fixes #10');
 
-  vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 60, body: 'Fixes things. Closes #4.' }],
-  });
-
-  vi.mocked(octokit.pulls.get).mockResolvedValue({
-    data: {
-      number: 60,
-      title: 'fix: something',
-      changed_files: 1,
-      html_url: 'https://github.com/test-owner/test-repo/pull/60',
-      head: { sha: 'def456' },
-    },
-  });
-
-  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
-    data: { state: 'pending', total_count: 1 },
-  });
-
-  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
-    data: { total_count: 0, check_runs: [] },
-  });
-
-  const result = await getPRForIssue(config, 4);
+  const result = await getPRForIssue(config, 10);
   expect(result).not.toBeNull();
-  expect(result!.number).toBe(60);
+  expect(result!.number).toBe(20);
 });
 
-test('it reports pending CI status when checks have not completed', async () => {
+test('it finds a linked PR when the body uses "Resolves" keyword', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Resolves #10');
+
+  const result = await getPRForIssue(config, 10);
+  expect(result).not.toBeNull();
+  expect(result!.number).toBe(20);
+});
+
+test('it finds a linked PR when the closing keyword is lowercase', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'closes #10');
+
+  const result = await getPRForIssue(config, 10);
+  expect(result).not.toBeNull();
+  expect(result!.number).toBe(20);
+});
+
+test('it finds a linked PR when the closing keyword is uppercase', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'FIXES #10');
+
+  const result = await getPRForIssue(config, 10);
+  expect(result).not.toBeNull();
+  expect(result!.number).toBe(20);
+});
+
+test('it finds a linked PR when the closing reference is followed by a period', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Fixes things. Closes #10.');
+
+  const result = await getPRForIssue(config, 10);
+  expect(result).not.toBeNull();
+  expect(result!.number).toBe(20);
+});
+
+test('it returns the first matching PR by number when multiple link to the same issue', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 70, body: 'Closes #10' }],
+    data: [
+      { number: 121, body: 'Also Closes #10' },
+      { number: 120, body: 'Closes #10' },
+    ],
   });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
-      number: 70,
-      title: 'feat: test',
-      changed_files: 2,
-      html_url: 'https://github.com/test-owner/test-repo/pull/70',
-      head: { sha: 'sha-pending' },
+      number: 120,
+      title: 'first PR',
+      changed_files: 1,
+      html_url: 'https://github.com/test-owner/test-repo/pull/120',
+      head: { sha: 'sha-first' },
     },
   });
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
-    data: { state: 'pending', total_count: 1 },
+    data: { state: 'success', total_count: 0 },
   });
 
   vi.mocked(octokit.checks.listForRef).mockResolvedValue({
@@ -186,25 +297,32 @@ test('it reports pending CI status when checks have not completed', async () => 
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('pending');
+  expect(result!.number).toBe(120);
+  expect(octokit.pulls.get).toHaveBeenCalledWith({
+    owner: 'test-owner',
+    repo: 'test-repo',
+    pull_number: 120,
+  });
 });
 
-test('it reports failure CI status when status checks fail', async () => {
+test('it skips pull requests with a null body', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 80, body: 'Closes #10' }],
+    data: [{ number: 110, body: null }],
   });
 
-  vi.mocked(octokit.pulls.get).mockResolvedValue({
-    data: {
-      number: 80,
-      title: 'feat: test',
-      changed_files: 1,
-      html_url: 'https://github.com/test-owner/test-repo/pull/80',
-      head: { sha: 'sha-fail' },
-    },
-  });
+  const result = await getPRForIssue(config, 10);
+  expect(result).toBeNull();
+});
+
+// ---------------------------------------------------------------------------
+// getPRForIssue — CI status derivation
+// ---------------------------------------------------------------------------
+
+test('it reports failure when the combined status is failure', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'failure', total_count: 1 },
@@ -218,57 +336,9 @@ test('it reports failure CI status when status checks fail', async () => {
   expect(result!.ciStatus).toBe('failure');
 });
 
-test('it reports success when all check runs complete successfully', async () => {
-  const { octokit, config } = setupTest();
-
-  vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 90, body: 'Closes #10' }],
-  });
-
-  vi.mocked(octokit.pulls.get).mockResolvedValue({
-    data: {
-      number: 90,
-      title: 'feat: test',
-      changed_files: 5,
-      html_url: 'https://github.com/test-owner/test-repo/pull/90',
-      head: { sha: 'sha-checks' },
-    },
-  });
-
-  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
-    data: { state: 'success', total_count: 0 },
-  });
-
-  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
-    data: {
-      total_count: 2,
-      check_runs: [
-        { status: 'completed', conclusion: 'success' },
-        { status: 'completed', conclusion: 'skipped' },
-      ],
-    },
-  });
-
-  const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('success');
-});
-
 test('it reports failure when any check run has a failure conclusion', async () => {
   const { octokit, config } = setupTest();
-
-  vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 91, body: 'Closes #10' }],
-  });
-
-  vi.mocked(octokit.pulls.get).mockResolvedValue({
-    data: {
-      number: 91,
-      title: 'feat: test',
-      changed_files: 3,
-      html_url: 'https://github.com/test-owner/test-repo/pull/91',
-      head: { sha: 'sha-checks-fail' },
-    },
-  });
+  setupLinkedPR(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
@@ -288,22 +358,47 @@ test('it reports failure when any check run has a failure conclusion', async () 
   expect(result!.ciStatus).toBe('failure');
 });
 
-test('it reports pending when a check run is still in progress', async () => {
+test('it reports failure when any check run has a cancelled conclusion', async () => {
   const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
 
-  vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 92, body: 'Closes #10' }],
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'success', total_count: 0 },
   });
 
-  vi.mocked(octokit.pulls.get).mockResolvedValue({
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
     data: {
-      number: 92,
-      title: 'feat: test',
-      changed_files: 1,
-      html_url: 'https://github.com/test-owner/test-repo/pull/92',
-      head: { sha: 'sha-checks-pending' },
+      total_count: 1,
+      check_runs: [{ status: 'completed', conclusion: 'cancelled' }],
     },
   });
+
+  const result = await getPRForIssue(config, 10);
+  expect(result!.ciStatus).toBe('failure');
+});
+
+test('it reports failure when any check run has a timed out conclusion', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'success', total_count: 0 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: {
+      total_count: 1,
+      check_runs: [{ status: 'completed', conclusion: 'timed_out' }],
+    },
+  });
+
+  const result = await getPRForIssue(config, 10);
+  expect(result!.ciStatus).toBe('failure');
+});
+
+test('it reports pending when checks have not completed', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
@@ -318,6 +413,79 @@ test('it reports pending when a check run is still in progress', async () => {
 
   const result = await getPRForIssue(config, 10);
   expect(result!.ciStatus).toBe('pending');
+});
+
+test('it reports pending when the combined status is pending', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 1 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const result = await getPRForIssue(config, 10);
+  expect(result!.ciStatus).toBe('pending');
+});
+
+test('it reports pending when no CI is configured', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const result = await getPRForIssue(config, 10);
+  expect(result!.ciStatus).toBe('pending');
+});
+
+test('it reports success when all check runs complete successfully', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'success', total_count: 1 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: {
+      total_count: 2,
+      check_runs: [
+        { status: 'completed', conclusion: 'success' },
+        { status: 'completed', conclusion: 'success' },
+      ],
+    },
+  });
+
+  const result = await getPRForIssue(config, 10);
+  expect(result!.ciStatus).toBe('success');
+});
+
+test('it reports success when combined status has no statuses and all check runs succeed', async () => {
+  const { octokit, config } = setupTest();
+  setupLinkedPR(octokit, 'Closes #10');
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: {
+      total_count: 1,
+      check_runs: [{ status: 'completed', conclusion: 'success' }],
+    },
+  });
+
+  const result = await getPRForIssue(config, 10);
+  expect(result!.ciStatus).toBe('success');
 });
 
 test('it defaults to pending when the CI status API call fails', async () => {
@@ -349,52 +517,4 @@ test('it propagates API errors when listing pull requests', async () => {
   vi.mocked(octokit.pulls.list).mockRejectedValue(new Error('Rate limited'));
 
   await expect(getPRForIssue(config, 10)).rejects.toThrow('Rate limited');
-});
-
-test('it skips pull requests with a null body', async () => {
-  const { octokit, config } = setupTest();
-
-  vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 110, body: null }],
-  });
-
-  const result = await getPRForIssue(config, 10);
-  expect(result).toBeNull();
-});
-
-test('it returns the first matching PR when multiple link to the same issue', async () => {
-  const { octokit, config } = setupTest();
-
-  vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [
-      { number: 120, body: 'Closes #10' },
-      { number: 121, body: 'Also Closes #10' },
-    ],
-  });
-
-  vi.mocked(octokit.pulls.get).mockResolvedValue({
-    data: {
-      number: 120,
-      title: 'first PR',
-      changed_files: 1,
-      html_url: 'https://github.com/test-owner/test-repo/pull/120',
-      head: { sha: 'sha-first' },
-    },
-  });
-
-  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
-    data: { state: 'success', total_count: 0 },
-  });
-
-  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
-    data: { total_count: 0, check_runs: [] },
-  });
-
-  const result = await getPRForIssue(config, 10);
-  expect(result!.number).toBe(120);
-  expect(octokit.pulls.get).toHaveBeenCalledWith({
-    owner: 'test-owner',
-    repo: 'test-repo',
-    pull_number: 120,
-  });
 });
