@@ -1,3 +1,20 @@
+export type ResolvedIssuePollerConfig = {
+  pollInterval: number;
+};
+
+export type ResolvedSpecPollerConfig = {
+  pollInterval: number;
+  specsDir: string;
+  defaultBranch: string;
+};
+
+export type ResolvedAgentsConfig = {
+  agentFilePlanner: string;
+  agentFileImplementor: string;
+  agentFileReviewer: string;
+  maxAgentDuration: number;
+};
+
 export type ResolvedEngineConfig = {
   repository: string;
   githubAppID: number;
@@ -5,18 +22,7 @@ export type ResolvedEngineConfig = {
   githubAppInstallationID: number;
   logLevel: 'debug' | 'info' | 'error';
   shutdownTimeout: number;
-  issuePoller: {
-    pollInterval: number;
-  };
-  specPoller: {
-    pollInterval: number;
-    specsDir: string;
-    defaultBranch: string;
-  };
-  agents: {
-    agentFilePlanner: string;
-    agentFileImplementor: string;
-    agentFileReviewer: string;
-    maxAgentDuration: number;
-  };
+  issuePoller: ResolvedIssuePollerConfig;
+  specPoller: ResolvedSpecPollerConfig;
+  agents: ResolvedAgentsConfig;
 };

@@ -13,16 +13,36 @@ type TreeEntry = {
   type: 'blob' | 'tree';
 };
 
+type MockGetTreeParams = {
+  tree_sha: string;
+  recursive?: string;
+};
+
+type MockGetTreeResult = {
+  data: { sha: string; tree: TreeEntry[] };
+};
+
+type MockGetContentParams = {
+  path: string;
+  ref?: string;
+};
+
+type MockGetContentResult = {
+  data: { content?: string };
+};
+
+type MockGetRefParams = {
+  ref: string;
+};
+
+type MockGetRefResult = {
+  data: { object: { sha: string } };
+};
+
 type MockHandlers = {
-  getTree: (params: { tree_sha: string; recursive?: string }) => {
-    data: { sha: string; tree: TreeEntry[] };
-  };
-  getContent: (params: { path: string; ref?: string }) => {
-    data: { content?: string };
-  };
-  getRef: (params: { ref: string }) => {
-    data: { object: { sha: string } };
-  };
+  getTree: (params: MockGetTreeParams) => MockGetTreeResult;
+  getContent: (params: MockGetContentParams) => MockGetContentResult;
+  getRef: (params: MockGetRefParams) => MockGetRefResult;
 };
 
 function buildMockClient(handlers: Partial<MockHandlers> = {}): GitHubClient {

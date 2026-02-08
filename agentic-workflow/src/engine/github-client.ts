@@ -51,12 +51,16 @@ export type PullsGetParams = {
   pull_number: number;
 };
 
+export type PullHeadRef = {
+  sha: string;
+};
+
 export type PullData = {
   number: number;
   title: string;
   changed_files: number;
   html_url: string;
-  head: { sha: string };
+  head: PullHeadRef;
 };
 
 export type PullsGetResult = {
@@ -89,8 +93,12 @@ export type ReposGetContentParams = {
   ref: string;
 };
 
+export type ReposContentData = {
+  content?: string;
+};
+
 export type ReposGetContentResult = {
-  data: { content?: string };
+  data: ReposContentData;
 };
 
 // ---------------------------------------------------------------------------
@@ -108,11 +116,13 @@ export type CheckRun = {
   conclusion: string | null;
 };
 
+export type ChecksListForRefData = {
+  total_count: number;
+  check_runs: CheckRun[];
+};
+
 export type ChecksListForRefResult = {
-  data: {
-    total_count: number;
-    check_runs: CheckRun[];
-  };
+  data: ChecksListForRefData;
 };
 
 // ---------------------------------------------------------------------------
@@ -132,11 +142,13 @@ export type TreeEntry = {
   type?: string;
 };
 
+export type GitTreeData = {
+  sha: string;
+  tree: TreeEntry[];
+};
+
 export type GitGetTreeResult = {
-  data: {
-    sha: string;
-    tree: TreeEntry[];
-  };
+  data: GitTreeData;
 };
 
 export type GitGetRefParams = {
@@ -145,10 +157,16 @@ export type GitGetRefParams = {
   ref: string;
 };
 
+export type GitRefObject = {
+  sha: string;
+};
+
+export type GitRefData = {
+  object: GitRefObject;
+};
+
 export type GitGetRefResult = {
-  data: {
-    object: { sha: string };
-  };
+  data: GitRefData;
 };
 
 // ---------------------------------------------------------------------------

@@ -51,21 +51,18 @@ export async function getPRForIssue(
       ref: prDetail.head.sha,
     });
 
-    if (checkRuns.total_count > 0) {
-      const allCompleted = checkRuns.check_runs.every((run) => run.status === 'completed');
-      const allSuccess =
-        allCompleted &&
-        checkRuns.check_runs.every(
-          (run) => run.conclusion === 'success' || run.conclusion === 'skipped',
-        );
-
-      if (!allCompleted) {
-        ciStatus = 'pending';
-      } else if (allSuccess) {
-        ciStatus = 'success';
-      } else {
-        ciStatus = 'failure';
-      }
+    if (checkRuns.total_count === 0) {
+      // No check runs — keep ciStatus from combined status above
+    } else if (!checkRuns.check_runs.every((run) => run.status === 'completed')) {
+      ciStatus = 'pending';
+    } else if (
+      checkRuns.check_runs.every(
+        (run) => run.conclusion === 'success' || run.conclusion === 'skipped',
+      )
+    ) {
+      ciStatus = 'success';
+    } else {
+      ciStatus = 'failure';
     }
   } catch {
     // If CI status check fails, default to pending
