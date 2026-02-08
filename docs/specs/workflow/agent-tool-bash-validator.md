@@ -167,23 +167,11 @@ The `permissionMode: bypassPermissions` setting allows the agent to operate auto
 
 ### Test Suite
 
-The validator has a [BATS](https://github.com/bats-core/bats-core) test suite at `scripts/workflow/validate-bash.test.sh`. The test file exercises every acceptance criterion in this spec.
+The validator has a BATS test suite at `scripts/workflow/validate-bash.test.sh`. The test file exercises every acceptance criterion in this spec. See [Bash Testing](../repo/bash-testing.md) for BATS installation and test runner details.
 
-#### BATS Installation
+The test file defines a `run_validator` helper function that constructs the JSON envelope expected by the hook contract and pipes it to the validator on stdin. The helper accepts a raw command string, wraps it in `{"tool_name":"Bash","tool_input":{"command":"<command>"}}` using `jq --arg` for safe JSON encoding (handles quotes, backslashes, newlines), and invokes the validator. Tests assert against `$status` (exit code) and `$output` (combined stdout/stderr captured by BATS `run`). This is sufficient for verifying error message content because the validator writes nothing to stdout — all block messages go to stderr, and allowed commands produce no output at all.
 
-BATS is installed as a devDependency in the root workspace (`bats` npm package, pinned exact version). A root `package.json` script provides the entry point: `"test:sh": "bats scripts/**/*.test.sh"`. Tests are executed via `yarn test:sh`.
-
-#### Test Helper
-
-The test file defines a `run_validator` helper function that constructs the JSON envelope expected by the hook contract and pipes it to the validator on stdin. The helper accepts a raw command string, wraps it in `{"tool_name":"Bash","tool_input":{"command":"<command>"}}` using `jq --arg` for safe JSON encoding (handles quotes, backslashes, newlines), and invokes the validator. Tests assert against `$status` (exit code) and `$output` (combined stdout/stderr captured by BATS `run`).
-
-BATS `run` merges stdout and stderr into `$output`. This is sufficient for verifying error message content because the validator writes nothing to stdout — all block messages go to stderr, and allowed commands produce no output at all.
-
-#### Test Coverage
-
-Each acceptance criterion in this spec maps to one or more `@test` blocks. Test names follow the project's natural-language naming convention — each reads as a behavioral sentence starting with "it" (e.g., `@test "it blocks commands that hard-reset the repository"`). Tests are grouped by comment headers matching the acceptance criteria categories: Blocklist, Allowlist, Command Segmentation, Quoted String Handling, Evaluation Order, Empty Command, Error Messages, and Script Errors.
-
-The "Script Errors" tests that verify behavior when `jq` is unavailable must simulate the missing binary by temporarily overriding `PATH` to exclude `jq` within the test.
+Each acceptance criterion maps to one or more `@test` blocks. Tests are grouped by comment headers matching the acceptance criteria categories. The "Script Errors" tests that verify behavior when `jq` is unavailable simulate the missing binary by temporarily overriding `PATH` to exclude `jq` within the test.
 
 ## Acceptance Criteria
 
@@ -250,11 +238,10 @@ The "Script Errors" tests that verify behavior when `jq` is unavailable must sim
 - **awk**: Quote-aware command segmentation and first-word extraction from command segments.
 - **jq**: Extracts `tool_input.command` from the JSON input on stdin.
 - **Claude Code PreToolUse hooks**: The hook mechanism that invokes this script before each Bash tool call. See [Claude Code sub-agents documentation](https://code.claude.com/docs/en/sub-agents).
-- **bats** (npm): [BATS-core](https://github.com/bats-core/bats-core) test framework for Bash. Installed as a root workspace devDependency. Used to run the validator's test suite.
+- [Bash Testing](../repo/bash-testing.md): BATS installation, test runner, and CI integration.
 
 ## References
 
 - [Claude Code sub-agents: hooks and permission modes](https://code.claude.com/docs/en/sub-agents)
 - [Claude Code hooks: PreToolUse event](https://code.claude.com/docs/en/hooks)
 - Agent definitions: `.claude/agents/implementor.md`, `.claude/agents/planner.md`, `.claude/agents/reviewer.md`
-- [BATS-core](https://github.com/bats-core/bats-core) — Bash Automated Testing System
