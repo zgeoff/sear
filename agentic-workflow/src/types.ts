@@ -196,6 +196,11 @@ export type AgentsConfig = {
   maxAgentDuration?: number; // seconds, default: 1800
 };
 
+export type LoggingConfig = {
+  agentSessions?: boolean; // default: false
+  logsDir?: string; // default: 'logs'
+};
+
 export type EngineConfig = {
   repository: string; // owner/repo format
   githubAppID: number;
@@ -206,6 +211,7 @@ export type EngineConfig = {
   issuePoller?: IssuePollerConfig;
   specPoller?: SpecPollerConfig;
   agents?: AgentsConfig;
+  logging?: LoggingConfig;
 };
 
 // ---------------------------------------------------------------------------

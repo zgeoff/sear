@@ -18,6 +18,10 @@ const DEFAULTS = {
     agentReviewer: 'reviewer',
     maxAgentDuration: 1800,
   },
+  logging: {
+    agentSessions: false,
+    logsDir: 'logs',
+  },
 };
 
 export function buildResolvedConfig(config: EngineConfig): ResolvedEngineConfig {
@@ -41,6 +45,10 @@ export function buildResolvedConfig(config: EngineConfig): ResolvedEngineConfig 
       agentImplementor: config.agents?.agentImplementor ?? DEFAULTS.agents.agentImplementor,
       agentReviewer: config.agents?.agentReviewer ?? DEFAULTS.agents.agentReviewer,
       maxAgentDuration: config.agents?.maxAgentDuration ?? DEFAULTS.agents.maxAgentDuration,
+    },
+    logging: {
+      agentSessions: config.logging?.agentSessions ?? DEFAULTS.logging.agentSessions,
+      logsDir: config.logging?.logsDir ?? DEFAULTS.logging.logsDir,
     },
   };
 }

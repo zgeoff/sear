@@ -16,6 +16,8 @@ test('it applies all default values when optional fields are omitted', () => {
   expect(resolved.agents.agentImplementor).toBe('implementor');
   expect(resolved.agents.agentReviewer).toBe('reviewer');
   expect(resolved.agents.maxAgentDuration).toBe(1800);
+  expect(resolved.logging.agentSessions).toBe(false);
+  expect(resolved.logging.logsDir).toBe('logs');
 });
 
 test('it preserves required fields in the resolved config', () => {
@@ -44,6 +46,10 @@ test('it uses provided optional values instead of defaults', () => {
       agentReviewer: 'custom-reviewer',
       maxAgentDuration: 3600,
     },
+    logging: {
+      agentSessions: true,
+      logsDir: '/custom/path',
+    },
   });
   const resolved = buildResolvedConfig(config);
 
@@ -57,6 +63,8 @@ test('it uses provided optional values instead of defaults', () => {
   expect(resolved.agents.agentImplementor).toBe('custom-implementor');
   expect(resolved.agents.agentReviewer).toBe('custom-reviewer');
   expect(resolved.agents.maxAgentDuration).toBe(3600);
+  expect(resolved.logging.agentSessions).toBe(true);
+  expect(resolved.logging.logsDir).toBe('/custom/path');
 });
 
 test('it fills in missing defaults for partially provided nested objects', () => {
@@ -68,4 +76,14 @@ test('it fills in missing defaults for partially provided nested objects', () =>
   expect(resolved.specPoller.pollInterval).toBe(120);
   expect(resolved.specPoller.specsDir).toBe('docs/specs/');
   expect(resolved.specPoller.defaultBranch).toBe('main');
+});
+
+test('it fills in missing logging defaults when only some logging fields are provided', () => {
+  const config = buildValidConfig({
+    logging: { agentSessions: true },
+  });
+  const resolved = buildResolvedConfig(config);
+
+  expect(resolved.logging.agentSessions).toBe(true);
+  expect(resolved.logging.logsDir).toBe('logs');
 });
