@@ -36,6 +36,7 @@ export type AgentCompletedEvent = {
   issueNumber?: number;
   specPaths?: string[];
   sessionID: string;
+  logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
 export type AgentFailedEvent = {
@@ -46,6 +47,7 @@ export type AgentFailedEvent = {
   error: string;
   sessionID: string;
   worktreePath?: string; // present for Implementor
+  logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
 export type AgentSkippedEvent = {

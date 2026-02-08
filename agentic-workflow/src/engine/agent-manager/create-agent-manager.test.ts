@@ -1,5 +1,6 @@
+import { fs, vol } from 'memfs';
 import { expect, test, vi } from 'vitest';
-import type { EngineEvent } from '../../types';
+import type { AgentCompletedEvent, AgentFailedEvent, EngineEvent } from '../../types';
 import { createEventEmitter } from '../event-emitter/create-event-emitter';
 import type { WorktreeManager } from '../worktree-manager/types';
 import { createAgentManager } from './create-agent-manager';
@@ -101,7 +102,13 @@ type SetupContext = {
   queryParams: QueryFactoryParams[];
 };
 
-function setupTest(overrides?: Partial<{ maxAgentDuration: number }>): SetupContext {
+type SetupOverrides = {
+  maxAgentDuration?: number;
+  loggingEnabled?: boolean;
+  logsDir?: string;
+};
+
+function setupTest(overrides?: SetupOverrides): SetupContext {
   const emitter = createEventEmitter();
   const worktreeManager = createMockWorktreeManager();
   const events: EngineEvent[] = [];
@@ -126,6 +133,9 @@ function setupTest(overrides?: Partial<{ maxAgentDuration: number }>): SetupCont
     agentReviewer: 'reviewer',
     maxAgentDuration: overrides?.maxAgentDuration ?? 1800,
     queryFactory,
+    loggingEnabled: overrides?.loggingEnabled ?? false,
+    logsDir: overrides?.logsDir ?? '/tmp/logs',
+    logError: () => {},
   });
 
   return { manager, emitter, worktreeManager, events, mockQueries, queryParams };
@@ -879,4 +889,388 @@ test('it allows dispatching a new implementor after the previous one completes',
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
   expect(ctx.manager.isRunning(42)).toBe(true);
   expect(ctx.mockQueries).toHaveLength(2);
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — setup helper
+// ---------------------------------------------------------------------------
+
+function setupLoggingTest(overrides?: Partial<SetupOverrides>): SetupContext {
+  vol.reset();
+  return setupTest({
+    loggingEnabled: true,
+    logsDir: '/test-logs',
+    ...overrides,
+  });
+}
+
+function readLogFiles(): string[] {
+  try {
+    const dir = vol.readdirSync('/test-logs') as string[];
+    return dir.filter((f) => f.endsWith('.log')).sort();
+  } catch {
+    return [];
+  }
+}
+
+function readLogContent(fileName: string): string {
+  return vol.readFileSync(`/test-logs/${fileName}`, 'utf-8') as string;
+}
+
+// ---------------------------------------------------------------------------
+// Session logging — log file creation
+// ---------------------------------------------------------------------------
+
+test('it creates a log file with session header when logging is enabled and an init message is received', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-abc'));
+  await drain();
+
+  const files = readLogFiles();
+  expect(files).toHaveLength(1);
+  expect(files[0]).toMatch(/^\d+-implementor-42\.log$/);
+
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('=== Agent Session ===');
+  expect(content).toContain('Type:       implementor');
+  expect(content).toContain('Session ID: session-abc');
+  expect(content).toContain('Issue:      #42');
+  expect(content).toContain('=== Messages ===');
+  expect(content).toContain('SYSTEM init');
+});
+
+test('it names planner log files without a context suffix', async () => {
+  const ctx = setupLoggingTest();
+
+  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
+  await drain();
+
+  const files = readLogFiles();
+  expect(files).toHaveLength(1);
+  expect(files[0]).toMatch(/^\d+-planner\.log$/);
+
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('Spec Paths: docs/specs/a.md');
+});
+
+test('it does not create a log file when logging is disabled', async () => {
+  const ctx = setupTest({ loggingEnabled: false, logsDir: '/test-logs' });
+  vol.reset();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-abc'));
+  await drain();
+
+  const files = readLogFiles();
+  expect(files).toHaveLength(0);
+});
+
+test('it creates the logs directory automatically when it does not exist', async () => {
+  vol.reset();
+  const ctx = setupTest({ loggingEnabled: true, logsDir: '/new-logs-dir' });
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-abc'));
+  await drain();
+
+  const dir = vol.readdirSync('/new-logs-dir') as string[];
+  expect(dir.length).toBeGreaterThan(0);
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — message formatting
+// ---------------------------------------------------------------------------
+
+test('it appends formatted assistant text messages to the log file', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Let me read the spec.'));
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toMatch(/\[\d{2}:\d{2}:\d{2}\] ASSISTANT\n {2}Let me read the spec\./);
+});
+
+test('it logs tool use blocks with only the tool name', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage({
+    type: 'assistant' as const,
+    uuid: '00000000-0000-0000-0000-000000000002',
+    session_id: 'test-session',
+    message: {
+      content: [
+        { type: 'tool_use' as const, id: 'tool-1', name: 'Read', input: { file: '/foo.ts' } },
+      ],
+    },
+    parent_tool_use_id: null,
+  });
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('[tool_use] Read');
+  expect(content).not.toContain('/foo.ts');
+});
+
+test('it logs unknown message types with raw JSON', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  const userMessage = { type: 'user', content: 'hello' };
+  ctx.mockQueries[0]!.pushMessage(userMessage);
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toMatch(/\[\d{2}:\d{2}:\d{2}\] UNKNOWN user/);
+  expect(content).toContain(JSON.stringify(userMessage));
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — footer and logFilePath in events
+// ---------------------------------------------------------------------------
+
+test('it writes a completed footer and includes logFilePath in the completed event', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]!.end();
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('=== Session End ===');
+  expect(content).toContain('Outcome:  completed');
+  expect(content).toContain('Finished:');
+
+  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
+  expect(completed.logFilePath).toBe(`/test-logs/${files[0]}`);
+});
+
+test('it writes a failed footer and includes logFilePath in the failed event', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildErrorResult());
+  ctx.mockQueries[0]!.end();
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('Outcome:  failed');
+
+  const failed = ctx.events.find((e) => e.type === 'agentFailed') as AgentFailedEvent;
+  expect(failed.logFilePath).toBe(`/test-logs/${files[0]}`);
+});
+
+test('it writes a cancelled footer when an agent session is cancelled', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.manager.cancelAgent(42);
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('Outcome:  cancelled');
+
+  const failed = ctx.events.find((e) => e.type === 'agentFailed') as AgentFailedEvent;
+  expect(failed.logFilePath).toBe(`/test-logs/${files[0]}`);
+});
+
+test('it does not include logFilePath in events when logging is disabled', async () => {
+  vol.reset();
+  const ctx = setupTest({ loggingEnabled: false });
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]!.end();
+  await drain();
+
+  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
+  expect(completed).not.toHaveProperty('logFilePath');
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — result message formatting
+// ---------------------------------------------------------------------------
+
+test('it logs result message metadata in the log file', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]!.end();
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('RESULT success');
+  expect(content).toContain('Duration: 1.0s');
+  expect(content).toContain('Cost:     $0.01');
+  expect(content).toContain('Turns:    5');
+  expect(content).toContain('Tokens:   100 in / 200 out');
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — concurrent sessions
+// ---------------------------------------------------------------------------
+
+test('it writes to independent log files when two agents run concurrently', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 1 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-a'));
+  await drain();
+
+  ctx.manager.dispatchReviewer({ issueNumber: 2 });
+  ctx.mockQueries[1]!.pushMessage(buildInitMessage('session-b'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Output from agent 1'));
+  ctx.mockQueries[1]!.pushMessage(buildAssistantMessage('Output from agent 2'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[1]!.pushMessage(buildSuccessResult());
+  ctx.mockQueries[1]!.end();
+  await drain();
+
+  const files = readLogFiles();
+  expect(files).toHaveLength(2);
+
+  const content1 = readLogContent(files.find((f) => f.includes('-1.log'))!);
+  const content2 = readLogContent(files.find((f) => f.includes('-2.log'))!);
+
+  expect(content1).toContain('Output from agent 1');
+  expect(content1).not.toContain('Output from agent 2');
+  expect(content2).toContain('Output from agent 2');
+  expect(content2).not.toContain('Output from agent 1');
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — error handling
+// ---------------------------------------------------------------------------
+
+test('it continues the agent session when the log file cannot be created', async () => {
+  vol.reset();
+  // Make the logs dir path a file so mkdir fails
+  vol.mkdirSync('/bad-path', { recursive: true });
+  vol.writeFileSync('/bad-path/logs', 'blocker');
+
+  const ctx = setupTest({ loggingEnabled: true, logsDir: '/bad-path/logs' });
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]!.end();
+  await drain();
+
+  // Agent should still complete normally
+  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
+  expect(completed).toBeDefined();
+  expect(completed).not.toHaveProperty('logFilePath');
+});
+
+test('it includes logFilePath pointing to the partial file when a write fails mid-session', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  // Find the log file and make it read-only to cause write failures
+  const files = readLogFiles();
+  const logPath = `/test-logs/${files[0]}`;
+
+  // Remove the file and replace the directory with something that blocks writes
+  const originalContent = vol.readFileSync(logPath, 'utf-8');
+  vol.unlinkSync(logPath);
+  // Re-create as a directory to cause appendFile to fail
+  vol.mkdirSync(logPath, { recursive: true });
+
+  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('This write will fail'));
+  await drain();
+
+  // The logger should now be disabled, but agent continues
+  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]!.end();
+  await drain();
+
+  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
+  expect(completed).toBeDefined();
+  // logFilePath should still point to the partial file path even though it's now a directory
+  expect(completed.logFilePath).toBe(logPath);
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — reviewer log file naming
+// ---------------------------------------------------------------------------
+
+test('it names reviewer log files with the issue number as context', async () => {
+  const ctx = setupLoggingTest();
+
+  ctx.manager.dispatchReviewer({ issueNumber: 7 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-r'));
+  await drain();
+
+  const files = readLogFiles();
+  expect(files).toHaveLength(1);
+  expect(files[0]).toMatch(/^\d+-reviewer-7\.log$/);
+
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('Type:       reviewer');
+  expect(content).toContain('Issue:      #7');
+});
+
+// ---------------------------------------------------------------------------
+// Session logging — init message details
+// ---------------------------------------------------------------------------
+
+test('it logs model, working directory, and tools from the init message', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  await drain();
+
+  const files = readLogFiles();
+  const content = readLogContent(files[0]!);
+  expect(content).toContain('Model: claude-opus-4-6');
+  expect(content).toContain('CWD: /repo');
 });
