@@ -388,11 +388,53 @@ engine/pollers/parse-frontmatter-status.ts
 engine/pollers/parse-frontmatter-status.test.ts
 ```
 
+### Module types
+
+Each module directory has a `types.ts` file that contains the module's exported type definitions — the public API contract for that module. This keeps types discoverable and separates interface from implementation.
+
+**Goes in `types.ts`:**
+- All exported types (interfaces, type aliases, discriminated unions)
+- Configuration/dependency types (`*Config`, `*Deps`, `*Params`)
+- Return/result types (`*Result`, the module's main interface type)
+- Types shared across multiple files in the same directory
+
+**Stays in the implementation file:**
+- Unexported types used only within that file (internal state, helper types)
+- Constants derived from types (e.g., default values, empty results)
+
+```ts
+// recovery/types.ts — the module's public API types
+export type RecoveryConfig = { octokit: GitHubClient; owner: string; repo: string };
+export type StartupRecoveryResult = { snapshot: IssuePollerSnapshot };
+export type Recovery = {
+  performStartupRecovery(): Promise<StartupRecoveryResult>;
+  performCrashRecovery(params: CrashRecoveryParams): Promise<void>;
+};
+
+// recovery/create-recovery.ts — imports types, keeps internals private
+import type { RecoveryConfig, Recovery } from './types.js';
+
+// Internal-only type — fine to keep here, not exported
+type SnapshotCache = Map<number, IssueSnapshotEntry>;
+
+export function createRecovery(config: RecoveryConfig): Recovery { ... }
+```
+
+When a file contains **only type definitions** and no runtime code, it should be a `types.ts` inside a module directory — not a standalone file in a parent directory:
+
+```
+// Wrong — standalone types-only file in parent directory
+engine/github-client.ts  (contains only type definitions)
+
+// Correct — types in a module directory
+engine/github-client/types.ts
+```
+
 ### Function ordering within a file
 
 The primary export comes **first** in the file. Unexported helpers follow below it, ordered from highest-level to lowest-level. This is a strict rule — never define helpers above the primary export.
 
-Types and constants that configure the primary export may appear before it.
+Unexported types and constants that configure the primary export may appear before it.
 
 ```ts
 // create-spec-poller.ts
