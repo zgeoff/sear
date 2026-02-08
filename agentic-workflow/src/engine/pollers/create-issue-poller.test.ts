@@ -96,7 +96,7 @@ test('it emits issueStatusChanged with oldStatus null for each issue on the firs
     issueNumber: 1,
     title: 'First task',
     oldStatus: null,
-    newStatus: 'status:pending',
+    newStatus: 'pending',
     priorityLabel: 'priority:medium',
     createdAt: '2026-02-01T00:00:00Z',
   });
@@ -106,7 +106,7 @@ test('it emits issueStatusChanged with oldStatus null for each issue on the firs
     issueNumber: 2,
     title: 'Second task',
     oldStatus: null,
-    newStatus: 'status:review',
+    newStatus: 'review',
     priorityLabel: 'priority:high',
     createdAt: '2026-02-01T00:00:00Z',
   });
@@ -146,8 +146,8 @@ test('it emits issueStatusChanged when the status label changes between polls', 
   expect(changed[0]).toEqual(
     expect.objectContaining({
       issueNumber: 1,
-      oldStatus: 'status:pending',
-      newStatus: 'status:in-progress',
+      oldStatus: 'pending',
+      newStatus: 'in-progress',
     }),
   );
 });
@@ -306,7 +306,7 @@ test('it stores issue number, title, status label, priority label, and creation 
   expect(snap).toEqual({
     issueNumber: 42,
     title: 'Implement feature X',
-    statusLabel: 'status:pending',
+    statusLabel: 'pending',
     priorityLabel: 'priority:high',
     createdAt: '2026-01-15T10:30:00Z',
   });
@@ -336,7 +336,7 @@ test('it includes issue number, title, old status, new status, priority label, a
     issueNumber: 7,
     title: 'Important task',
     oldStatus: null,
-    newStatus: 'status:review',
+    newStatus: 'review',
     priorityLabel: 'priority:high',
     createdAt: '2026-02-05T12:00:00Z',
   });
@@ -395,7 +395,7 @@ test('it extracts labels correctly when they are plain strings', async () => {
   await poller.poll();
 
   const changed = statusChangedEvents(events);
-  expect(changed[0]?.newStatus).toBe('status:blocked');
+  expect(changed[0]?.newStatus).toBe('blocked');
   expect(poller.getSnapshot().get(1)?.priorityLabel).toBe('priority:low');
 });
 

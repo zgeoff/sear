@@ -51,7 +51,7 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
       for (const issue of response.data) {
         currentIssueNumbers.add(issue.number);
 
-        const statusLabel = extractLabel(issue.labels, 'status:');
+        const statusLabel = extractLabelValue(issue.labels, 'status:');
         const priorityLabel = extractLabel(issue.labels, 'priority:');
 
         const existing = snapshot.get(issue.number);
@@ -138,10 +138,18 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function extractLabelValue(labels: (string | { name?: string })[], prefix: string): string {
+  for (const label of labels) {
+    const name = typeof label === 'string' ? label : label.name;
+    if (name?.startsWith(prefix)) return name.slice(prefix.length);
+  }
+  return '';
+}
+
 function extractLabel(labels: (string | { name?: string })[], prefix: string): string {
   for (const label of labels) {
     const name = typeof label === 'string' ? label : label.name;
-    if (name && name.startsWith(prefix)) return name;
+    if (name?.startsWith(prefix)) return name;
   }
   return '';
 }
