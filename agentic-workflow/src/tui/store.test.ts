@@ -9,6 +9,13 @@ import type {
 } from '../types';
 import { createEngineStore, selectRunningAgentCount } from './store';
 import { createMockEngine } from './test-utils/create-mock-engine';
+import type {
+  AgentCompletedNotification,
+  AgentStartedNotification,
+  EngineEventNotification,
+  IssueStatusChangedNotification,
+  SpecChangedNotification,
+} from './types';
 
 function setupTest() {
   const { engine, emit, sentCommands } = createMockEngine();
@@ -30,6 +37,18 @@ function buildIssueStatusChanged(
     ...overrides,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Repository parsing
+// ---------------------------------------------------------------------------
+
+test('it parses the repository string into owner and repo at initialization', () => {
+  const { store } = setupTest();
+
+  const repo = store.getState().repository;
+  expect(repo.owner).toBe('owner');
+  expect(repo.repo).toBe('repo');
+});
 
 // ---------------------------------------------------------------------------
 // issueStatusChanged
@@ -134,7 +153,7 @@ test('it marks cached issue and PR details as stale when an issue status changes
   expect(store.getState().prDetails.get(1)?.stale).toBe(true);
 });
 
-test('it creates a notification when an issue status changes', () => {
+test('it creates a typed notification with old and new status when an issue status changes', () => {
   const { store, emit } = setupTest();
 
   emit(
@@ -147,9 +166,23 @@ test('it creates a notification when an issue status changes', () => {
 
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]?.summary).toBe('Issue #3 status changed from pending to in-progress');
-  expect(notifications[0]?.eventType).toBe('issueStatusChanged');
-  expect(notifications[0]?.issueNumber).toBe(3);
+
+  const notif = notifications[0] as IssueStatusChangedNotification;
+  expect(notif.eventType).toBe('issueStatusChanged');
+  expect(notif.issueNumber).toBe(3);
+  expect(notif.oldStatus).toBe('pending');
+  expect(notif.newStatus).toBe('in-progress');
+  expect(notif.summary).toBe('#3: pending → in-progress');
+});
+
+test('it renders the old status as none when an issue is first detected', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, oldStatus: null, newStatus: 'pending' }));
+
+  const notif = store.getState().notifications[0] as IssueStatusChangedNotification;
+  expect(notif.oldStatus).toBeNull();
+  expect(notif.summary).toBe('#1: none → pending');
 });
 
 // ---------------------------------------------------------------------------
@@ -195,7 +228,7 @@ test('it resets the stream buffer and subscribes to a new stream when an agent s
   expect(engine.getAgentStream).toHaveBeenCalledWith(1);
 });
 
-test('it flags the planner as running and does not subscribe to a stream when the planner starts', () => {
+test('it flags the planner as running and derives the spec count when the planner starts', () => {
   const { store, emit, engine } = setupTest();
 
   const event: AgentStartedEvent = {
@@ -211,7 +244,28 @@ test('it flags the planner as running and does not subscribe to a stream when th
 
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]?.summary).toBe('Planner started for docs/specs/workflow.md');
+
+  const notif = notifications[0] as AgentStartedNotification;
+  expect(notif.eventType).toBe('agentStarted');
+  expect(notif.agentType).toBe('planner');
+  expect(notif.specCount).toBe(1);
+  expect(notif.summary).toBe('Planner started for 1 specs');
+});
+
+test('it derives the correct spec count from multiple spec paths when the planner starts', () => {
+  const { store, emit } = setupTest();
+
+  const event: AgentStartedEvent = {
+    type: 'agentStarted',
+    agentType: 'planner',
+    specPaths: ['docs/specs/a.md', 'docs/specs/b.md', 'docs/specs/c.md'],
+    sessionID: 'sess-plan-2',
+  };
+  emit(event);
+
+  const notif = store.getState().notifications[0] as AgentStartedNotification;
+  expect(notif.specCount).toBe(3);
+  expect(notif.summary).toBe('Planner started for 3 specs');
 });
 
 // ---------------------------------------------------------------------------
@@ -239,8 +293,10 @@ test('it flags the agent as stopped and notifies when an implementor completes',
   expect(store.getState().issues.get(1)?.agentRunning).toBe(false);
 
   const notifications = store.getState().notifications;
-  const lastNotif = notifications[notifications.length - 1];
-  expect(lastNotif?.summary).toBe('Implementor completed for issue #1');
+  const lastNotif = notifications[notifications.length - 1] as AgentCompletedNotification;
+  expect(lastNotif.summary).toBe('Implementor completed for #1');
+  expect(lastNotif.agentType).toBe('implementor');
+  expect(lastNotif.issueNumber).toBe(1);
 });
 
 test('it resolves the PR link on the notification when an implementor completes', async () => {
@@ -266,7 +322,7 @@ test('it resolves the PR link on the notification when an implementor completes'
   await vi.waitFor(() => {
     const notifications = store.getState().notifications;
     const completedNotif = notifications.find(
-      (n) => n.eventType === 'agentCompleted' && n.issueNumber === 1,
+      (n) => n.eventType === 'agentCompleted' && 'issueNumber' in n && n.issueNumber === 1,
     );
     expect(completedNotif?.contextURL).toBe('https://github.com/owner/repo/pull/10');
   });
@@ -475,7 +531,11 @@ test('it notifies with a PR link when an issue is approved', async () => {
 
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]?.summary).toBe('Issue #5 approved — ready to merge');
+
+  const notif = notifications[0] as EngineEventNotification;
+  expect(notif.summary).toBe('#5 approved — ready to merge');
+  expect(notif.notificationType).toBe('approved');
+  expect(notif.issueNumber).toBe(5);
 
   expect(engine.getPRForIssue).toHaveBeenCalledWith(5);
 
@@ -498,9 +558,11 @@ test('it includes a clipboard command in the notification when an issue needs re
   };
   emit(event);
 
-  const notif = store.getState().notifications[0];
-  expect(notif?.summary).toBe('Issue #3 needs spec refinement — Amend the spec');
-  expect(notif?.clipboardCommand).toBe('claude -p "fix the spec"');
+  const notif = store.getState().notifications[0] as EngineEventNotification;
+  expect(notif.summary).toBe('#3 needs refinement — Amend the spec');
+  expect(notif.notificationType).toBe('needs-refinement');
+  expect(notif.resolutionGuidance).toBe('Amend the spec');
+  expect(notif.clipboardCommand).toBe('claude -p "fix the spec"');
 });
 
 test('it notifies with guidance text when an issue is blocked', () => {
@@ -515,9 +577,9 @@ test('it notifies with guidance text when an issue is blocked', () => {
   };
   emit(event);
 
-  expect(store.getState().notifications[0]?.summary).toBe(
-    'Issue #4 blocked — Waiting on dependency',
-  );
+  const notif = store.getState().notifications[0] as EngineEventNotification;
+  expect(notif.summary).toBe('#4 blocked — Waiting on dependency');
+  expect(notif.notificationType).toBe('blocked');
 });
 
 // ---------------------------------------------------------------------------
@@ -537,7 +599,7 @@ test('it notifies without altering the issue when an agent dispatch is skipped',
 
   const notifications = store.getState().notifications;
   const skipNotif = notifications.find((n) => n.eventType === 'agentSkipped');
-  expect(skipNotif?.summary).toBe('Implementor skipped for issue #1 — already running');
+  expect(skipNotif?.summary).toBe('Implementor skipped for #1');
 });
 
 test('it notifies without altering the issue when an issue becomes ready for dispatch', () => {
@@ -553,7 +615,7 @@ test('it notifies without altering the issue when an issue becomes ready for dis
 
   const notifications = store.getState().notifications;
   const readyNotif = notifications.find((n) => n.eventType === 'dispatchReady');
-  expect(readyNotif?.summary).toBe('Issue #1 ready for dispatch');
+  expect(readyNotif?.summary).toBe('#1 ready for dispatch');
 });
 
 test('it records a notification when a prior notification is dismissed', () => {
@@ -563,7 +625,7 @@ test('it records a notification when a prior notification is dismissed', () => {
 
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]?.summary).toBe('Issue #3 notification dismissed');
+  expect(notifications[0]?.summary).toBe('#3 dismissed');
 });
 
 test('it notifies when an issue is recovered from a stale status', () => {
@@ -578,10 +640,10 @@ test('it notifies when an issue is recovered from a stale status', () => {
 
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]?.summary).toBe('Issue #7 recovered from stale in-progress');
+  expect(notifications[0]?.summary).toBe('#7 recovered from stale');
 });
 
-test('it notifies with a commit link when a spec file changes', () => {
+test('it notifies with filename only and a commit link when a spec file changes', () => {
   const { store, emit } = setupTest();
 
   emit({
@@ -593,8 +655,12 @@ test('it notifies with a commit link when a spec file changes', () => {
 
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]?.summary).toBe('Spec changed: docs/specs/workflow.md');
-  expect(notifications[0]?.contextURL).toBe('https://github.com/owner/repo/commit/abc123def');
+
+  const notif = notifications[0] as SpecChangedNotification;
+  expect(notif.eventType).toBe('specChanged');
+  expect(notif.specFileName).toBe('workflow.md');
+  expect(notif.summary).toBe('Spec changed: workflow.md');
+  expect(notif.contextURL).toBe('https://github.com/owner/repo/commit/abc123def');
 });
 
 // ---------------------------------------------------------------------------

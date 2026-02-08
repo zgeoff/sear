@@ -93,5 +93,6 @@ function getEventIndicator(eventType: string): string {
     .with('dispatchReady', () => '[+]')
     .with('recoveryPerformed', () => '[r]')
     .with('issueRemoved', () => '[d]')
+    .with('startup', () => '[v]')
     .otherwise(() => '---');
 }
