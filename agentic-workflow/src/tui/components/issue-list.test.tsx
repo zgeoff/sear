@@ -78,15 +78,17 @@ function setupTest(config?: SetupTestConfig) {
   return { ...instance, store, emit, sentCommands, onOpenURL, engine };
 }
 
+type AddIssueOverrides = {
+  title?: string;
+  status?: string;
+  priority?: string;
+  createdAt?: string;
+};
+
 function addIssue(
   emit: (event: EngineEvent) => void,
   issueNumber: number,
-  overrides?: {
-    title?: string;
-    status?: string;
-    priority?: string;
-    createdAt?: string;
-  },
+  overrides?: AddIssueOverrides,
 ) {
   emit({
     type: 'issueStatusChanged',
