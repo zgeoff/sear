@@ -524,6 +524,29 @@ type GitHubClient = {
 };
 ```
 
+### No parameter destructuring
+
+Never destructure object parameters in function signatures. Access properties from the named parameter instead. The only acceptable use of destructuring is in a standalone assignment to leverage spread syntax for property omission or selection.
+
+```ts
+// Wrong — destructuring in the function signature
+function SomeComponent({ children }: SomeComponentProps) { ... }
+function createPoller({ interval, octokit }: PollerConfig) { ... }
+
+// Correct — named parameter, access properties directly
+function SomeComponent(props: SomeComponentProps) {
+  return <div>{props.children}</div>;
+}
+
+function createPoller(config: PollerConfig) {
+  const timer = setInterval(config.interval);
+}
+
+// Acceptable — destructuring for spread/omission in an assignment
+const { children, ...rest } = props;
+const { secret, ...safeConfig } = config;
+```
+
 ### Flat control flow
 
 Avoid nested `if` statements. Flatten with guard clauses, early returns, or sequential conditions. Each level of nesting makes code harder to follow.
