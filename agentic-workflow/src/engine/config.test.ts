@@ -20,12 +20,12 @@ function buildValidConfig(overrides?: Partial<EngineConfig>): EngineConfig {
 // validateConfig
 // ---------------------------------------------------------------------------
 
-test('validateConfig accepts a config with all required fields', () => {
+test('it accepts a valid config with all required fields', () => {
   const config = buildValidConfig();
   expect(() => validateConfig(config as Record<string, unknown>)).not.toThrow();
 });
 
-test('validateConfig throws when repository is missing', () => {
+test('it throws when the repository field is missing', () => {
   const config = { ...buildValidConfig() };
   delete (config as Record<string, unknown>).repository;
   expect(() => validateConfig(config as Record<string, unknown>)).toThrow(
@@ -33,7 +33,7 @@ test('validateConfig throws when repository is missing', () => {
   );
 });
 
-test('validateConfig throws when githubAppID is missing', () => {
+test('it throws when the GitHub app ID is missing', () => {
   const config = { ...buildValidConfig() };
   delete (config as Record<string, unknown>).githubAppID;
   expect(() => validateConfig(config as Record<string, unknown>)).toThrow(
@@ -41,7 +41,7 @@ test('validateConfig throws when githubAppID is missing', () => {
   );
 });
 
-test('validateConfig throws when githubAppPrivateKeyPath is missing', () => {
+test('it throws when the GitHub app private key path is missing', () => {
   const config = { ...buildValidConfig() };
   delete (config as Record<string, unknown>).githubAppPrivateKeyPath;
   expect(() => validateConfig(config as Record<string, unknown>)).toThrow(
@@ -49,7 +49,7 @@ test('validateConfig throws when githubAppPrivateKeyPath is missing', () => {
   );
 });
 
-test('validateConfig throws when githubAppInstallationID is missing', () => {
+test('it throws when the GitHub app installation ID is missing', () => {
   const config = { ...buildValidConfig() };
   delete (config as Record<string, unknown>).githubAppInstallationID;
   expect(() => validateConfig(config as Record<string, unknown>)).toThrow(
@@ -57,14 +57,14 @@ test('validateConfig throws when githubAppInstallationID is missing', () => {
   );
 });
 
-test('validateConfig throws on invalid logLevel', () => {
+test('it throws when the log level is not a recognized value', () => {
   const config = { ...buildValidConfig(), logLevel: 'verbose' };
   expect(() => validateConfig(config as Record<string, unknown>)).toThrow(
     "Invalid logLevel: 'verbose'. Must be one of: debug, info, error",
   );
 });
 
-test('validateConfig accepts valid logLevel values', () => {
+test('it accepts all valid log level values', () => {
   for (const level of ['debug', 'info', 'error'] as const) {
     const config = buildValidConfig({ logLevel: level });
     expect(() => validateConfig(config as Record<string, unknown>)).not.toThrow();
@@ -75,7 +75,7 @@ test('validateConfig accepts valid logLevel values', () => {
 // buildResolvedConfig — defaults
 // ---------------------------------------------------------------------------
 
-test('buildResolvedConfig applies all defaults when optional fields are omitted', () => {
+test('it applies all default values when optional fields are omitted', () => {
   const config = buildValidConfig();
   const resolved = buildResolvedConfig(config);
 
@@ -91,7 +91,7 @@ test('buildResolvedConfig applies all defaults when optional fields are omitted'
   expect(resolved.agents.maxAgentDuration).toBe(1800);
 });
 
-test('buildResolvedConfig preserves required fields', () => {
+test('it preserves required fields in the resolved config', () => {
   const config = buildValidConfig();
   const resolved = buildResolvedConfig(config);
 
@@ -101,7 +101,7 @@ test('buildResolvedConfig preserves required fields', () => {
   expect(resolved.githubAppInstallationID).toBe(67890);
 });
 
-test('buildResolvedConfig uses provided optional values over defaults', () => {
+test('it uses provided optional values instead of defaults', () => {
   const config = buildValidConfig({
     logLevel: 'debug',
     shutdownTimeout: 600,
@@ -132,7 +132,7 @@ test('buildResolvedConfig uses provided optional values over defaults', () => {
   expect(resolved.agents.maxAgentDuration).toBe(3600);
 });
 
-test('buildResolvedConfig handles partial nested objects', () => {
+test('it fills in missing defaults for partially provided nested objects', () => {
   const config = buildValidConfig({
     specPoller: { pollInterval: 120 },
   });
@@ -147,7 +147,7 @@ test('buildResolvedConfig handles partial nested objects', () => {
 // loadConfig — file not found
 // ---------------------------------------------------------------------------
 
-test('loadConfig exits process when config file does not exist', async () => {
+test('it exits the process when the config file does not exist', async () => {
   const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
     throw new Error('process.exit called');
   });
