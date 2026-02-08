@@ -1,77 +1,18 @@
-import type { Query, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { match, P } from 'ts-pattern';
 import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentSkippedEvent,
   AgentStartedEvent,
-  AgentStream,
   AgentType,
 } from '../../types.js';
-import type { EventEmitter } from '../event-emitter/create-event-emitter.js';
-import type { WorktreeManager } from '../worktree-manager/create-worktree-manager.js';
-
-export type AgentSessionTracker = {
-  agentType: AgentType;
-  sessionID: string;
-  query: Query;
-  abortController: AbortController;
-  timer: ReturnType<typeof setTimeout>;
-  worktreePath?: string;
-  issueNumber?: number;
-  specPaths?: string[];
-  outputChunks: string[];
-  outputListeners: Set<OutputListener>;
-  done: boolean;
-};
-
-export type OutputListener = (chunk: string) => void;
-
-export type QueryFactory = (params: QueryFactoryParams) => Query;
-
-export type QueryFactoryParams = {
-  prompt: string;
-  cwd: string;
-  systemPrompt: string;
-  abortController: AbortController;
-  permissionMode: 'bypassPermissions';
-};
-
-export type AgentManagerDeps = {
-  emitter: EventEmitter;
-  worktreeManager: WorktreeManager;
-  repoRoot: string;
-  agentFilePlanner: string;
-  agentFileImplementor: string;
-  agentFileReviewer: string;
-  maxAgentDuration: number;
-  queryFactory: QueryFactory;
-};
-
-export type DispatchImplementorParams = {
-  issueNumber: number;
-};
-
-export type DispatchReviewerParams = {
-  issueNumber: number;
-};
-
-export type DispatchPlannerParams = {
-  specPaths: string[];
-};
-
-export type AgentManager = {
-  dispatchImplementor(params: DispatchImplementorParams): Promise<void>;
-  dispatchReviewer(params: DispatchReviewerParams): void;
-  dispatchPlanner(params: DispatchPlannerParams): void;
-  cancelAgent(issueNumber: number): void;
-  cancelPlanner(): void;
-  getAgentStream(issueNumber: number): AgentStream;
-  isRunning(issueNumber: number): boolean;
-  isPlannerRunning(): boolean;
-  getRunningSessionIDs(): string[];
-  cancelAll(): void;
-};
+import type {
+  AgentManager,
+  AgentManagerDeps,
+  AgentSessionTracker,
+  OutputListener,
+} from './types.js';
 
 export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const {

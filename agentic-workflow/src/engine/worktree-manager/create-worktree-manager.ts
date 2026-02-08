@@ -1,26 +1,9 @@
 import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
+import type { ExecGit, WorktreeManager, WorktreeManagerDeps } from './types.js';
 
 const execFileAsync = promisify(execFile);
-
-export type WorktreeResult = {
-  worktreePath: string;
-  branch: string;
-  created: boolean; // true if newly created, false if reused
-};
-
-export type ExecGit = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
-
-export type WorktreeManagerDeps = {
-  repoRoot: string;
-  execGit?: ExecGit;
-};
-
-export type WorktreeManager = {
-  createOrReuse(issueNumber: number): Promise<WorktreeResult>;
-  remove(issueNumber: number): Promise<void>;
-};
 
 export function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManager {
   const { repoRoot } = deps;

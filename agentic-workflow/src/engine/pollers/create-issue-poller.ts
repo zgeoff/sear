@@ -1,18 +1,7 @@
 import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types.js';
-import type { EventEmitter } from '../event-emitter/create-event-emitter.js';
-import type { GitHubClient } from '../github-client.js';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type IssueSnapshot = {
-  issueNumber: number;
-  title: string;
-  statusLabel: string;
-  priorityLabel: string;
-  createdAt: string;
-};
+import type { EventEmitter } from '../event-emitter/types.js';
+import type { GitHubClient } from '../github-client/types.js';
+import type { IssuePoller, IssueSnapshot } from './types.js';
 
 type IssuePollerConfig = {
   octokit: GitHubClient;
@@ -20,15 +9,6 @@ type IssuePollerConfig = {
   repo: string;
   emitter: EventEmitter;
   logError?: (message: string, error: unknown) => void;
-};
-
-// ---------------------------------------------------------------------------
-// IssuePoller
-// ---------------------------------------------------------------------------
-
-export type IssuePoller = {
-  poll(): Promise<void>;
-  getSnapshot(): ReadonlyMap<number, IssueSnapshot>;
 };
 
 export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
