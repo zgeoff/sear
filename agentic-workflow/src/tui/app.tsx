@@ -1,5 +1,5 @@
 import { Box, Text, useApp, useInput } from 'ink';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { Engine, StartupResult } from '../types';
 import { useEngine } from './hooks';

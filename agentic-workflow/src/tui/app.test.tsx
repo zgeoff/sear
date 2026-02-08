@@ -1,5 +1,4 @@
 import { render } from 'ink-testing-library';
-import React from 'react';
 import { expect, test, vi } from 'vitest';
 import type { Engine, EngineCommand, EngineEvent, StartupResult } from '../types';
 import { App } from './app';
