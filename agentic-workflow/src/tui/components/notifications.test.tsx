@@ -5,6 +5,8 @@ import type { Notification } from '../types';
 import { handleNotificationsInput, NotificationsPane } from './notifications';
 import type { NotificationsPaneProps } from './types';
 
+type PartialKeyState = { upArrow?: boolean; downArrow?: boolean; return?: boolean };
+
 function buildNotification(overrides?: Partial<Notification>): Notification {
   return {
     id: 'notif-1',
@@ -37,10 +39,7 @@ function setupInputTest(notifications: Notification[], selectedIndex: number) {
   const copyToClipboard = vi.fn();
   const onSelectIndex = vi.fn();
 
-  function sendInput(
-    input: string,
-    key: { upArrow?: boolean; downArrow?: boolean; return?: boolean },
-  ) {
+  function sendInput(input: string, key: PartialKeyState) {
     handleNotificationsInput(
       input,
       {

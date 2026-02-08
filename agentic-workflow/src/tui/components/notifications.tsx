@@ -1,21 +1,29 @@
 import { Box, Text } from 'ink';
 import type { Notification } from '../types';
-import type { CopyToClipboard, NotificationsPaneProps, OpenURL } from './types';
+import type {
+  CopyToClipboard,
+  NotificationsKeyState,
+  NotificationsPaneProps,
+  OpenURL,
+  SelectIndex,
+} from './types';
 
-export type { CopyToClipboard, NotificationsPaneProps, OpenURL };
+export type {
+  CopyToClipboard,
+  NotificationsKeyState,
+  NotificationsPaneProps,
+  OpenURL,
+  SelectIndex,
+};
 
-export function NotificationsPane({
-  notifications,
-  focused,
-  selectedIndex,
-}: NotificationsPaneProps) {
-  const reversed = [...notifications].reverse();
+export function NotificationsPane(props: NotificationsPaneProps) {
+  const reversed = [...props.notifications].reverse();
 
   return (
     <Box flexDirection="column">
       {reversed.length === 0 && <Text dimColor>No notifications</Text>}
       {reversed.map((notification, index) => {
-        const isSelected = focused && index === selectedIndex;
+        const isSelected = props.focused && index === props.selectedIndex;
         const timestamp = formatTimestamp(notification.timestamp);
         const indicator = getEventIndicator(notification.eventType);
         const copyIndicator = notification.clipboardCommand ? ' [copy]' : '';
@@ -33,10 +41,10 @@ export function NotificationsPane({
 
 export function handleNotificationsInput(
   input: string,
-  key: { upArrow: boolean; downArrow: boolean; return: boolean },
+  key: NotificationsKeyState,
   notifications: Notification[],
   selectedIndex: number,
-  onSelectIndex: (index: number) => void,
+  onSelectIndex: SelectIndex,
   openURL: OpenURL,
   copyToClipboard: CopyToClipboard,
 ) {
