@@ -185,7 +185,68 @@ expect(logError).toHaveBeenCalledWith('SpecPoller poll cycle failed', expect.any
 
 // Correct — test the observable outcome instead
 const result = await doThing();
-expect(result).toEqual(EMPTY_RESULT);
+expect(result).toStrictEqual(EMPTY_RESULT);
+```
+
+### No type assertions in tests
+
+Never use `as` to cast values for assertion. Use structural matchers (`toMatchObject`, `toStrictEqual`) instead — they verify shape without requiring type casts and produce better error messages.
+
+```ts
+// Wrong — casting to assert a property
+const failNotif = notifications.find((n) => n.eventType === 'agentFailed');
+expect(failNotif).toBeDefined();
+expect((failNotif as AgentFailedNotification).logFilePath).toBe('/logs/agent.log');
+
+// Wrong — casting to narrow a union for assertion
+const completedNotif = notifications.find(
+  (n) => n.eventType === 'agentCompleted' && 'issueNumber' in n && n.issueNumber === 1,
+) as AgentCompletedNotification;
+expect(completedNotif.logFilePath).toBeUndefined();
+
+// Correct — toMatchObject verifies shape without casts
+expect(notifications).toContainEqual(
+  expect.objectContaining({
+    eventType: 'agentFailed',
+    logFilePath: '/logs/agent.log',
+  }),
+);
+
+// Correct — assert the full object shape
+expect(notifications).toContainEqual(
+  expect.objectContaining({
+    eventType: 'agentCompleted',
+    issueNumber: 1,
+    logFilePath: undefined,
+  }),
+);
+```
+
+### Use `toStrictEqual`, never `toEqual`
+
+Always use `toStrictEqual` — never `toEqual`. `toStrictEqual` catches undefined properties, sparse arrays, and class mismatches that `toEqual` silently ignores.
+
+When asserting a subset of properties, use `toMatchObject` or asymmetric matchers (`expect.objectContaining`, `expect.any`) instead of asserting individual properties one at a time.
+
+```ts
+// Wrong — toEqual misses undefined vs missing, class mismatches
+expect(result).toEqual({ issueCount: 2, recoveriesPerformed: 0 });
+
+// Wrong — asserting properties one-by-one
+expect(result.issueCount).toBe(2);
+expect(result.recoveriesPerformed).toBe(0);
+
+// Correct — toStrictEqual for full object assertion
+expect(result).toStrictEqual({ issueCount: 2, recoveriesPerformed: 0 });
+
+// Correct — toMatchObject for partial assertion (result may have other fields)
+expect(result).toMatchObject({ issueCount: 2, recoveriesPerformed: 0 });
+
+// Correct — asymmetric matchers when some fields are dynamic
+expect(result).toMatchObject({
+  issueCount: 2,
+  timestamp: expect.any(Number),
+});
 ```
 
 ### Test utilities
@@ -479,6 +540,31 @@ expect(() => validateConfig(config as Record<string, unknown>)).not.toThrow();
 
 // Correct — types match, no cast needed
 expect(() => validateConfig(config)).not.toThrow();
+```
+
+### No non-null assertions
+
+Never use the non-null assertion operator (`!`). A `!` silently assumes a value is present with no runtime check and no explanation of why that assumption is safe. Use `tiny-invariant` instead — it crashes immediately with a meaningful message when the assumption is violated.
+
+```ts
+import invariant from 'tiny-invariant';
+
+// Wrong — non-null assertion, silent assumption
+const issue = issues.find((i) => i.number === issueNumber);
+const title = issue!.title;
+
+// Wrong — non-null assertion in a chain
+const treeSHA = response.data.tree.find((e) => e.path === 'specs')!.sha;
+
+// Correct — invariant with reasoning
+const issue = issues.find((i) => i.number === issueNumber);
+invariant(issue, `issue #${issueNumber} must exist in the tracked set`);
+const title = issue.title;
+
+// Correct — invariant narrows the type
+const entry = response.data.tree.find((e) => e.path === 'specs');
+invariant(entry, 'specs directory must exist in the repository tree');
+const treeSHA = entry.sha;
 ```
 
 ### Pattern Matching
