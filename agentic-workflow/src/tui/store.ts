@@ -17,7 +17,7 @@ const STREAM_BUFFER_LIMIT = 10_000;
 const PANE_ORDER: FocusedPane[] = ['issueList', 'detailPane', 'notifications'];
 
 export function createEngineStore(config: CreateEngineStoreConfig) {
-  const { engine } = config;
+  const { engine, repository } = config;
 
   let notificationCounter = 0;
 
@@ -369,7 +369,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           'specChanged',
           `Spec changed: ${e.filePath}`,
           undefined,
-          `https://github.com/owner/repo/commit/${e.commitSHA}`,
+          `https://github.com/${repository}/commit/${e.commitSHA}`,
         );
         store.setState({
           notifications: [...state.notifications, notification],

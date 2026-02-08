@@ -62,7 +62,7 @@ function createMockEngine() {
 
 function setupTest() {
   const { engine, emit, sentCommands } = createMockEngine();
-  const store = createEngineStore({ engine });
+  const store = createEngineStore({ engine, repository: 'owner/repo' });
   return { store, engine, emit, sentCommands };
 }
 

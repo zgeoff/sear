@@ -72,4 +72,5 @@ export type EngineStore = EngineStoreState & EngineStoreActions;
 
 export type CreateEngineStoreConfig = {
   engine: Engine;
+  repository: string;
 };
