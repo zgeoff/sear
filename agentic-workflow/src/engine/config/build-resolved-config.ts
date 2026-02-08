@@ -18,6 +18,10 @@ const DEFAULTS = {
     agentFileReviewer: '.claude/agents/reviewer.md',
     maxAgentDuration: 1800,
   },
+  logging: {
+    agentSessions: false,
+    logsDir: 'logs',
+  },
 };
 
 export function buildResolvedConfig(config: EngineConfig): ResolvedEngineConfig {
@@ -42,6 +46,10 @@ export function buildResolvedConfig(config: EngineConfig): ResolvedEngineConfig 
         config.agents?.agentFileImplementor ?? DEFAULTS.agents.agentFileImplementor,
       agentFileReviewer: config.agents?.agentFileReviewer ?? DEFAULTS.agents.agentFileReviewer,
       maxAgentDuration: config.agents?.maxAgentDuration ?? DEFAULTS.agents.maxAgentDuration,
+    },
+    logging: {
+      agentSessions: config.logging?.agentSessions ?? DEFAULTS.logging.agentSessions,
+      logsDir: config.logging?.logsDir ?? DEFAULTS.logging.logsDir,
     },
   };
 }

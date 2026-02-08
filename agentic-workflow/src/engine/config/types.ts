@@ -15,6 +15,11 @@ export type ResolvedAgentsConfig = {
   maxAgentDuration: number;
 };
 
+export type ResolvedLoggingConfig = {
+  agentSessions: boolean;
+  logsDir: string;
+};
+
 export type ResolvedEngineConfig = {
   repository: string;
   githubAppID: number;
@@ -25,4 +30,5 @@ export type ResolvedEngineConfig = {
   issuePoller: ResolvedIssuePollerConfig;
   specPoller: ResolvedSpecPollerConfig;
   agents: ResolvedAgentsConfig;
+  logging: ResolvedLoggingConfig;
 };
