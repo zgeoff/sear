@@ -340,16 +340,19 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       .with({ type: 'notification' }, (e) => {
         const state = store.getState();
 
-        const notificationType = e.statusLabel as 'needs-refinement' | 'blocked' | 'approved';
-
-        let summary: string;
-        if (e.statusLabel === 'needs-refinement') {
-          summary = `#${e.issueNumber} needs refinement — ${e.resolutionGuidance}`;
-        } else if (e.statusLabel === 'blocked') {
-          summary = `#${e.issueNumber} blocked — ${e.resolutionGuidance}`;
-        } else {
-          summary = `#${e.issueNumber} approved — ready to merge`;
-        }
+        const { notificationType, summary } = match(e.statusLabel)
+          .with('needs-refinement', (s) => ({
+            notificationType: s,
+            summary: `#${e.issueNumber} needs refinement — ${e.resolutionGuidance}`,
+          }))
+          .with('blocked', (s) => ({
+            notificationType: s,
+            summary: `#${e.issueNumber} blocked — ${e.resolutionGuidance}`,
+          }))
+          .otherwise(() => ({
+            notificationType: 'approved' as const,
+            summary: `#${e.issueNumber} approved — ready to merge`,
+          }));
 
         const notification: EngineEventNotification = {
           ...buildBaseNotification(),

@@ -1,5 +1,6 @@
 import { Box } from 'ink';
 import { render } from 'ink-testing-library';
+import { match } from 'ts-pattern';
 import { expect, test, vi } from 'vitest';
 import type { IssueStatusChangedNotification, Notification } from '../types';
 import { handleNotificationsInput, NotificationsPane } from './notifications';
@@ -368,43 +369,51 @@ function buildTypedNotification(eventType: Notification['eventType'], id: string
     summary: `Test ${eventType}`,
   };
 
-  switch (eventType) {
-    case 'agentStarted':
-      return { ...base, eventType, agentType: 'implementor', issueNumber: 1 };
-    case 'agentCompleted':
-      return { ...base, eventType, agentType: 'implementor', issueNumber: 1 };
-    case 'agentFailed':
-      return {
-        ...base,
-        eventType,
-        agentType: 'implementor',
-        issueNumber: 1,
-        error: 'err',
-        sessionID: 'sess-1',
-      };
-    case 'agentSkipped':
-      return { ...base, eventType, agentType: 'implementor', issueNumber: 1 };
-    case 'issueStatusChanged':
-      return {
-        ...base,
-        eventType,
-        issueNumber: 1,
-        oldStatus: 'pending',
-        newStatus: 'in-progress',
-      };
-    case 'specChanged':
-      return { ...base, eventType, specFileName: 'test.md' };
-    case 'recoveryPerformed':
-      return { ...base, eventType, issueNumber: 1 };
-    case 'dispatchReady':
-      return { ...base, eventType, issueNumber: 1 };
-    case 'notification':
-      return { ...base, eventType, issueNumber: 1, notificationType: 'approved' };
-    case 'notificationDismissed':
-      return { ...base, eventType, issueNumber: 1 };
-    case 'issueRemoved':
-      return { ...base, eventType, issueNumber: 1 };
-    case 'startup':
-      return { ...base, eventType, issueCount: 5, recoveriesPerformed: 0 };
-  }
+  return match(eventType)
+    .with('agentStarted', (t) => ({
+      ...base,
+      eventType: t,
+      agentType: 'implementor' as const,
+      issueNumber: 1,
+    }))
+    .with('agentCompleted', (t) => ({
+      ...base,
+      eventType: t,
+      agentType: 'implementor' as const,
+      issueNumber: 1,
+    }))
+    .with('agentFailed', (t) => ({
+      ...base,
+      eventType: t,
+      agentType: 'implementor' as const,
+      issueNumber: 1,
+      error: 'err',
+      sessionID: 'sess-1',
+    }))
+    .with('agentSkipped', (t) => ({
+      ...base,
+      eventType: t,
+      agentType: 'implementor' as const,
+      issueNumber: 1,
+    }))
+    .with('issueStatusChanged', (t) => ({
+      ...base,
+      eventType: t,
+      issueNumber: 1,
+      oldStatus: 'pending',
+      newStatus: 'in-progress',
+    }))
+    .with('specChanged', (t) => ({ ...base, eventType: t, specFileName: 'test.md' }))
+    .with('recoveryPerformed', (t) => ({ ...base, eventType: t, issueNumber: 1 }))
+    .with('dispatchReady', (t) => ({ ...base, eventType: t, issueNumber: 1 }))
+    .with('notification', (t) => ({
+      ...base,
+      eventType: t,
+      issueNumber: 1,
+      notificationType: 'approved' as const,
+    }))
+    .with('notificationDismissed', (t) => ({ ...base, eventType: t, issueNumber: 1 }))
+    .with('issueRemoved', (t) => ({ ...base, eventType: t, issueNumber: 1 }))
+    .with('startup', (t) => ({ ...base, eventType: t, issueCount: 5, recoveriesPerformed: 0 }))
+    .exhaustive();
 }
