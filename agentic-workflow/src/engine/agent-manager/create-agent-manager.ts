@@ -14,9 +14,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     emitter,
     worktreeManager,
     repoRoot,
-    agentFilePlanner,
-    agentFileImplementor,
-    agentFileReviewer,
+    agentPlanner,
+    agentImplementor,
+    agentReviewer,
     maxAgentDuration,
     queryFactory,
   } = deps;
@@ -39,7 +39,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agentType: 'implementor',
         prompt: String(issueNumber),
         cwd: worktreeResult.worktreePath,
-        systemPrompt: agentFileImplementor,
+        agent: agentImplementor,
         issueNumber,
         worktreePath: worktreeResult.worktreePath,
       });
@@ -63,7 +63,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agentType: 'reviewer',
         prompt: String(issueNumber),
         cwd: repoRoot,
-        systemPrompt: agentFileReviewer,
+        agent: agentReviewer,
         issueNumber,
       });
 
@@ -86,7 +86,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agentType: 'planner',
         prompt: specPaths.join(' '),
         cwd: repoRoot,
-        systemPrompt: agentFilePlanner,
+        agent: agentPlanner,
         specPaths,
       });
 
@@ -151,10 +151,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
     const queryHandle = queryFactory({
       prompt: params.prompt,
+      agent: params.agent,
       cwd: params.cwd,
-      systemPrompt: params.systemPrompt,
       abortController,
-      permissionMode: 'bypassPermissions',
     });
 
     const tracker: AgentSessionTracker = {
@@ -303,7 +302,7 @@ type StartSessionParams = {
   agentType: AgentType;
   prompt: string;
   cwd: string;
-  systemPrompt: string;
+  agent: string;
   issueNumber?: number;
   specPaths?: string[];
   worktreePath?: string;

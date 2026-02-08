@@ -23,19 +23,18 @@ export type QueryFactory = (params: QueryFactoryParams) => Query;
 
 export type QueryFactoryParams = {
   prompt: string;
+  agent: string;
   cwd: string;
-  systemPrompt: string;
   abortController: AbortController;
-  permissionMode: 'bypassPermissions';
 };
 
 export type AgentManagerDeps = {
   emitter: EventEmitter;
   worktreeManager: WorktreeManager;
   repoRoot: string;
-  agentFilePlanner: string;
-  agentFileImplementor: string;
-  agentFileReviewer: string;
+  agentPlanner: string;
+  agentImplementor: string;
+  agentReviewer: string;
   maxAgentDuration: number;
   queryFactory: QueryFactory;
 };

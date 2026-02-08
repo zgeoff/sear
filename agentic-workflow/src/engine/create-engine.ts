@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { Engine, EngineConfig, EngineEvent } from '../types';
+import { buildQueryFactory } from './agent-manager/build-query-factory';
 import { createAgentManager } from './agent-manager/create-agent-manager';
 import type { AgentManager, QueryFactory } from './agent-manager/types';
 import { createCommandDispatcher } from './command-dispatcher/create-command-dispatcher';
@@ -69,9 +69,9 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     emitter,
     worktreeManager,
     repoRoot,
-    agentFilePlanner: resolved.agents.agentPlanner,
-    agentFileImplementor: resolved.agents.agentImplementor,
-    agentFileReviewer: resolved.agents.agentReviewer,
+    agentPlanner: resolved.agents.agentPlanner,
+    agentImplementor: resolved.agents.agentImplementor,
+    agentReviewer: resolved.agents.agentReviewer,
     maxAgentDuration: resolved.agents.maxAgentDuration,
     queryFactory: deps?.queryFactory ?? buildQueryFactory(),
   });
@@ -337,22 +337,4 @@ function buildGitHubClient(config: ResolvedEngineConfig): GitHubClient {
     privateKey,
     installationID: config.githubAppInstallationID,
   });
-}
-
-// ---------------------------------------------------------------------------
-// Default query factory (production only -- tests inject their own)
-// ---------------------------------------------------------------------------
-
-function buildQueryFactory(): QueryFactory {
-  return (params) => {
-    return query({
-      prompt: params.prompt,
-      options: {
-        cwd: params.cwd,
-        systemPrompt: params.systemPrompt,
-        abortController: params.abortController,
-        permissionMode: params.permissionMode,
-      },
-    });
-  };
 }
