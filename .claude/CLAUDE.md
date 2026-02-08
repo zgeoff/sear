@@ -168,6 +168,40 @@ beforeEach(() => {
 });
 ```
 
+### Test utilities
+
+Place mock factories and test helpers under `test-utils/` within each package, one per file following the standard file organization rules:
+
+```
+test-utils/create-mock-octokit.ts   → export createMockOctokit
+test-utils/build-valid-config.ts    → export buildValidConfig
+```
+
+### Filesystem mocking
+
+Use `memfs` as a global mock for `node:fs/promises`. Configure it as a per-package vitest setup file:
+
+```ts
+// vitest.setup.ts
+import { vi } from 'vitest';
+import { fs } from 'memfs';
+
+vi.mock('node:fs/promises', () => fs.promises);
+```
+
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    setupFiles: ['./vitest.setup.ts'],
+  },
+});
+```
+
+Do not mock `node:fs/promises` inline in individual test files — rely on the setup file.
+
 ### MSW (Mock Service Worker)
 
 MSW is available for HTTP mocking in tests. Set up handlers per-package as needed.
