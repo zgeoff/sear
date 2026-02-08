@@ -273,6 +273,10 @@ Git hooks are managed by lefthook:
 - Pre-commit: Runs Biome on staged files
 - Commit-msg: Validates conventional commit format
 
+### GitHub
+
+When interacting with GitHub (issues, PRs, labels, etc.), activate the `/github-workflow` skill.
+
 ## Conventional Commits
 
 All commits must follow the conventional commits format:
