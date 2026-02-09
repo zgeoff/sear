@@ -1835,7 +1835,6 @@ const RAW_RUNTIME_STATE =
           ["ink-testing-library", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.0.0"],\
           ["memfs", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.56.10"],\
           ["react", "npm:18.3.1"],\
-          ["tiny-invariant", "npm:1.3.3"],\
           ["ts-pattern", "npm:5.7.1"],\
           ["tsx", "npm:4.20.3"],\
           ["typescript", "patch:typescript@npm%3A5.9.3#optional!builtin<compat/typescript>::version=5.9.3&hash=5786d5"],\
@@ -3539,15 +3538,6 @@ const RAW_RUNTIME_STATE =
         "packagePeers": [\
           "@types/tslib",\
           "tslib"\
-        ],\
-        "linkType": "HARD"\
-      }]\
-    ]],\
-    ["tiny-invariant", [\
-      ["npm:1.3.3", {\
-        "packageLocation": "./.yarn/cache/tiny-invariant-npm-1.3.3-e622f1447c-65af4a0732.zip/node_modules/tiny-invariant/",\
-        "packageDependencies": [\
-          ["tiny-invariant", "npm:1.3.3"]\
         ],\
         "linkType": "HARD"\
       }]\
