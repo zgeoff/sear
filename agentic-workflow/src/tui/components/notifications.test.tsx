@@ -676,170 +676,182 @@ test('it does nothing when c is pressed on a notification without a clipboard co
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildBaseFields(id: string, eventType: string) {
+type AgentType = 'implementor' | 'reviewer' | 'planner';
+
+type BaseFields = {
+  id: string;
+  timestamp: string;
+  summary: string;
+};
+
+function buildBaseFields(id: string, eventType: string): BaseFields {
   return {
     id,
     timestamp: '2026-02-08T10:30:45.000Z',
     summary: `Test ${eventType}`,
-  } satisfies Record<string, string>;
+  };
 }
+
+type NotificationOverrides = {
+  agentType?: AgentType;
+  issueNumber?: number;
+  specCount?: number;
+  error?: string;
+  sessionID?: string;
+  notificationType?: 'needs-refinement' | 'blocked' | 'approved';
+  resolutionGuidance?: string;
+  clipboardCommand?: string;
+  oldStatus?: string | null;
+  newStatus?: string;
+  specFileName?: string;
+  issueCount?: number;
+  recoveriesPerformed?: number;
+};
 
 function buildAgentStartedNotification(
   id: string,
-  overrides?: Record<string, unknown>,
+  overrides?: NotificationOverrides,
 ): Notification {
-  const agentType = (overrides?.agentType ?? 'implementor') as
-    | 'implementor'
-    | 'reviewer'
-    | 'planner';
+  const agentType = overrides?.agentType ?? 'implementor';
   const base = {
     ...buildBaseFields(id, 'agentStarted'),
     eventType: 'agentStarted' as const,
     agentType,
   };
-  if (agentType === 'planner') {
-    if (overrides?.specCount !== undefined)
-      return { ...base, specCount: overrides.specCount as number };
-    return base;
+  if (agentType === 'planner' && overrides?.specCount !== undefined) {
+    return { ...base, specCount: overrides.specCount };
   }
-  return { ...base, issueNumber: (overrides?.issueNumber ?? 1) as number };
+  if (agentType === 'planner') return base;
+  return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
 function buildAgentCompletedNotification(
   id: string,
-  overrides?: Record<string, unknown>,
+  overrides?: NotificationOverrides,
 ): Notification {
-  const agentType = (overrides?.agentType ?? 'implementor') as
-    | 'implementor'
-    | 'reviewer'
-    | 'planner';
+  const agentType = overrides?.agentType ?? 'implementor';
   const base = {
     ...buildBaseFields(id, 'agentCompleted'),
     eventType: 'agentCompleted' as const,
     agentType,
   };
-  if (agentType === 'planner') {
-    if (overrides?.specCount !== undefined)
-      return { ...base, specCount: overrides.specCount as number };
-    return base;
+  if (agentType === 'planner' && overrides?.specCount !== undefined) {
+    return { ...base, specCount: overrides.specCount };
   }
-  return { ...base, issueNumber: (overrides?.issueNumber ?? 1) as number };
+  if (agentType === 'planner') return base;
+  return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
-function buildAgentFailedNotification(
-  id: string,
-  overrides?: Record<string, unknown>,
-): Notification {
-  const agentType = (overrides?.agentType ?? 'implementor') as
-    | 'implementor'
-    | 'reviewer'
-    | 'planner';
+function buildAgentFailedNotification(id: string, overrides?: NotificationOverrides): Notification {
+  const agentType = overrides?.agentType ?? 'implementor';
   const base = {
     ...buildBaseFields(id, 'agentFailed'),
     eventType: 'agentFailed' as const,
     agentType,
-    error: (overrides?.error ?? 'err') as string,
-    sessionID: (overrides?.sessionID ?? 'sess-1') as string,
+    error: overrides?.error ?? 'err',
+    sessionID: overrides?.sessionID ?? 'sess-1',
   };
   if (agentType === 'planner') return base;
-  return { ...base, issueNumber: (overrides?.issueNumber ?? 1) as number };
+  return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
 function buildAgentSkippedNotification(
   id: string,
-  overrides?: Record<string, unknown>,
+  overrides?: NotificationOverrides,
 ): Notification {
-  const agentType = (overrides?.agentType ?? 'implementor') as
-    | 'implementor'
-    | 'reviewer'
-    | 'planner';
+  const agentType = overrides?.agentType ?? 'implementor';
   const base = {
     ...buildBaseFields(id, 'agentSkipped'),
     eventType: 'agentSkipped' as const,
     agentType,
   };
   if (agentType === 'planner') return base;
-  return { ...base, issueNumber: (overrides?.issueNumber ?? 1) as number };
+  return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
-function buildEngineEventNotification(
-  id: string,
-  overrides?: Record<string, unknown>,
-): Notification {
-  const notificationType = (overrides?.notificationType ?? 'approved') as
-    | 'needs-refinement'
-    | 'blocked'
-    | 'approved';
+function buildEngineEventNotification(id: string, overrides?: NotificationOverrides): Notification {
+  const notificationType = overrides?.notificationType ?? 'approved';
   const base = {
     ...buildBaseFields(id, 'notification'),
     eventType: 'notification' as const,
-    issueNumber: (overrides?.issueNumber ?? 1) as number,
+    issueNumber: overrides?.issueNumber ?? 1,
     notificationType,
   };
+  if (overrides?.clipboardCommand !== undefined && overrides?.resolutionGuidance !== undefined) {
+    return {
+      ...base,
+      resolutionGuidance: overrides.resolutionGuidance,
+      clipboardCommand: overrides.clipboardCommand,
+    };
+  }
   if (overrides?.clipboardCommand !== undefined) {
-    if (overrides?.resolutionGuidance !== undefined) {
-      return {
-        ...base,
-        resolutionGuidance: overrides.resolutionGuidance as string,
-        clipboardCommand: overrides.clipboardCommand as string,
-      };
-    }
-    return { ...base, clipboardCommand: overrides.clipboardCommand as string };
+    return { ...base, clipboardCommand: overrides.clipboardCommand };
   }
   if (overrides?.resolutionGuidance !== undefined) {
-    return { ...base, resolutionGuidance: overrides.resolutionGuidance as string };
+    return { ...base, resolutionGuidance: overrides.resolutionGuidance };
   }
   return base;
+}
+
+function buildIssueStatusChangedNotification(
+  id: string,
+  overrides?: NotificationOverrides,
+): Notification {
+  return {
+    ...buildBaseFields(id, 'issueStatusChanged'),
+    eventType: 'issueStatusChanged' as const,
+    issueNumber: overrides?.issueNumber ?? 1,
+    oldStatus: overrides?.oldStatus ?? 'pending',
+    newStatus: overrides?.newStatus ?? 'in-progress',
+  };
+}
+
+function buildSpecChangedNotification(id: string, overrides?: NotificationOverrides): Notification {
+  return {
+    ...buildBaseFields(id, 'specChanged'),
+    eventType: 'specChanged' as const,
+    specFileName: overrides?.specFileName ?? 'test.md',
+  };
+}
+
+function buildIssueNumberNotification(
+  eventType: 'recoveryPerformed' | 'dispatchReady' | 'notificationDismissed' | 'issueRemoved',
+  id: string,
+  overrides?: NotificationOverrides,
+): Notification {
+  return {
+    ...buildBaseFields(id, eventType),
+    eventType,
+    issueNumber: overrides?.issueNumber ?? 1,
+  };
+}
+
+function buildStartupNotification(id: string, overrides?: NotificationOverrides): Notification {
+  return {
+    ...buildBaseFields(id, 'startup'),
+    eventType: 'startup' as const,
+    issueCount: overrides?.issueCount ?? 5,
+    recoveriesPerformed: overrides?.recoveriesPerformed ?? 0,
+  };
 }
 
 function buildTypedNotification(
   eventType: Notification['eventType'],
   id: string,
-  overrides?: Record<string, unknown>,
+  overrides?: NotificationOverrides,
 ): Notification {
   return match(eventType)
     .with('agentStarted', () => buildAgentStartedNotification(id, overrides))
     .with('agentCompleted', () => buildAgentCompletedNotification(id, overrides))
     .with('agentFailed', () => buildAgentFailedNotification(id, overrides))
     .with('agentSkipped', () => buildAgentSkippedNotification(id, overrides))
-    .with('issueStatusChanged', (t) => ({
-      ...buildBaseFields(id, t),
-      eventType: t,
-      issueNumber: (overrides?.issueNumber ?? 1) as number,
-      oldStatus: (overrides?.oldStatus ?? 'pending') as string | null,
-      newStatus: (overrides?.newStatus ?? 'in-progress') as string,
-    }))
-    .with('specChanged', (t) => ({
-      ...buildBaseFields(id, t),
-      eventType: t,
-      specFileName: (overrides?.specFileName ?? 'test.md') as string,
-    }))
-    .with('recoveryPerformed', (t) => ({
-      ...buildBaseFields(id, t),
-      eventType: t,
-      issueNumber: (overrides?.issueNumber ?? 1) as number,
-    }))
-    .with('dispatchReady', (t) => ({
-      ...buildBaseFields(id, t),
-      eventType: t,
-      issueNumber: (overrides?.issueNumber ?? 1) as number,
-    }))
+    .with('issueStatusChanged', () => buildIssueStatusChangedNotification(id, overrides))
+    .with('specChanged', () => buildSpecChangedNotification(id, overrides))
+    .with('recoveryPerformed', (t) => buildIssueNumberNotification(t, id, overrides))
+    .with('dispatchReady', (t) => buildIssueNumberNotification(t, id, overrides))
     .with('notification', () => buildEngineEventNotification(id, overrides))
-    .with('notificationDismissed', (t) => ({
-      ...buildBaseFields(id, t),
-      eventType: t,
-      issueNumber: (overrides?.issueNumber ?? 1) as number,
-    }))
-    .with('issueRemoved', (t) => ({
-      ...buildBaseFields(id, t),
-      eventType: t,
-      issueNumber: (overrides?.issueNumber ?? 1) as number,
-    }))
-    .with('startup', (t) => ({
-      ...buildBaseFields(id, t),
-      eventType: t,
-      issueCount: (overrides?.issueCount ?? 5) as number,
-      recoveriesPerformed: (overrides?.recoveriesPerformed ?? 0) as number,
-    }))
+    .with('notificationDismissed', (t) => buildIssueNumberNotification(t, id, overrides))
+    .with('issueRemoved', (t) => buildIssueNumberNotification(t, id, overrides))
+    .with('startup', () => buildStartupNotification(id, overrides))
     .exhaustive();
 }
