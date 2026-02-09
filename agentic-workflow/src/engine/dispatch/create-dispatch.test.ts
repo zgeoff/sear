@@ -594,3 +594,89 @@ test('it only includes approved specs in the Planner dispatch from a mixed batch
     'docs/specs/workflow/c.md',
   ]);
 });
+
+// ---------------------------------------------------------------------------
+// Planner failure re-deferral
+// ---------------------------------------------------------------------------
+
+test('it re-adds dispatched spec paths to the deferred buffer when the Planner fails', () => {
+  const { dispatch, agentManager } = setupTest();
+
+  // Dispatch approved specs (Planner not running)
+  dispatch.handleSpecPollerResult(
+    buildSpecPollerResult({
+      changes: [
+        { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' },
+        { filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'approved' },
+      ],
+    }),
+  );
+  expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
+
+  // Planner fails -- re-add paths
+  dispatch.handlePlannerFailed(['docs/specs/workflow/a.md', 'docs/specs/workflow/b.md']);
+
+  // Next cycle with no new changes -- re-deferred paths should be dispatched
+  dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
+
+  expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(2);
+  expect(agentManager.dispatchPlanner).toHaveBeenLastCalledWith(
+    expect.arrayContaining(['docs/specs/workflow/a.md', 'docs/specs/workflow/b.md']),
+  );
+  const callArgs = vi.mocked(agentManager.dispatchPlanner).mock.calls[1];
+  expect(callArgs?.[0]).toHaveLength(2);
+});
+
+test('it merges re-deferred paths with new cycle results after Planner failure', () => {
+  const { dispatch, agentManager } = setupTest();
+
+  // Dispatch spec a
+  dispatch.handleSpecPollerResult(
+    buildSpecPollerResult({
+      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' }],
+    }),
+  );
+  expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
+
+  // Planner fails -- re-add path a
+  dispatch.handlePlannerFailed(['docs/specs/workflow/a.md']);
+
+  // Next cycle brings a new change (b) -- both a and b should be dispatched together
+  dispatch.handleSpecPollerResult(
+    buildSpecPollerResult({
+      changes: [{ filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'approved' }],
+    }),
+  );
+
+  expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(2);
+  expect(agentManager.dispatchPlanner).toHaveBeenLastCalledWith(
+    expect.arrayContaining(['docs/specs/workflow/a.md', 'docs/specs/workflow/b.md']),
+  );
+  const callArgs = vi.mocked(agentManager.dispatchPlanner).mock.calls[1];
+  expect(callArgs?.[0]).toHaveLength(2);
+});
+
+test('it drops re-deferred paths whose status changed to non-approved since the original dispatch', () => {
+  const { dispatch, agentManager } = setupTest();
+
+  // Dispatch spec a (approved)
+  dispatch.handleSpecPollerResult(
+    buildSpecPollerResult({
+      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' }],
+    }),
+  );
+  expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
+
+  // Planner fails -- re-add path a
+  dispatch.handlePlannerFailed(['docs/specs/workflow/a.md']);
+
+  // Next cycle reports a.md as draft now -- re-deferred path should be dropped
+  dispatch.handleSpecPollerResult(
+    buildSpecPollerResult({
+      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'draft' }],
+    }),
+  );
+
+  // No second dispatch -- the only path was filtered out
+  expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
+});

@@ -38,6 +38,12 @@ export function createDispatch(
     handleIssueStatusChanged(event: IssueStatusChangedEvent): void {
       handleIssueStatusChanged(event, { emitter, agentManager, config, activeNotifications });
     },
+
+    handlePlannerFailed(specPaths: string[]): void {
+      for (const path of specPaths) {
+        deferredPaths.add(path);
+      }
+    },
   };
 }
 
