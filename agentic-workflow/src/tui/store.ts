@@ -204,11 +204,13 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
         const state = store.getState();
 
         if (e.agentType === 'planner') {
+          const specCount = e.specPaths?.length ?? 0;
           const notification: AgentCompletedNotification = {
             ...buildBaseNotification(),
             eventType: 'agentCompleted',
             agentType: 'planner',
-            summary: 'Planner completed',
+            specCount,
+            summary: `Planner completed for ${specCount} specs`,
           };
           if (e.logFilePath !== undefined) {
             notification.logFilePath = e.logFilePath;
