@@ -393,6 +393,53 @@ test('it is a no-op when dispatching an implementor for an issue not in user-dis
   expect(mockQueries.length).toBe(queriesAfterStart);
 });
 
+test('it dispatches an implementor for an in-progress issue with no running agent', async () => {
+  const issues = [buildMockIssueData(42, 'in-progress')];
+  const { engine, events, mockQueries } = setupTest({ issues, autoComplete: true });
+
+  await engine.start();
+
+  const queriesBeforeDispatch = mockQueries.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  expect(mockQueries.length).toBeGreaterThan(queriesBeforeDispatch);
+
+  const agentStarted = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentStarted.length).toBeGreaterThan(0);
+});
+
+test('it skips dispatching an implementor for an in-progress issue with a running agent', async () => {
+  const issues = [buildMockIssueData(42, 'in-progress')];
+  const { engine, events } = setupTest({ issues, autoComplete: false });
+
+  await engine.start();
+
+  // First dispatch: starts the agent (in-progress with no agent running)
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const agentStarted = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentStarted.length).toBe(1);
+
+  // Second dispatch: agent is now running, should be skipped by agent manager
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const agentSkipped = events.filter(
+    (e) => e.type === 'agentSkipped' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentSkipped.length).toBe(1);
+});
+
 // ---------------------------------------------------------------------------
 // Command routing: dispatchReviewer
 // ---------------------------------------------------------------------------

@@ -302,7 +302,11 @@ function handleDispatchImplementor(
   if (!issue) {
     return;
   }
-  if (!USER_DISPATCH_STATUSES.has(issue.statusLabel)) {
+
+  const isUserDispatchStatus = USER_DISPATCH_STATUSES.has(issue.statusLabel);
+  const isInProgress = issue.statusLabel === 'in-progress';
+
+  if (!(isUserDispatchStatus || isInProgress)) {
     return;
   }
 
