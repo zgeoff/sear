@@ -68,7 +68,13 @@ test('it triggers Planner auto-dispatch when an approved spec changes', () => {
   const { dispatch, agentManager } = setupTest();
 
   const result = buildSpecPollerResult({
-    changes: [{ filePath: 'docs/specs/workflow/test.md', frontmatterStatus: 'approved' }],
+    changes: [
+      {
+        filePath: 'docs/specs/workflow/test.md',
+        frontmatterStatus: 'approved',
+        changeType: 'added',
+      },
+    ],
   });
 
   dispatch.handleSpecPollerResult(result);
@@ -80,7 +86,13 @@ test('it does not dispatch the Planner for a spec with draft status', () => {
   const { dispatch, agentManager } = setupTest();
 
   const result = buildSpecPollerResult({
-    changes: [{ filePath: 'docs/specs/workflow/test.md', frontmatterStatus: 'draft' }],
+    changes: [
+      {
+        filePath: 'docs/specs/workflow/test.md',
+        frontmatterStatus: 'draft',
+        changeType: 'modified',
+      },
+    ],
   });
 
   dispatch.handleSpecPollerResult(result);
@@ -93,9 +105,13 @@ test('it batches multiple approved specs into a single Planner invocation', () =
 
   const result = buildSpecPollerResult({
     changes: [
-      { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' },
-      { filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'approved' },
-      { filePath: 'docs/specs/workflow/c.md', frontmatterStatus: 'approved' },
+      { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved', changeType: 'added' },
+      { filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'approved', changeType: 'added' },
+      {
+        filePath: 'docs/specs/workflow/c.md',
+        frontmatterStatus: 'approved',
+        changeType: 'modified',
+      },
     ],
   });
 
@@ -114,8 +130,8 @@ test('it emits specChanged events for each change regardless of frontmatter stat
 
   const result = buildSpecPollerResult({
     changes: [
-      { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' },
-      { filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'draft' },
+      { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved', changeType: 'added' },
+      { filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'draft', changeType: 'modified' },
     ],
     commitSHA: 'sha456',
   });
@@ -124,18 +140,53 @@ test('it emits specChanged events for each change regardless of frontmatter stat
 
   const specChangedEvents = events.filter((e) => e.type === 'specChanged');
   expect(specChangedEvents).toHaveLength(2);
-  expect(specChangedEvents[0]).toEqual({
+  expect(specChangedEvents[0]).toStrictEqual({
     type: 'specChanged',
     filePath: 'docs/specs/workflow/a.md',
     frontmatterStatus: 'approved',
+    changeType: 'added',
     commitSHA: 'sha456',
   });
-  expect(specChangedEvents[1]).toEqual({
+  expect(specChangedEvents[1]).toStrictEqual({
     type: 'specChanged',
     filePath: 'docs/specs/workflow/b.md',
     frontmatterStatus: 'draft',
+    changeType: 'modified',
     commitSHA: 'sha456',
   });
+});
+
+test('it propagates the change type from spec changes to emitted events', () => {
+  const { dispatch, events } = setupTest();
+
+  const result = buildSpecPollerResult({
+    changes: [
+      { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved', changeType: 'added' },
+      {
+        filePath: 'docs/specs/workflow/b.md',
+        frontmatterStatus: 'approved',
+        changeType: 'modified',
+      },
+    ],
+    commitSHA: 'commit-xyz',
+  });
+
+  dispatch.handleSpecPollerResult(result);
+
+  const specChangedEvents = events.filter((e) => e.type === 'specChanged');
+  expect(specChangedEvents).toHaveLength(2);
+  expect(specChangedEvents).toContainEqual(
+    expect.objectContaining({
+      filePath: 'docs/specs/workflow/a.md',
+      changeType: 'added',
+    }),
+  );
+  expect(specChangedEvents).toContainEqual(
+    expect.objectContaining({
+      filePath: 'docs/specs/workflow/b.md',
+      changeType: 'modified',
+    }),
+  );
 });
 
 test('it does not dispatch the Planner when there are no changes', () => {
@@ -156,7 +207,13 @@ test('it emits agentSkipped and defers paths when Planner is already running', (
   const { dispatch, agentManager, events } = setupTest({ isPlannerRunning: true });
 
   const result = buildSpecPollerResult({
-    changes: [{ filePath: 'docs/specs/workflow/test.md', frontmatterStatus: 'approved' }],
+    changes: [
+      {
+        filePath: 'docs/specs/workflow/test.md',
+        frontmatterStatus: 'approved',
+        changeType: 'added',
+      },
+    ],
   });
 
   dispatch.handleSpecPollerResult(result);
@@ -177,7 +234,13 @@ test('it merges deferred paths with new cycle results when Planner is no longer 
   // First cycle -- Planner running, paths deferred
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/a.md',
+          frontmatterStatus: 'approved',
+          changeType: 'added',
+        },
+      ],
     }),
   );
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
@@ -188,7 +251,13 @@ test('it merges deferred paths with new cycle results when Planner is no longer 
   // Second cycle -- new changes + deferred paths merged
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/b.md',
+          frontmatterStatus: 'approved',
+          changeType: 'added',
+        },
+      ],
     }),
   );
 
@@ -207,7 +276,13 @@ test('it deduplicates paths when the same spec changes across deferred and new c
   // First cycle -- Planner running, path deferred
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/a.md',
+          frontmatterStatus: 'approved',
+          changeType: 'added',
+        },
+      ],
     }),
   );
 
@@ -217,7 +292,13 @@ test('it deduplicates paths when the same spec changes across deferred and new c
   // Second cycle -- same path changed again
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/a.md',
+          frontmatterStatus: 'approved',
+          changeType: 'modified',
+        },
+      ],
     }),
   );
 
@@ -231,7 +312,13 @@ test('it drops deferred paths whose status changed to non-approved since deferra
   // First cycle -- approved spec deferred
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/a.md',
+          frontmatterStatus: 'approved',
+          changeType: 'added',
+        },
+      ],
     }),
   );
 
@@ -241,7 +328,13 @@ test('it drops deferred paths whose status changed to non-approved since deferra
   // Second cycle -- same spec now has draft status
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'draft' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/a.md',
+          frontmatterStatus: 'draft',
+          changeType: 'modified',
+        },
+      ],
     }),
   );
 
@@ -254,7 +347,13 @@ test('it clears the deferred buffer after successful Planner dispatch', () => {
   // First cycle -- deferred
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/a.md',
+          frontmatterStatus: 'approved',
+          changeType: 'added',
+        },
+      ],
     }),
   );
 
@@ -264,7 +363,13 @@ test('it clears the deferred buffer after successful Planner dispatch', () => {
   // Second cycle -- dispatches deferred + new
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/b.md',
+          frontmatterStatus: 'approved',
+          changeType: 'added',
+        },
+      ],
     }),
   );
 
@@ -276,7 +381,13 @@ test('it clears the deferred buffer after successful Planner dispatch', () => {
   // Third cycle -- new change, deferred again (buffer was cleared)
   dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
-      changes: [{ filePath: 'docs/specs/workflow/c.md', frontmatterStatus: 'approved' }],
+      changes: [
+        {
+          filePath: 'docs/specs/workflow/c.md',
+          frontmatterStatus: 'approved',
+          changeType: 'added',
+        },
+      ],
     }),
   );
 
@@ -581,9 +692,9 @@ test('it only includes approved specs in the Planner dispatch from a mixed batch
 
   const result = buildSpecPollerResult({
     changes: [
-      { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved' },
-      { filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'draft' },
-      { filePath: 'docs/specs/workflow/c.md', frontmatterStatus: 'approved' },
+      { filePath: 'docs/specs/workflow/a.md', frontmatterStatus: 'approved', changeType: 'added' },
+      { filePath: 'docs/specs/workflow/b.md', frontmatterStatus: 'draft', changeType: 'modified' },
+      { filePath: 'docs/specs/workflow/c.md', frontmatterStatus: 'approved', changeType: 'added' },
     ],
   });
 

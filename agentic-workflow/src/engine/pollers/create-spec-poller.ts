@@ -85,9 +85,11 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
 
       // Step 5: Identify files that were added or modified (blob SHA differs)
       const changedFilePaths: string[] = [];
+      const changeTypes = new Map<string, 'added' | 'modified'>();
       for (const [filePath, blobSha] of currentFiles) {
         if (snapshot.fileSHAs.get(filePath) !== blobSha) {
           changedFilePaths.push(filePath);
+          changeTypes.set(filePath, snapshot.fileSHAs.has(filePath) ? 'modified' : 'added');
         }
       }
 
@@ -110,7 +112,12 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
             const content = Buffer.from(data.content, 'base64').toString('utf-8');
             const status = parseFrontmatterStatus(content);
             if (status) {
-              changes.push({ filePath: result.value.filePath, frontmatterStatus: status });
+              const changeType = changeTypes.get(result.value.filePath) ?? 'added';
+              changes.push({
+                filePath: result.value.filePath,
+                frontmatterStatus: status,
+                changeType,
+              });
               snapshot.fileStatuses.set(result.value.filePath, status);
             }
           }

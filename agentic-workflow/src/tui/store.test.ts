@@ -800,6 +800,7 @@ test('it notifies with filename only and a commit link when a spec file changes'
     type: 'specChanged',
     filePath: 'docs/specs/workflow.md',
     frontmatterStatus: 'approved',
+    changeType: 'modified',
     commitSHA: 'abc123def',
   });
 
@@ -1162,6 +1163,7 @@ test('it produces a notification for every type of engine event', () => {
     type: 'specChanged',
     filePath: 'docs/specs/test.md',
     frontmatterStatus: 'approved',
+    changeType: 'added',
     commitSHA: 'sha123',
   });
 

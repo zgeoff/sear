@@ -17,6 +17,7 @@ export interface SpecChangedEvent {
   type: 'specChanged';
   filePath: string;
   frontmatterStatus: string;
+  changeType: 'added' | 'modified';
   commitSHA: string; // HEAD commit on default branch (for diff URLs)
 }
 
@@ -170,6 +171,7 @@ export type AgentStream = AsyncIterable<string> | null;
 export interface SpecChange {
   filePath: string;
   frontmatterStatus: string;
+  changeType: 'added' | 'modified';
 }
 
 export interface SpecPollerBatchResult {

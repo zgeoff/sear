@@ -68,6 +68,7 @@ function handleSpecPollerResult(
       type: 'specChanged',
       filePath: change.filePath,
       frontmatterStatus: change.frontmatterStatus,
+      changeType: change.changeType,
       commitSHA: result.commitSHA,
     };
     emitter.emit(event);

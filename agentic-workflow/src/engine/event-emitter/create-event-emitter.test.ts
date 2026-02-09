@@ -137,6 +137,7 @@ test('it accepts and delivers all engine event types', () => {
       type: 'specChanged',
       filePath: 'docs/specs/test.md',
       frontmatterStatus: 'approved',
+      changeType: 'added',
       commitSHA: 'abc123',
     },
     {
