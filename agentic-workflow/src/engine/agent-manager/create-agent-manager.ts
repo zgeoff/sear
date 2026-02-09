@@ -47,7 +47,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
       const worktreeResult = await worktreeManager.createOrReuse(issueNumber);
 
-      const tracker = startSession({
+      const tracker = await startSession({
         agentType: 'implementor',
         prompt: String(issueNumber),
         cwd: worktreeResult.worktreePath,
@@ -63,7 +63,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    dispatchReviewer(params) {
+    async dispatchReviewer(params) {
       const { issueNumber } = params;
 
       if (issueAgents.has(issueNumber)) {
@@ -71,7 +71,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         return;
       }
 
-      const tracker = startSession({
+      const tracker = await startSession({
         agentType: 'reviewer',
         prompt: String(issueNumber),
         cwd: repoRoot,
@@ -86,7 +86,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    dispatchPlanner(params) {
+    async dispatchPlanner(params) {
       const { specPaths } = params;
 
       if (plannerSession) {
@@ -94,7 +94,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         return;
       }
 
-      const tracker = startSession({
+      const tracker = await startSession({
         agentType: 'planner',
         prompt: specPaths.join(' '),
         cwd: repoRoot,
@@ -158,10 +158,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     },
   };
 
-  function startSession(params: StartSessionParams): AgentSessionTracker {
+  async function startSession(params: StartSessionParams): Promise<AgentSessionTracker> {
     const abortController = new AbortController();
 
-    const queryHandle = queryFactory({
+    const queryHandle = await queryFactory({
       prompt: params.prompt,
       agent: params.agent,
       cwd: params.cwd,
