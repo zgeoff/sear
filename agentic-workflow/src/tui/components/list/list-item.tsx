@@ -1,5 +1,12 @@
 import { Box, Text } from 'ink';
-import type { ListItemProps } from './types';
+
+export type ListItemProps = {
+  content: string;
+  selected: boolean;
+  focused: boolean;
+  visibleIndex: number;
+  paneWidth: number;
+};
 
 const HORIZONTAL_PADDING = 1;
 const ELLIPSIS = '\u2026';

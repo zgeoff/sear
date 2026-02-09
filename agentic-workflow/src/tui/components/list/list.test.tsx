@@ -1,9 +1,11 @@
 import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { expect, test } from 'vitest';
+import type { ListProps } from './list';
 import { List } from './list';
+import type { ListItemProps } from './list-item';
 import { ListItem } from './list-item';
-import type { ListItemData, ListItemProps, ListProps } from './types';
+import type { ListItemData } from './types';
 
 function buildItems(count: number): ListItemData[] {
   return Array.from({ length: count }, (_, i) => ({

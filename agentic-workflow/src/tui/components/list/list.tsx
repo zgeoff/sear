@@ -1,6 +1,19 @@
 import { Box, Text } from 'ink';
 import { ListItem } from './list-item';
-import type { ListProps } from './types';
+import type { ListItemData } from './types';
+
+export type ListProps = {
+  label: string;
+  items: ReadonlyArray<ListItemData>;
+  selectedIndex: number;
+  focused: boolean;
+  paneWidth: number;
+  paneHeight: number;
+  viewportOffset: number;
+  onViewportOffsetChange: (offset: number) => void;
+  mouseScrolled: boolean;
+  onMouseScrolledChange: (scrolled: boolean) => void;
+};
 
 const CHROME_ROWS = 2;
 const HORIZONTAL_PADDING = 1;
