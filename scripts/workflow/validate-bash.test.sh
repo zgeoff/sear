@@ -1,17 +1,20 @@
 #!/usr/bin/env bats
 #
 # BATS test suite for the bash validator PreToolUse hook.
-# See: docs/specs/workflow/agent-tool-bash-validator.md
+# See: docs/specs/workflow/agent-hook-bash-validator.md (rules)
+# See: docs/specs/workflow/agent-hook-bash-validator-script.md (shell implementation)
 
 VALIDATOR="scripts/workflow/validate-bash.sh"
 
 # Constructs the JSON envelope expected by the hook contract and pipes it to
 # the validator. Uses jq --arg for safe encoding of quotes, backslashes, and
-# newlines in the command string.
+# newlines in the command string. The JSON is passed as a positional argument
+# to bash -c (not embedded in the command string) to avoid single-quote
+# injection when the JSON itself contains single quotes.
 run_validator() {
   local json
   json=$(jq -n --arg cmd "$1" '{"tool_name":"Bash","tool_input":{"command":$cmd}}')
-  run bash -c "printf '%s' '$json' | bash $VALIDATOR"
+  run bash -c 'printf "%s" "$1" | bash "$2"' _ "$json" "$VALIDATOR"
 }
 
 # ─── Blocklist ────────────────────────────────────────────────────────────────
@@ -170,6 +173,26 @@ run_validator() {
 @test "it blocks chained commands where one segment has an unrecognized prefix" {
   run_validator "git status && python3 script.py"
   [[ "$status" -eq 2 ]]
+}
+
+@test "it allows commands chained with logical OR where all segments have allowlisted prefixes" {
+  run_validator "git status || echo fallback"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows newline-separated commands where all segments have allowlisted prefixes" {
+  run_validator "$(printf 'git status\necho done')"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it blocks newline-separated commands where one segment has an unrecognized prefix" {
+  run_validator "$(printf 'git status\npython3 script.py')"
+  [[ "$status" -eq 2 ]]
+}
+
+@test "it allows semicolon-separated commands where all segments have allowlisted prefixes" {
+  run_validator "git status ; echo done"
+  [[ "$status" -eq 0 ]]
 }
 
 @test "it skips empty segments between operators" {

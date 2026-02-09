@@ -1,7 +1,7 @@
 ---
 title: Planner Agent
-version: 0.1.1
-last_updated: 2026-02-08
+version: 0.1.2
+last_updated: 2026-02-09
 status: approved
 ---
 
@@ -264,7 +264,7 @@ Refinement issues receive labels `task:refinement`, `status:pending`, and a prio
 - `gh` CLI (authenticated with repo access)
 - Label setup (all workflow labels must exist in the repository; see `script-label-setup.md`)
 - Approved specification in `docs/specs/`
-- Agent Bash Tool Validator (`scripts/workflow/validate-bash.sh`) -- PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-tool-bash-validator.md`.
+- Agent Bash Tool Validator (`scripts/workflow/validate-bash.sh`) -- PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
 
 ## References
 
