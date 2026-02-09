@@ -65,6 +65,8 @@ function setupTest(config?: SetupTestConfig) {
   const focused = config?.focused ?? true;
   const height = config?.height ?? 20;
 
+  const onPromptChange = vi.fn();
+
   const instance = render(
     <IssueList
       store={store}
@@ -72,10 +74,12 @@ function setupTest(config?: SetupTestConfig) {
       onOpenURL={onOpenURL}
       repository="owner/repo"
       height={height}
+      promptActive={false}
+      onPromptChange={onPromptChange}
     />,
   );
 
-  return { ...instance, store, emit, sentCommands, onOpenURL, engine };
+  return { ...instance, store, emit, sentCommands, onOpenURL, engine, onPromptChange };
 }
 
 type AddIssueOverrides = {
@@ -457,7 +461,7 @@ test('it does not move past the beginning of the list when pressing up', async (
 // ---------------------------------------------------------------------------
 
 test('it shows a dispatch confirmation when Enter is pressed on a pending issue', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
 
   addIssue(emit, 5, { status: 'pending' });
   store.getState().selectIssue(5);
@@ -469,12 +473,12 @@ test('it shows a dispatch confirmation when Enter is pressed on a pending issue'
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Dispatch Implementor for #5? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
   });
 });
 
 test('it dispatches an implementor when the dispatch confirmation is accepted', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands } = setupTest();
+  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
 
   addIssue(emit, 5, { status: 'pending' });
   store.getState().selectIssue(5);
@@ -486,7 +490,7 @@ test('it dispatches an implementor when the dispatch confirmation is accepted', 
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Dispatch Implementor for #5? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
   });
 
   stdin.write('y');
@@ -497,7 +501,7 @@ test('it dispatches an implementor when the dispatch confirmation is accepted', 
 });
 
 test('it dismisses the dispatch confirmation when the user presses n', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands } = setupTest();
+  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
 
   addIssue(emit, 5, { status: 'pending' });
   store.getState().selectIssue(5);
@@ -509,19 +513,20 @@ test('it dismisses the dispatch confirmation when the user presses n', async () 
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Dispatch Implementor for #5? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
   });
 
+  onPromptChange.mockClear();
   stdin.write('n');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).not.toContain('Dispatch Implementor for #5? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith(null);
   });
   expect(sentCommands).not.toContainEqual({ command: 'dispatchImplementor', issueNumber: 5 });
 });
 
 test('it dismisses the dispatch confirmation when the user presses Escape', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands } = setupTest();
+  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
 
   addIssue(emit, 5, { status: 'pending' });
   store.getState().selectIssue(5);
@@ -533,13 +538,14 @@ test('it dismisses the dispatch confirmation when the user presses Escape', asyn
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Dispatch Implementor for #5? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
   });
 
+  onPromptChange.mockClear();
   stdin.write('\x1b');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).not.toContain('Dispatch Implementor for #5? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith(null);
   });
   expect(sentCommands).not.toContainEqual({ command: 'dispatchImplementor', issueNumber: 5 });
 });
@@ -549,7 +555,7 @@ test('it dismisses the dispatch confirmation when the user presses Escape', asyn
 // ---------------------------------------------------------------------------
 
 test('it shows a cancel confirmation when Enter is pressed on an issue with a running agent', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
 
   addIssue(emit, 3, { status: 'in-progress' });
   emit({
@@ -567,12 +573,12 @@ test('it shows a cancel confirmation when Enter is pressed on an issue with a ru
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Cancel agent for #3? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Cancel agent for #3?');
   });
 });
 
 test('it sends a cancel command when the cancel confirmation is accepted', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands } = setupTest();
+  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
 
   addIssue(emit, 3, { status: 'in-progress' });
   emit({
@@ -590,7 +596,7 @@ test('it sends a cancel command when the cancel confirmation is accepted', async
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Cancel agent for #3? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Cancel agent for #3?');
   });
 
   stdin.write('y');
@@ -605,7 +611,7 @@ test('it sends a cancel command when the cancel confirmation is accepted', async
 // ---------------------------------------------------------------------------
 
 test('it shows a retry confirmation when Enter is pressed on a failed issue', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
 
   addIssue(emit, 7, { status: 'in-progress' });
   emit({
@@ -630,12 +636,12 @@ test('it shows a retry confirmation when Enter is pressed on a failed issue', as
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Retry Implementor for #7? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Retry Implementor for #7?');
   });
 });
 
 test('it dispatches the appropriate agent and clears the failure when retry is confirmed', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands } = setupTest();
+  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
 
   addIssue(emit, 7, { status: 'in-progress' });
   emit({
@@ -660,7 +666,7 @@ test('it dispatches the appropriate agent and clears the failure when retry is c
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Retry Implementor for #7? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Retry Implementor for #7?');
   });
 
   stdin.write('y');
@@ -672,7 +678,7 @@ test('it dispatches the appropriate agent and clears the failure when retry is c
 });
 
 test('it shows the correct agent type in the retry prompt for reviewer failures', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
 
   addIssue(emit, 7, { status: 'review' });
   emit({
@@ -697,12 +703,12 @@ test('it shows the correct agent type in the retry prompt for reviewer failures'
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Retry Reviewer for #7? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Retry Reviewer for #7?');
   });
 });
 
 test('it dispatches a reviewer when retrying a failed reviewer', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands } = setupTest();
+  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
 
   addIssue(emit, 7, { status: 'review' });
   emit({
@@ -727,7 +733,7 @@ test('it dispatches a reviewer when retrying a failed reviewer', async () => {
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Retry Reviewer for #7? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Retry Reviewer for #7?');
   });
 
   stdin.write('y');
@@ -900,7 +906,7 @@ test('it scrolls to keep the selected item visible when navigating past the visi
 // ---------------------------------------------------------------------------
 
 test('it ignores navigation keys while a confirmation prompt is active', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
 
   addIssue(emit, 1, { title: 'First' });
   addIssue(emit, 2, { title: 'Second', createdAt: '2026-01-02T00:00:00Z' });
@@ -914,7 +920,7 @@ test('it ignores navigation keys while a confirmation prompt is active', async (
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Dispatch Implementor for #1? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #1?');
   });
 
   // Try to navigate — should be ignored
@@ -923,20 +929,14 @@ test('it ignores navigation keys while a confirmation prompt is active', async (
   // Wait a tick
   await new Promise((r) => setTimeout(r, 50));
 
-  // Prompt should still be visible
-  expect(lastFrame()).toContain('Dispatch Implementor for #1? [y/n]');
-
   // Dismiss and check selection didn't change
   stdin.write('n');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).not.toContain('Dispatch Implementor');
+    expect(onPromptChange).toHaveBeenCalledWith(null);
   });
 
-  const frame = lastFrame() ?? '';
-  const lines = frame.split('\n');
-  const selectedLine = lines.find((l) => l.includes('> '));
-  expect(selectedLine).toContain('#1');
+  expect(store.getState().selectedIssue).toBe(1);
 });
 
 // ---------------------------------------------------------------------------
@@ -964,7 +964,7 @@ test('it ignores input when the pane is not focused', async () => {
 // ---------------------------------------------------------------------------
 
 test('it shows a cancel confirmation when Enter is pressed on a review issue with a running reviewer', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
 
   addIssue(emit, 4, { status: 'review' });
   emit({
@@ -982,6 +982,6 @@ test('it shows a cancel confirmation when Enter is pressed on a review issue wit
   stdin.write('\r');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Cancel agent for #4? [y/n]');
+    expect(onPromptChange).toHaveBeenCalledWith('Cancel agent for #4?');
   });
 });
