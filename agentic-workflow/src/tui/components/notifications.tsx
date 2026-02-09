@@ -1,61 +1,37 @@
-import { Box, Text } from 'ink';
-import Link from 'ink-link';
 import { match, P } from 'ts-pattern';
 import type { Notification } from '../types';
-import type {
-  CopyToClipboard,
-  NotificationsKeyState,
-  NotificationsPaneProps,
-  OpenURL,
-  SelectIndex,
-} from './types';
+import { List } from './list/list';
+import type { ListItemData } from './list/types';
+import type { CopyToClipboard, NotificationsKeyState, OpenURL, SelectIndex } from './types';
 
-type IndicatorResult = {
-  glyph: string;
-  color: string | undefined;
-  dimColor: boolean;
-};
-
-type StatusStyle = {
-  color: string | undefined;
-  dimColor: boolean;
+export type NotificationsPaneProps = {
+  notifications: Notification[];
+  focused: boolean;
+  selectedIndex: number;
+  paneWidth: number;
+  paneHeight: number;
+  viewportOffset: number;
+  onViewportOffsetChange: (offset: number) => void;
+  mouseScrolled: boolean;
+  onMouseScrolledChange: (scrolled: boolean) => void;
 };
 
 export function NotificationsPane(props: NotificationsPaneProps) {
-  const reversed = [...props.notifications].reverse();
+  const items = buildListItems(props.notifications);
 
   return (
-    <Box flexDirection="column">
-      {reversed.length === 0 && <Text dimColor>No notifications</Text>}
-      {reversed.map((notification, index) => {
-        const isSelected = props.focused && index === props.selectedIndex;
-        const timestamp = formatTimestamp(notification.timestamp);
-        const indicator = getIndicator(notification);
-        const copyIndicator = notification.clipboardCommand ? ' [copy]' : '';
-        const logFilePath = getLogFilePath(notification);
-
-        return (
-          <Text key={notification.id} inverse={isSelected}>
-            <Text
-              {...(indicator.color ? { color: indicator.color } : {})}
-              dimColor={indicator.dimColor}
-            >
-              {indicator.glyph}
-            </Text>{' '}
-            {timestamp} {renderContent(notification, props.repository.owner, props.repository.repo)}
-            {logFilePath && (
-              <>
-                {' '}
-                <Link url={`file://${logFilePath}`} fallback={false}>
-                  <Text dimColor>(logs)</Text>
-                </Link>
-              </>
-            )}
-            {copyIndicator}
-          </Text>
-        );
-      })}
-    </Box>
+    <List
+      label="notifications"
+      items={items}
+      selectedIndex={props.selectedIndex}
+      focused={props.focused}
+      paneWidth={props.paneWidth}
+      paneHeight={props.paneHeight}
+      viewportOffset={props.viewportOffset}
+      onViewportOffsetChange={props.onViewportOffsetChange}
+      mouseScrolled={props.mouseScrolled}
+      onMouseScrolledChange={props.onMouseScrolledChange}
+    />
   );
 }
 
@@ -99,6 +75,23 @@ export function handleNotificationsInput(
   }
 }
 
+function buildListItems(notifications: Notification[]): ListItemData[] {
+  if (notifications.length === 0) {
+    return [{ key: 'empty', content: 'No notifications' }];
+  }
+  const reversed = [...notifications].reverse();
+  return reversed.map((notification) => {
+    const timestamp = formatTimestamp(notification.timestamp);
+    const glyph = getIndicatorGlyph(notification);
+    const body = renderContentString(notification);
+    const logSuffix = getLogFilePath(notification) ? ' (logs)' : '';
+    const copySuffix = notification.clipboardCommand ? ' [copy]' : '';
+    const content = `${glyph} ${timestamp} ${body}${logSuffix}${copySuffix}`;
+
+    return { key: notification.id, content };
+  });
+}
+
 function formatTimestamp(isoString: string): string {
   const date = new Date(isoString);
   const hours = String(date.getHours()).padStart(2, '0');
@@ -106,232 +99,90 @@ function formatTimestamp(isoString: string): string {
   return `[${hours}:${minutes}]`;
 }
 
-function getIndicator(notification: Notification): IndicatorResult {
+function getIndicatorGlyph(notification: Notification): string {
   return match(notification)
-    .with({ eventType: 'dispatchReady' }, () => ({
-      glyph: '\u25CF',
-      color: 'green',
-      dimColor: false,
-    }))
-    .with({ eventType: 'agentStarted' }, () => ({
-      glyph: '\u25B6',
-      color: 'blue',
-      dimColor: false,
-    }))
-    .with({ eventType: 'agentCompleted' }, () => ({
-      glyph: '\u2713',
-      color: 'green',
-      dimColor: false,
-    }))
-    .with({ eventType: 'agentFailed' }, () => ({ glyph: '\u2717', color: 'red', dimColor: false }))
-    .with({ eventType: 'agentSkipped' }, () => ({
-      glyph: '\u2013',
-      color: 'yellow',
-      dimColor: false,
-    }))
-    .with({ eventType: 'issueStatusChanged' }, () => ({
-      glyph: '\u2192',
-      color: 'cyan',
-      dimColor: false,
-    }))
-    .with({ eventType: 'specChanged' }, () => ({ glyph: '~', color: 'magenta', dimColor: false }))
-    .with({ eventType: 'recoveryPerformed' }, () => ({
-      glyph: '\u21BB',
-      color: 'yellow',
-      dimColor: false,
-    }))
-    .with({ eventType: 'notification', notificationType: 'approved' }, () => ({
-      glyph: '\u2605',
-      color: 'green',
-      dimColor: false,
-    }))
+    .with({ eventType: 'dispatchReady' }, () => '\u25CF')
+    .with({ eventType: 'agentStarted' }, () => '\u25B6')
+    .with({ eventType: 'agentCompleted' }, () => '\u2713')
+    .with({ eventType: 'agentFailed' }, () => '\u2717')
+    .with({ eventType: 'agentSkipped' }, () => '\u2013')
+    .with({ eventType: 'issueStatusChanged' }, () => '\u2192')
+    .with({ eventType: 'specChanged' }, () => '~')
+    .with({ eventType: 'recoveryPerformed' }, () => '\u21BB')
+    .with({ eventType: 'notification', notificationType: 'approved' }, () => '\u2605')
     .with(
       { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
-      () => ({ glyph: '\u2605', color: 'yellow', dimColor: false }),
+      () => '\u2605',
     )
-    .with({ eventType: 'notificationDismissed' }, () => ({
-      glyph: '\u00D7',
-      color: undefined,
-      dimColor: true,
-    }))
-    .with({ eventType: 'issueRemoved' }, () => ({
-      glyph: '\u2212',
-      color: undefined,
-      dimColor: true,
-    }))
-    .with({ eventType: 'startup' }, () => ({ glyph: '\u2713', color: 'green', dimColor: false }))
+    .with({ eventType: 'notificationDismissed' }, () => '\u00D7')
+    .with({ eventType: 'issueRemoved' }, () => '\u2212')
+    .with({ eventType: 'startup' }, () => '\u2713')
     .exhaustive();
 }
 
-function renderContent(notification: Notification, owner: string, repo: string): React.ReactNode {
+function renderContentString(notification: Notification): string {
   return match(notification)
-    .with({ eventType: 'agentStarted', agentType: 'planner' }, (n) => (
-      <>
-        <Text bold color="cyan">
-          Planner
-        </Text>
-        {' started for '}
-        {n.specCount}
-        {' specs'}
-      </>
-    ))
-    .with({ eventType: 'agentStarted' }, (n) => (
-      <>
-        <Text bold color="cyan">
-          {formatAgentName(n.agentType)}
-        </Text>
-        {' started for '}
-        {renderIssueRef(n.issueNumber, owner, repo)}
-      </>
-    ))
-    .with({ eventType: 'agentCompleted', agentType: 'planner' }, (n) => (
-      <>
-        <Text bold color="cyan">
-          Planner
-        </Text>
-        {' completed for '}
-        {n.specCount}
-        {' specs'}
-      </>
-    ))
-    .with({ eventType: 'agentCompleted' }, (n) => (
-      <>
-        <Text bold color="cyan">
-          {formatAgentName(n.agentType)}
-        </Text>
-        {' completed for '}
-        {renderIssueRef(n.issueNumber, owner, repo)}
-      </>
-    ))
-    .with({ eventType: 'agentFailed', agentType: 'planner' }, (n) => (
-      <>
-        <Text bold color="cyan">
-          Planner
-        </Text>
-        {' failed'}
-        {' \u2014 '}
-        <Text color="red">{n.error}</Text>
-      </>
-    ))
-    .with({ eventType: 'agentFailed' }, (n) => (
-      <>
-        <Text bold color="cyan">
-          {formatAgentName(n.agentType)}
-        </Text>
-        {' failed for '}
-        {renderIssueRef(n.issueNumber, owner, repo)}
-        {' \u2014 '}
-        <Text color="red">{n.error}</Text>
-      </>
-    ))
-    .with({ eventType: 'agentSkipped', agentType: 'planner' }, () => (
-      <>
-        <Text bold color="cyan">
-          Planner
-        </Text>
-        {' skipped \u2014 paths deferred'}
-      </>
-    ))
-    .with({ eventType: 'agentSkipped' }, (n) => (
-      <>
-        <Text bold color="cyan">
-          {formatAgentName(n.agentType)}
-        </Text>
-        {' skipped for '}
-        {renderIssueRef(n.issueNumber, owner, repo)}
-      </>
-    ))
-    .with({ eventType: 'issueStatusChanged' }, (n) => {
-      const oldStyle = getStatusStyle(n.oldStatus ?? 'none');
-      const newStyle = getStatusStyle(n.newStatus);
-      return (
-        <>
-          {renderIssueRef(n.issueNumber, owner, repo)}
-          {': '}
-          <Text {...(oldStyle.color ? { color: oldStyle.color } : {})} dimColor={oldStyle.dimColor}>
-            {n.oldStatus ?? 'none'}
-          </Text>
-          {' \u2192 '}
-          <Text {...(newStyle.color ? { color: newStyle.color } : {})} dimColor={newStyle.dimColor}>
-            {n.newStatus}
-          </Text>
-        </>
-      );
+    .with({ eventType: 'agentStarted', agentType: 'planner' }, (n) => {
+      const specPart = 'specCount' in n ? `${n.specCount} specs` : 'specs';
+      return `Planner started for ${specPart}`;
     })
-    .with({ eventType: 'specChanged' }, (n) => (
-      <>
-        {'Spec changed: '}
-        <Link url={n.contextURL ?? ''} fallback={false}>
-          <Text color="magenta">{n.specFileName}</Text>
-        </Link>
-      </>
-    ))
-    .with({ eventType: 'recoveryPerformed' }, (n) => (
-      <>
-        {renderIssueRef(n.issueNumber, owner, repo)}
-        {' recovered from stale'}
-      </>
-    ))
-    .with({ eventType: 'notification', notificationType: 'approved' }, (n) => (
-      <>
-        {renderIssueRef(n.issueNumber, owner, repo)}
-        {' approved \u2014 ready to merge'}
-      </>
-    ))
+    .with(
+      { eventType: 'agentStarted' },
+      (n) => `${formatAgentName(n.agentType)} started for #${n.issueNumber}`,
+    )
+    .with({ eventType: 'agentCompleted', agentType: 'planner' }, (n) => {
+      const specPart = 'specCount' in n ? `${n.specCount} specs` : 'specs';
+      return `Planner completed for ${specPart}`;
+    })
+    .with(
+      { eventType: 'agentCompleted' },
+      (n) => `${formatAgentName(n.agentType)} completed for #${n.issueNumber}`,
+    )
+    .with(
+      { eventType: 'agentFailed', agentType: 'planner' },
+      (n) => `Planner failed \u2014 ${n.error}`,
+    )
+    .with(
+      { eventType: 'agentFailed' },
+      (n) => `${formatAgentName(n.agentType)} failed for #${n.issueNumber} \u2014 ${n.error}`,
+    )
+    .with(
+      { eventType: 'agentSkipped', agentType: 'planner' },
+      () => 'Planner skipped \u2014 paths deferred',
+    )
+    .with(
+      { eventType: 'agentSkipped' },
+      (n) => `${formatAgentName(n.agentType)} skipped for #${n.issueNumber}`,
+    )
+    .with(
+      { eventType: 'issueStatusChanged' },
+      (n) => `#${n.issueNumber}: ${n.oldStatus ?? 'none'} \u2192 ${n.newStatus}`,
+    )
+    .with({ eventType: 'specChanged' }, (n) => `Spec changed: ${n.specFileName}`)
+    .with({ eventType: 'recoveryPerformed' }, (n) => `#${n.issueNumber} recovered from stale`)
+    .with(
+      { eventType: 'notification', notificationType: 'approved' },
+      (n) => `#${n.issueNumber} approved \u2014 ready to merge`,
+    )
     .with(
       { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
-      (n) => (
-        <>
-          {renderIssueRef(n.issueNumber, owner, repo)}
-          {n.notificationType === 'needs-refinement' ? ' needs refinement' : ' blocked'}
-          {n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : ''}
-        </>
-      ),
+      (n) => {
+        const label = n.notificationType === 'needs-refinement' ? 'needs refinement' : 'blocked';
+        const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+        return `#${n.issueNumber} ${label}${guidance}`;
+      },
     )
-    .with({ eventType: 'dispatchReady' }, (n) => (
-      <>
-        {renderIssueRef(n.issueNumber, owner, repo)}
-        {' ready for dispatch'}
-      </>
-    ))
-    .with({ eventType: 'notificationDismissed' }, (n) => (
-      <>
-        {renderIssueRef(n.issueNumber, owner, repo)}
-        {' dismissed'}
-      </>
-    ))
-    .with({ eventType: 'issueRemoved' }, (n) => (
-      <>
-        {renderIssueRef(n.issueNumber, owner, repo)}
-        {' removed'}
-      </>
-    ))
+    .with({ eventType: 'dispatchReady' }, (n) => `#${n.issueNumber} ready for dispatch`)
+    .with({ eventType: 'notificationDismissed' }, (n) => `#${n.issueNumber} dismissed`)
+    .with({ eventType: 'issueRemoved' }, (n) => `#${n.issueNumber} removed`)
     .with({ eventType: 'startup' }, (n) => {
       const base = `Startup complete: ${n.issueCount} issues tracked`;
       if (n.recoveriesPerformed > 0) {
-        return (
-          <>
-            {base}, {n.recoveriesPerformed} recoveries performed
-          </>
-        );
+        return `${base}, ${n.recoveriesPerformed} recoveries performed`;
       }
-      return <>{base}</>;
+      return base;
     })
     .exhaustive();
-}
-
-function renderIssueRef(
-  issueNumber: number | undefined,
-  owner: string,
-  repo: string,
-): React.ReactNode {
-  if (issueNumber === undefined) return null;
-  const url = `https://github.com/${owner}/${repo}/issues/${issueNumber}`;
-  return (
-    <Link url={url} fallback={false}>
-      <Text bold>#{issueNumber}</Text>
-    </Link>
-  );
 }
 
 function formatAgentName(agentType: 'implementor' | 'reviewer' | 'planner'): string {
@@ -340,17 +191,6 @@ function formatAgentName(agentType: 'implementor' | 'reviewer' | 'planner'): str
     .with('reviewer', () => 'Reviewer')
     .with('planner', () => 'Planner')
     .exhaustive();
-}
-
-function getStatusStyle(status: string): StatusStyle {
-  return match(status)
-    .with('in-progress', () => ({ color: 'blue', dimColor: false }))
-    .with('review', () => ({ color: 'cyan', dimColor: false }))
-    .with('needs-refinement', () => ({ color: 'yellow', dimColor: false }))
-    .with('blocked', () => ({ color: 'yellow', dimColor: false }))
-    .with('approved', () => ({ color: 'green', dimColor: false }))
-    .with('none', () => ({ color: undefined, dimColor: true }))
-    .otherwise(() => ({ color: undefined, dimColor: false }));
 }
 
 function getLogFilePath(notification: Notification): string | undefined {

@@ -122,6 +122,7 @@ test('it renders all three panes on initial startup', async () => {
   const { lastFrame } = await setupStartedTest();
 
   const frame = lastFrame();
+  expect(frame).toContain('NOTIFICATIONS');
   expect(frame).toContain('No issues tracked');
   expect(frame).toContain('No issue selected');
 });
