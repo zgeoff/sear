@@ -141,6 +141,7 @@ export type EngineStoreState = {
   issues: Map<number, TrackedIssue>;
   notifications: Notification[];
   agentStreams: Map<number, string[]>;
+  streamViewportOffsets: Map<number, number>;
   plannerRunning: boolean;
   issueDetails: Map<number, CachedIssueDetails>;
   prDetails: Map<number, CachedPRDetails>;
