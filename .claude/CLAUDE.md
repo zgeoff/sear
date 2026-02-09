@@ -468,6 +468,21 @@ Each module directory has a `types.ts` file that contains the module's exported 
 **Stays in the implementation file:**
 - Unexported types used only within that file (internal state, helper types)
 - Constants derived from types (e.g., default values, empty results)
+- **Component prop types** — a component's props type is defined in the same file as the component, directly above it. Props types are consumed by exactly one component and should be colocated, not in `types.ts`
+
+```ts
+// list/list.tsx — props type lives with its component
+export type ListProps = { label: string; items: ListItem[]; focused: boolean };
+
+export function List(props: ListProps) { ... }
+
+// Wrong — props type in types.ts, separated from its only consumer
+// list/types.ts
+export type ListProps = { ... };
+// list/list.tsx
+import type { ListProps } from './types';
+export function List(props: ListProps) { ... }
+```
 
 ```ts
 // recovery/types.ts — the module's public API types
