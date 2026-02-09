@@ -3,7 +3,7 @@ import { expect, test, vi } from 'vitest';
 import { buildValidConfig } from '../test-utils/build-valid-config';
 import { createMockGitHubClient } from '../test-utils/create-mock-github-client';
 import type { AgentFailedEvent, EngineEvent, IssueStatusChangedEvent } from '../types';
-import type { QueryFactory } from './agent-manager/types';
+import type { AgentQuery, QueryFactory } from './agent-manager/types';
 import { createEngine } from './create-engine';
 import type { GitHubClient } from './github-client/types';
 import type { WorktreeManager } from './worktree-manager/types';
@@ -20,15 +20,11 @@ vi.mock('node:child_process', async (importOriginal) => {
 // Test utilities
 // ---------------------------------------------------------------------------
 
-type MockQuery = {
-  pushMessage(msg: unknown): void;
-  end(): void;
-  interrupt: ReturnType<typeof vi.fn>;
-  next(): Promise<IteratorResult<unknown>>;
-  return(): Promise<IteratorResult<unknown>>;
-  throw(): Promise<IteratorResult<unknown>>;
-  [Symbol.asyncIterator](): MockQuery;
-};
+type MockQuery = AgentQuery &
+  AsyncIterator<unknown> & {
+    pushMessage(msg: unknown): void;
+    end(): void;
+  };
 
 function createMockQuery(): MockQuery {
   const pendingReads: Array<{ resolve: (result: IteratorResult<unknown>) => void }> = [];
@@ -188,7 +184,7 @@ function setupTest(
   const mockQueries: MockQuery[] = [];
   const worktreeManager = createMockWorktreeManager();
 
-  const queryFactory: QueryFactory = (params) => {
+  const queryFactory: QueryFactory = async (params) => {
     const q = createMockQuery();
     if (autoComplete) {
       // Auto-complete the session immediately
@@ -208,7 +204,7 @@ function setupTest(
       });
     }
     mockQueries.push(q);
-    return q as unknown as ReturnType<QueryFactory>;
+    return q;
   };
 
   const config = buildValidConfig(
@@ -248,12 +244,12 @@ test('it resolves with issue count and recoveries after startup', async () => {
 
 test('it performs startup recovery for in-progress issues', async () => {
   const octokit = createMockGitHubClient();
-  const queryFactory: QueryFactory = (params) => {
+  const queryFactory: QueryFactory = async (params) => {
     const q = createMockQuery();
     q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
     q.pushMessage({ type: 'result', subtype: 'success' });
     q.end();
-    return q as unknown as ReturnType<QueryFactory>;
+    return q;
   };
   const config = buildValidConfig();
 
@@ -514,10 +510,10 @@ test('it returns null from getAgentStream when no agent is running', async () =>
 
 test('it does not crash when a poll cycle throws a github API error', async () => {
   const octokit = createMockGitHubClient();
-  const queryFactory: QueryFactory = (params) => {
+  const queryFactory: QueryFactory = async (params) => {
     const q = createMockQuery();
     q.end();
-    return q as unknown as ReturnType<QueryFactory>;
+    return q;
   };
   const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
 
@@ -666,7 +662,7 @@ test('it cancels a running agent when its issue is removed from the poller snaps
   vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
   vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
 
-  const queryFactory: QueryFactory = () => {
+  const queryFactory: QueryFactory = async () => {
     const q = createMockQuery();
     // Send init but don't auto-complete -- agent stays running
     q.pushMessage({
@@ -675,7 +671,7 @@ test('it cancels a running agent when its issue is removed from the poller snaps
       session_id: `session-${mockQueries.length + 1}`,
     });
     mockQueries.push(q);
-    return q as unknown as ReturnType<QueryFactory>;
+    return q;
   };
 
   const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
@@ -730,10 +726,10 @@ test('it uses the provided repository root when one is given via dependency inje
 
   createEngine(config, {
     octokit,
-    queryFactory: () => {
+    queryFactory: async () => {
       const q = createMockQuery();
       q.end();
-      return q as unknown as ReturnType<QueryFactory>;
+      return q;
     },
     repoRoot: '/explicit/repo/root',
     worktreeManager,
@@ -752,10 +748,10 @@ test('it resolves the repository root via git when none is provided', () => {
 
   createEngine(config, {
     octokit,
-    queryFactory: () => {
+    queryFactory: async () => {
       const q = createMockQuery();
       q.end();
-      return q as unknown as ReturnType<QueryFactory>;
+      return q;
     },
   });
 
