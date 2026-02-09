@@ -676,7 +676,7 @@ test('it does nothing when c is pressed on a notification without a clipboard co
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildBaseFields(id: string, eventType: string, overrides?: Record<string, unknown>) {
+function buildBaseFields(id: string, eventType: string) {
   return {
     id,
     timestamp: '2026-02-08T10:30:45.000Z',
@@ -693,7 +693,7 @@ function buildAgentStartedNotification(
     | 'reviewer'
     | 'planner';
   const base = {
-    ...buildBaseFields(id, 'agentStarted', overrides),
+    ...buildBaseFields(id, 'agentStarted'),
     eventType: 'agentStarted' as const,
     agentType,
   };
@@ -714,7 +714,7 @@ function buildAgentCompletedNotification(
     | 'reviewer'
     | 'planner';
   const base = {
-    ...buildBaseFields(id, 'agentCompleted', overrides),
+    ...buildBaseFields(id, 'agentCompleted'),
     eventType: 'agentCompleted' as const,
     agentType,
   };
@@ -735,7 +735,7 @@ function buildAgentFailedNotification(
     | 'reviewer'
     | 'planner';
   const base = {
-    ...buildBaseFields(id, 'agentFailed', overrides),
+    ...buildBaseFields(id, 'agentFailed'),
     eventType: 'agentFailed' as const,
     agentType,
     error: (overrides?.error ?? 'err') as string,
@@ -754,7 +754,7 @@ function buildAgentSkippedNotification(
     | 'reviewer'
     | 'planner';
   const base = {
-    ...buildBaseFields(id, 'agentSkipped', overrides),
+    ...buildBaseFields(id, 'agentSkipped'),
     eventType: 'agentSkipped' as const,
     agentType,
   };
@@ -771,7 +771,7 @@ function buildEngineEventNotification(
     | 'blocked'
     | 'approved';
   const base = {
-    ...buildBaseFields(id, 'notification', overrides),
+    ...buildBaseFields(id, 'notification'),
     eventType: 'notification' as const,
     issueNumber: (overrides?.issueNumber ?? 1) as number,
     notificationType,
@@ -803,40 +803,40 @@ function buildTypedNotification(
     .with('agentFailed', () => buildAgentFailedNotification(id, overrides))
     .with('agentSkipped', () => buildAgentSkippedNotification(id, overrides))
     .with('issueStatusChanged', (t) => ({
-      ...buildBaseFields(id, t, overrides),
+      ...buildBaseFields(id, t),
       eventType: t,
       issueNumber: (overrides?.issueNumber ?? 1) as number,
       oldStatus: (overrides?.oldStatus ?? 'pending') as string | null,
       newStatus: (overrides?.newStatus ?? 'in-progress') as string,
     }))
     .with('specChanged', (t) => ({
-      ...buildBaseFields(id, t, overrides),
+      ...buildBaseFields(id, t),
       eventType: t,
       specFileName: (overrides?.specFileName ?? 'test.md') as string,
     }))
     .with('recoveryPerformed', (t) => ({
-      ...buildBaseFields(id, t, overrides),
+      ...buildBaseFields(id, t),
       eventType: t,
       issueNumber: (overrides?.issueNumber ?? 1) as number,
     }))
     .with('dispatchReady', (t) => ({
-      ...buildBaseFields(id, t, overrides),
+      ...buildBaseFields(id, t),
       eventType: t,
       issueNumber: (overrides?.issueNumber ?? 1) as number,
     }))
     .with('notification', () => buildEngineEventNotification(id, overrides))
     .with('notificationDismissed', (t) => ({
-      ...buildBaseFields(id, t, overrides),
+      ...buildBaseFields(id, t),
       eventType: t,
       issueNumber: (overrides?.issueNumber ?? 1) as number,
     }))
     .with('issueRemoved', (t) => ({
-      ...buildBaseFields(id, t, overrides),
+      ...buildBaseFields(id, t),
       eventType: t,
       issueNumber: (overrides?.issueNumber ?? 1) as number,
     }))
     .with('startup', (t) => ({
-      ...buildBaseFields(id, t, overrides),
+      ...buildBaseFields(id, t),
       eventType: t,
       issueCount: (overrides?.issueCount ?? 5) as number,
       recoveriesPerformed: (overrides?.recoveriesPerformed ?? 0) as number,
