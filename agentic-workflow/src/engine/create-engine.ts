@@ -1,42 +1,59 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import type { Engine, EngineConfig, EngineEvent } from '../types';
-import { createBashValidatorHook } from './agent-manager/bash-validator/create-bash-validator-hook';
-import { buildQueryFactory } from './agent-manager/build-query-factory';
-import { createAgentManager } from './agent-manager/create-agent-manager';
-import type { AgentManager, QueryFactory } from './agent-manager/types';
-import { createCommandDispatcher } from './command-dispatcher/create-command-dispatcher';
-import { buildResolvedConfig } from './config/build-resolved-config';
-import type { ResolvedEngineConfig } from './config/types';
-import type { Logger } from './create-logger';
-import { createLogger } from './create-logger';
-import { createDispatch } from './dispatch/create-dispatch';
-import type { Dispatch } from './dispatch/types';
-import { createEventEmitter } from './event-emitter/create-event-emitter';
-import { createGitHubClient } from './github-client/create-github-client';
-import type { GitHubClient } from './github-client/types';
-import { createIssuePoller } from './pollers/create-issue-poller';
-import { createSpecPoller } from './pollers/create-spec-poller';
-import type { IssuePoller, IssueSnapshot } from './pollers/types';
-import { getIssueDetails } from './queries/get-issue-details';
-import { getPRForIssue } from './queries/get-pr-for-issue';
-import type { QueriesConfig } from './queries/types';
-import { createRecovery } from './recovery/create-recovery';
-import type { IssuePollerSnapshot, Recovery } from './recovery/types';
-import { createWorktreeManager } from './worktree-manager/create-worktree-manager';
-import type { WorktreeManager } from './worktree-manager/types';
+import type {
+  AgentStream,
+  CancelAgentCommand,
+  CancelPlannerCommand,
+  DispatchImplementorCommand,
+  DispatchReviewerCommand,
+  Engine,
+  EngineCommand,
+  EngineConfig,
+  EngineEvent,
+  IssueDetailsResult,
+  PRDetailsResult,
+  ShutdownCommand,
+  StartupResult,
+} from '../types.ts';
+import { createBashValidatorHook } from './agent-manager/bash-validator/create-bash-validator-hook.ts';
+import { buildQueryFactory } from './agent-manager/build-query-factory.ts';
+import { createAgentManager } from './agent-manager/create-agent-manager.ts';
+import type { AgentManager, QueryFactory } from './agent-manager/types.ts';
+import { createCommandDispatcher } from './command-dispatcher/create-command-dispatcher.ts';
+import { buildResolvedConfig } from './config/build-resolved-config.ts';
+import type { ResolvedEngineConfig } from './config/types.ts';
+import type { Logger } from './create-logger.ts';
+import { createLogger } from './create-logger.ts';
+import { createDispatch } from './dispatch/create-dispatch.ts';
+import type { Dispatch } from './dispatch/types.ts';
+import { createEventEmitter } from './event-emitter/create-event-emitter.ts';
+import { createGitHubClient } from './github-client/create-github-client.ts';
+import type { GitHubClient } from './github-client/types.ts';
+import { createIssuePoller } from './pollers/create-issue-poller.ts';
+import { createSpecPoller } from './pollers/create-spec-poller.ts';
+import type { IssuePoller, IssueSnapshot } from './pollers/types.ts';
+import { getIssueDetails } from './queries/get-issue-details.ts';
+import { getPRForIssue } from './queries/get-pr-for-issue.ts';
+import type { QueriesConfig } from './queries/types.ts';
+import { createRecovery } from './recovery/create-recovery.ts';
+import type { IssuePollerSnapshot, IssueSnapshotEntry, Recovery } from './recovery/types.ts';
+import { createWorktreeManager } from './worktree-manager/create-worktree-manager.ts';
+import type { WorktreeManager } from './worktree-manager/types.ts';
 
-type EngineDeps = {
+interface EngineDeps {
   octokit?: GitHubClient;
   queryFactory?: QueryFactory;
   repoRoot?: string;
   worktreeManager?: WorktreeManager;
-};
+}
 
-type PollerTimers = {
+interface PollerTimers {
   issueTimer: ReturnType<typeof setInterval> | null;
   specTimer: ReturnType<typeof setInterval> | null;
-};
+}
+
+const SECONDS_TO_MS = 1000;
+const SHUTDOWN_CHECK_INTERVAL_MS = 1000;
 
 export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   const resolved = buildResolvedConfig(config);
@@ -55,7 +72,8 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     owner,
     repo,
     emitter,
-    logError: (message, error) => logger.error(message, { error: String(error) }),
+    logError: (message: string, error: unknown): void =>
+      logger.error(message, { error: String(error) }),
   });
 
   const specPoller = createSpecPoller({
@@ -64,7 +82,8 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     repo,
     specsDir: resolved.specPoller.specsDir,
     defaultBranch: resolved.specPoller.defaultBranch,
-    logError: (message, error) => logger.error(message, { error: String(error) }),
+    logError: (message: string, error: unknown): void =>
+      logger.error(message, { error: String(error) }),
   });
 
   const agentManager = createAgentManager({
@@ -80,15 +99,20 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       buildQueryFactory({ repoRoot, bashValidatorHook: createBashValidatorHook() }),
     loggingEnabled: resolved.logging.agentSessions,
     logsDir: resolved.logging.logsDir,
-    logError: (message, error) => logger.error(message, { error: String(error) }),
+    logError: (message: string, error: unknown): void =>
+      logger.error(message, { error: String(error) }),
   });
 
   const dispatch = createDispatch(
     emitter,
     {
-      dispatchPlanner: (specPaths) => agentManager.dispatchPlanner({ specPaths }),
-      dispatchReviewer: (issueNumber) => agentManager.dispatchReviewer({ issueNumber }),
-      isPlannerRunning: () => agentManager.isPlannerRunning(),
+      dispatchPlanner: (specPaths: string[]): void => {
+        void agentManager.dispatchPlanner({ specPaths });
+      },
+      dispatchReviewer: (issueNumber: number): void => {
+        void agentManager.dispatchReviewer({ issueNumber });
+      },
+      isPlannerRunning: (): boolean => agentManager.isPlannerRunning(),
     },
     { repository: resolved.repository },
   );
@@ -101,25 +125,25 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   };
 
   const commandDispatcher = createCommandDispatcher({
-    dispatchImplementor(command) {
+    dispatchImplementor(command: DispatchImplementorCommand): void {
       handleDispatchImplementor(command.issueNumber, issuePoller, agentManager, logger);
     },
-    dispatchReviewer(command) {
+    dispatchReviewer(command: DispatchReviewerCommand): void {
       handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
     },
-    cancelAgent(command) {
+    cancelAgent(command: CancelAgentCommand): void {
       agentManager.cancelAgent(command.issueNumber);
     },
-    cancelPlanner() {
+    cancelPlanner(_command: CancelPlannerCommand): void {
       agentManager.cancelPlanner();
     },
-    shutdown() {
+    shutdown(_command: ShutdownCommand): void {
       initiateShutdown(resolved, logger, agentManager, pollerTimers);
     },
   });
 
   return {
-    async start() {
+    async start(): Promise<StartupResult> {
       logger.info('Engine starting', {
         repository: resolved.repository,
         logLevel: resolved.logLevel,
@@ -128,7 +152,13 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       });
 
       // Step 1: Wire event handler before any events are emitted
-      const eventHandler = buildEventHandler(agentManager, recovery, issuePoller, dispatch, logger);
+      const eventHandler = buildEventHandler({
+        agentManager,
+        recovery,
+        issuePoller,
+        dispatch,
+        logger,
+      });
       emitter.on(eventHandler);
 
       // Step 2: Startup recovery
@@ -142,16 +172,17 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       dispatch.handleSpecPollerResult(specResult);
 
       // Step 5: Start recurring poll timers
-      pollerTimers.issueTimer = setInterval(async () => {
+      pollerTimers.issueTimer = setInterval(() => {
         logger.debug('IssuePoller cycle starting');
-        await issuePoller.poll();
-      }, resolved.issuePoller.pollInterval * 1000);
+        void issuePoller.poll();
+      }, resolved.issuePoller.pollInterval * SECONDS_TO_MS);
 
-      pollerTimers.specTimer = setInterval(async () => {
+      pollerTimers.specTimer = setInterval(() => {
         logger.debug('SpecPoller cycle starting');
-        const result = await specPoller.poll();
-        dispatch.handleSpecPollerResult(result);
-      }, resolved.specPoller.pollInterval * 1000);
+        void specPoller.poll().then((result) => {
+          dispatch.handleSpecPollerResult(result);
+        });
+      }, resolved.specPoller.pollInterval * SECONDS_TO_MS);
 
       const issueCount = issuePoller.getSnapshot().size;
 
@@ -166,23 +197,23 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       };
     },
 
-    on(handler) {
+    on(handler: (event: EngineEvent) => void): () => void {
       return emitter.on(handler);
     },
 
-    send(command) {
+    send(command: EngineCommand): void {
       commandDispatcher.dispatch(command);
     },
 
-    getIssueDetails(issueNumber) {
+    getIssueDetails(issueNumber: number): Promise<IssueDetailsResult> {
       return getIssueDetails(queriesConfig, issueNumber);
     },
 
-    getPRForIssue(issueNumber) {
+    getPRForIssue(issueNumber: number): Promise<PRDetailsResult> {
       return getPRForIssue(queriesConfig, issueNumber);
     },
 
-    getAgentStream(issueNumber) {
+    getAgentStream(issueNumber: number): AgentStream {
       return agentManager.getAgentStream(issueNumber);
     },
   };
@@ -192,14 +223,17 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 // Event handler (wires poller events to dispatch, agent cancellation, recovery)
 // ---------------------------------------------------------------------------
 
-function buildEventHandler(
-  agentManager: AgentManager,
-  recovery: Recovery,
-  issuePoller: IssuePoller,
-  dispatch: Dispatch,
-  logger: Logger,
-): (event: EngineEvent) => void {
-  return (event) => {
+interface EventHandlerDeps {
+  agentManager: AgentManager;
+  recovery: Recovery;
+  issuePoller: IssuePoller;
+  dispatch: Dispatch;
+  logger: Logger;
+}
+
+function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void {
+  const { agentManager, recovery, issuePoller, dispatch, logger } = deps;
+  return (event: EngineEvent): void => {
     if (event.type === 'issueStatusChanged') {
       dispatch.handleIssueStatusChanged(event);
     }
@@ -241,10 +275,10 @@ function buildEventHandler(
 // IssuePoller API (out of scope for this task) only exposes ReadonlyMap.
 function buildSnapshotAdapter(issuePoller: IssuePoller): IssuePollerSnapshot {
   return {
-    get(issueNumber) {
+    get(issueNumber: number): IssueSnapshotEntry | undefined {
       return issuePoller.getSnapshot().get(issueNumber);
     },
-    set(issueNumber, entry) {
+    set(issueNumber: number, entry: IssueSnapshotEntry): void {
       const mutableSnapshot = issuePoller.getSnapshot() as Map<number, IssueSnapshot>;
       mutableSnapshot.set(issueNumber, entry);
     },
@@ -255,7 +289,7 @@ function buildSnapshotAdapter(issuePoller: IssuePoller): IssuePollerSnapshot {
 // Command handlers
 // ---------------------------------------------------------------------------
 
-const USER_DISPATCH_STATUSES = new Set(['pending', 'unblocked', 'needs-changes']);
+const USER_DISPATCH_STATUSES: Set<string> = new Set(['pending', 'unblocked', 'needs-changes']);
 
 function handleDispatchImplementor(
   issueNumber: number,
@@ -265,8 +299,12 @@ function handleDispatchImplementor(
 ): void {
   const issue = issuePoller.getSnapshot().get(issueNumber);
 
-  if (!issue) return;
-  if (!USER_DISPATCH_STATUSES.has(issue.statusLabel)) return;
+  if (!issue) {
+    return;
+  }
+  if (!USER_DISPATCH_STATUSES.has(issue.statusLabel)) {
+    return;
+  }
 
   agentManager.dispatchImplementor({ issueNumber }).catch((error) => {
     logger.error('Failed to dispatch implementor', {
@@ -284,8 +322,12 @@ function handleDispatchReviewer(
 ): void {
   const issue = issuePoller.getSnapshot().get(issueNumber);
 
-  if (!issue) return;
-  if (issue.statusLabel !== 'review') return;
+  if (!issue) {
+    return;
+  }
+  if (issue.statusLabel !== 'review') {
+    return;
+  }
 
   agentManager.dispatchReviewer({ issueNumber }).catch((error) => {
     logger.error('Failed to dispatch reviewer', {
@@ -327,7 +369,7 @@ function initiateShutdown(
     clearInterval(checkInterval);
     agentManager.cancelAll();
     logger.info('Shutdown complete', { agentsTerminated: runningCount });
-  }, config.shutdownTimeout * 1000);
+  }, config.shutdownTimeout * SECONDS_TO_MS);
 
   const checkInterval = setInterval(() => {
     const remaining = agentManager.getRunningSessionIDs().length;
@@ -336,7 +378,7 @@ function initiateShutdown(
       clearTimeout(shutdownTimer);
       logger.info('Shutdown complete', { agentsTerminated: 0 });
     }
-  }, 1000);
+  }, SHUTDOWN_CHECK_INTERVAL_MS);
 }
 
 // ---------------------------------------------------------------------------

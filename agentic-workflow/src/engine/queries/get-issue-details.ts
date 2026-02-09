@@ -1,5 +1,5 @@
-import type { IssueDetailsResult } from '../../types';
-import type { QueriesConfig } from './types';
+import type { IssueDetailsResult } from '../../types.ts';
+import type { QueriesConfig } from './types.ts';
 
 export async function getIssueDetails(
   config: QueriesConfig,
@@ -27,9 +27,7 @@ function extractLabelNames(labels: (string | { name?: string })[]): string[] {
   for (const label of labels) {
     if (typeof label === 'string') {
       result.push(label);
-      continue;
-    }
-    if (label.name != null) {
+    } else if (label.name !== undefined && label.name !== null) {
       result.push(label.name);
     }
   }

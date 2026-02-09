@@ -1,26 +1,32 @@
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
-import type { Engine, EngineCommand, EngineEvent } from '../../types';
-import { createEngineStore } from '../store';
-import type { CachedPRDetails } from '../types';
-import { IssueList } from './issue-list';
+import type { Engine, EngineCommand, EngineEvent } from '../../types.ts';
+import { createEngineStore } from '../store.ts';
+import type { CachedPRDetails } from '../types.ts';
+import { IssueList } from './issue-list.tsx';
 
 type EventHandler = (event: EngineEvent) => void;
 
-function createMockEngine() {
+function createMockEngine(): {
+  engine: Engine;
+  emit: (event: EngineEvent) => void;
+  sentCommands: EngineCommand[];
+} {
   const handlers: EventHandler[] = [];
   const sentCommands: EngineCommand[] = [];
 
   const engine: Engine = {
     start: vi.fn(() => Promise.resolve({ issueCount: 0, recoveriesPerformed: 0 })),
-    on(handler) {
+    on(handler: EventHandler): () => void {
       handlers.push(handler);
       return () => {
         const idx = handlers.indexOf(handler);
-        if (idx >= 0) handlers.splice(idx, 1);
+        if (idx >= 0) {
+          handlers.splice(idx, 1);
+        }
       };
     },
-    send(command) {
+    send(command: EngineCommand): void {
       sentCommands.push(command);
     },
     getIssueDetails: vi.fn(() =>
@@ -44,7 +50,7 @@ function createMockEngine() {
     getAgentStream: vi.fn(() => null),
   };
 
-  function emit(event: EngineEvent) {
+  function emit(event: EngineEvent): void {
     for (const handler of handlers) {
       handler(event);
     }
@@ -53,15 +59,22 @@ function createMockEngine() {
   return { engine, emit, sentCommands };
 }
 
-type SetupTestConfig = {
+interface SetupTestConfig {
   focused?: boolean;
   height?: number;
-};
+}
 
-function setupTest(config?: SetupTestConfig) {
+function setupTest(config?: SetupTestConfig): ReturnType<typeof render> & {
+  store: ReturnType<typeof createEngineStore>;
+  emit: (event: EngineEvent) => void;
+  sentCommands: EngineCommand[];
+  onOpenURL: ReturnType<typeof vi.fn>;
+  engine: Engine;
+  onPromptChange: ReturnType<typeof vi.fn>;
+} {
   const { engine, emit, sentCommands } = createMockEngine();
   const store = createEngineStore({ engine, repository: 'owner/repo' });
-  const onOpenURL = vi.fn();
+  const onOpenUrl = vi.fn();
   const focused = config?.focused ?? true;
   const height = config?.height ?? 20;
 
@@ -71,7 +84,7 @@ function setupTest(config?: SetupTestConfig) {
     <IssueList
       store={store}
       focused={focused}
-      onOpenURL={onOpenURL}
+      onOpenURL={onOpenUrl}
       repository="owner/repo"
       height={height}
       promptActive={false}
@@ -79,21 +92,21 @@ function setupTest(config?: SetupTestConfig) {
     />,
   );
 
-  return { ...instance, store, emit, sentCommands, onOpenURL, engine, onPromptChange };
+  return { ...instance, store, emit, sentCommands, onOpenURL: onOpenUrl, engine, onPromptChange };
 }
 
-type AddIssueOverrides = {
+interface AddIssueOverrides {
   title?: string;
   status?: string;
   priority?: string;
   createdAt?: string;
-};
+}
 
 function addIssue(
   emit: (event: EngineEvent) => void,
   issueNumber: number,
   overrides?: AddIssueOverrides,
-) {
+): void {
   emit({
     type: 'issueStatusChanged',
     issueNumber,
@@ -861,7 +874,7 @@ test('it falls back to the issue URL when no PR is found for a review issue', as
 test('it scrolls to keep the selected item visible when navigating past the visible area', async () => {
   const { lastFrame, emit, store, stdin } = setupTest({ height: 3 });
 
-  for (let i = 1; i <= 5; i++) {
+  for (let i = 1; i <= 5; i += 1) {
     addIssue(emit, i, {
       title: `Issue${i}`,
       createdAt: `2026-01-0${i}T00:00:00Z`,

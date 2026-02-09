@@ -1,9 +1,12 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
-import { getIssueDetails } from './get-issue-details';
-import type { QueriesConfig } from './types';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.ts';
+import { getIssueDetails } from './get-issue-details.ts';
+import type { QueriesConfig } from './types.ts';
 
-function setupTest() {
+function setupTest(): {
+  octokit: ReturnType<typeof createMockGitHubClient>;
+  config: QueriesConfig;
+} {
   const octokit = createMockGitHubClient();
   const config: QueriesConfig = {
     octokit,

@@ -1,9 +1,12 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
-import { buildClosingKeywordPattern, getPRForIssue } from './get-pr-for-issue';
-import type { QueriesConfig } from './types';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.ts';
+import { buildClosingKeywordPattern, getPRForIssue } from './get-pr-for-issue.ts';
+import type { QueriesConfig } from './types.ts';
 
-function setupTest() {
+function setupTest(): {
+  octokit: ReturnType<typeof createMockGitHubClient>;
+  config: QueriesConfig;
+} {
   const octokit = createMockGitHubClient();
   const config: QueriesConfig = {
     octokit,
@@ -13,7 +16,7 @@ function setupTest() {
   return { octokit, config };
 }
 
-function setupLinkedPR(octokit: ReturnType<typeof createMockGitHubClient>, body: string) {
+function setupLinkedPr(octokit: ReturnType<typeof createMockGitHubClient>, body: string): void {
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [{ number: 20, body }],
   });
@@ -225,47 +228,47 @@ test('it avoids false matches when the issue number is a prefix of another numbe
 
 test('it finds a linked PR when the body uses "Fixes" keyword', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Fixes #10');
+  setupLinkedPr(octokit, 'Fixes #10');
 
   const result = await getPRForIssue(config, 10);
   expect(result).not.toBeNull();
-  expect(result!.number).toBe(20);
+  expect(result?.number).toBe(20);
 });
 
 test('it finds a linked PR when the body uses "Resolves" keyword', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Resolves #10');
+  setupLinkedPr(octokit, 'Resolves #10');
 
   const result = await getPRForIssue(config, 10);
   expect(result).not.toBeNull();
-  expect(result!.number).toBe(20);
+  expect(result?.number).toBe(20);
 });
 
 test('it finds a linked PR when the closing keyword is lowercase', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'closes #10');
+  setupLinkedPr(octokit, 'closes #10');
 
   const result = await getPRForIssue(config, 10);
   expect(result).not.toBeNull();
-  expect(result!.number).toBe(20);
+  expect(result?.number).toBe(20);
 });
 
 test('it finds a linked PR when the closing keyword is uppercase', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'FIXES #10');
+  setupLinkedPr(octokit, 'FIXES #10');
 
   const result = await getPRForIssue(config, 10);
   expect(result).not.toBeNull();
-  expect(result!.number).toBe(20);
+  expect(result?.number).toBe(20);
 });
 
 test('it finds a linked PR when the closing reference is followed by a period', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Fixes things. Closes #10.');
+  setupLinkedPr(octokit, 'Fixes things. Closes #10.');
 
   const result = await getPRForIssue(config, 10);
   expect(result).not.toBeNull();
-  expect(result!.number).toBe(20);
+  expect(result?.number).toBe(20);
 });
 
 test('it returns the first matching PR by number when multiple link to the same issue', async () => {
@@ -297,7 +300,7 @@ test('it returns the first matching PR by number when multiple link to the same 
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.number).toBe(120);
+  expect(result?.number).toBe(120);
   expect(octokit.pulls.get).toHaveBeenCalledWith({
     owner: 'test-owner',
     repo: 'test-repo',
@@ -322,7 +325,7 @@ test('it skips pull requests with a null body', async () => {
 
 test('it reports failure when the combined status is failure', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'failure', total_count: 1 },
@@ -333,12 +336,12 @@ test('it reports failure when the combined status is failure', async () => {
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('failure');
+  expect(result?.ciStatus).toBe('failure');
 });
 
 test('it reports failure when any check run has a failure conclusion', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
@@ -355,12 +358,12 @@ test('it reports failure when any check run has a failure conclusion', async () 
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('failure');
+  expect(result?.ciStatus).toBe('failure');
 });
 
 test('it reports failure when any check run has a cancelled conclusion', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
@@ -374,12 +377,12 @@ test('it reports failure when any check run has a cancelled conclusion', async (
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('failure');
+  expect(result?.ciStatus).toBe('failure');
 });
 
 test('it reports failure when any check run has a timed out conclusion', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
@@ -393,12 +396,12 @@ test('it reports failure when any check run has a timed out conclusion', async (
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('failure');
+  expect(result?.ciStatus).toBe('failure');
 });
 
 test('it reports pending when checks have not completed', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 0 },
@@ -412,12 +415,12 @@ test('it reports pending when checks have not completed', async () => {
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('pending');
+  expect(result?.ciStatus).toBe('pending');
 });
 
 test('it reports pending when the combined status is pending', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'pending', total_count: 1 },
@@ -428,12 +431,12 @@ test('it reports pending when the combined status is pending', async () => {
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('pending');
+  expect(result?.ciStatus).toBe('pending');
 });
 
 test('it reports pending when no CI is configured', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'pending', total_count: 0 },
@@ -444,12 +447,12 @@ test('it reports pending when no CI is configured', async () => {
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('pending');
+  expect(result?.ciStatus).toBe('pending');
 });
 
 test('it reports success when all check runs complete successfully', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'success', total_count: 1 },
@@ -466,12 +469,12 @@ test('it reports success when all check runs complete successfully', async () =>
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('success');
+  expect(result?.ciStatus).toBe('success');
 });
 
 test('it reports success when combined status has no statuses and all check runs succeed', async () => {
   const { octokit, config } = setupTest();
-  setupLinkedPR(octokit, 'Closes #10');
+  setupLinkedPr(octokit, 'Closes #10');
 
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'pending', total_count: 0 },
@@ -485,7 +488,7 @@ test('it reports success when combined status has no statuses and all check runs
   });
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('success');
+  expect(result?.ciStatus).toBe('success');
 });
 
 test('it defaults to pending when the CI status API call fails', async () => {
@@ -508,7 +511,7 @@ test('it defaults to pending when the CI status API call fails', async () => {
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockRejectedValue(new Error('API error'));
 
   const result = await getPRForIssue(config, 10);
-  expect(result!.ciStatus).toBe('pending');
+  expect(result?.ciStatus).toBe('pending');
 });
 
 test('it propagates API errors when listing pull requests', async () => {

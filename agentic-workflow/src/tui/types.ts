@@ -1,16 +1,16 @@
-import type { Engine } from '../types';
+import type { Engine } from '../types.ts';
 
 export type TaskAgentType = 'implementor' | 'reviewer';
 
-export type LastFailure = {
+export interface LastFailure {
   agentType: TaskAgentType;
   error: string;
   sessionID: string;
   worktreePath?: string;
   logFilePath?: string;
-};
+}
 
-export type TrackedIssue = {
+export interface TrackedIssue {
   number: number;
   title: string;
   statusLabel: string;
@@ -19,15 +19,15 @@ export type TrackedIssue = {
   agentRunning: boolean;
   agentType?: TaskAgentType;
   lastFailure?: LastFailure;
-};
+}
 
-export type BaseNotification = {
+export interface BaseNotification {
   id: string;
   timestamp: string;
   summary: string;
   contextURL?: string;
   clipboardCommand?: string;
-};
+}
 
 export type AgentStartedNotification = BaseNotification & {
   eventType: 'agentStarted';
@@ -120,24 +120,27 @@ export type Notification =
 
 export type FocusedPane = 'issueList' | 'detailPane' | 'notifications';
 
-export type CachedIssueDetails = {
+export interface CachedIssueDetails {
   body: string;
   labels: string[];
   stale: boolean;
-};
+}
 
-export type CachedPRDetails = {
+export interface CachedPRDetails {
   number: number;
   title: string;
   changedFilesCount: number;
   ciStatus: 'pending' | 'success' | 'failure';
   url: string;
   stale: boolean;
-};
+}
 
-export type Repository = { owner: string; repo: string };
+export interface Repository {
+  owner: string;
+  repo: string;
+}
 
-export type EngineStoreState = {
+export interface EngineStoreState {
   repository: Repository;
   issues: Map<number, TrackedIssue>;
   notifications: Notification[];
@@ -149,20 +152,20 @@ export type EngineStoreState = {
   focusedPane: FocusedPane;
   selectedIssue: number | null;
   shuttingDown: boolean;
-};
+}
 
-export type EngineStoreActions = {
+export interface EngineStoreActions {
   dispatchImplementor: (issueNumber: number) => void;
   dispatchReviewer: (issueNumber: number) => void;
   cancelAgent: (issueNumber: number) => void;
   shutdown: () => void;
   cycleFocus: (direction: 'forward' | 'backward') => void;
   selectIssue: (issueNumber: number) => void;
-};
+}
 
 export type EngineStore = EngineStoreState & EngineStoreActions;
 
-export type CreateEngineStoreConfig = {
+export interface CreateEngineStoreConfig {
   engine: Engine;
   repository: string;
-};
+}

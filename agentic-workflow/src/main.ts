@@ -1,8 +1,8 @@
-import { loadConfig } from './engine/config/load-config';
-import { createEngine } from './engine/create-engine';
-import { renderApp } from './tui/index';
+import { loadConfig } from './engine/config/load-config.ts';
+import { createEngine } from './engine/create-engine.ts';
+import { renderApp } from './tui/index.tsx';
 
-async function main() {
+async function main(): Promise<void> {
   const config = await loadConfig();
   const engine = createEngine(config);
   const { waitUntilExit } = renderApp({
@@ -12,4 +12,4 @@ async function main() {
   await waitUntilExit();
 }
 
-main();
+void main();

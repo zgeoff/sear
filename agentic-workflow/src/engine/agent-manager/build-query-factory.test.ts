@@ -2,8 +2,8 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { vol } from 'memfs';
 import invariant from 'tiny-invariant';
 import { expect, test, vi } from 'vitest';
-import { buildQueryFactory } from './build-query-factory';
-import type { QueryFactoryConfig, QueryFactoryParams } from './types';
+import { buildQueryFactory } from './build-query-factory.ts';
+import type { QueryFactoryConfig, QueryFactoryParams } from './types.ts';
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(() => ({
@@ -14,15 +14,19 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   })),
 }));
 
-const mockQuery = vi.mocked(query);
+const mockQuery: ReturnType<typeof vi.mocked<typeof query>> = vi.mocked(query);
 
-type SetupOverrides = {
+interface SetupOverrides {
   agentName: string;
   frontmatter: string;
   body: string;
-};
+}
 
-function setupTest(overrides?: Partial<SetupOverrides>) {
+function setupTest(overrides?: Partial<SetupOverrides>): {
+  config: QueryFactoryConfig;
+  params: QueryFactoryParams;
+  bashValidatorHook: ReturnType<typeof vi.fn>;
+} {
   vol.reset();
   mockQuery.mockClear();
 

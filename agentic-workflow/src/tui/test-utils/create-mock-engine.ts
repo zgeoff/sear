@@ -1,20 +1,20 @@
 import { vi } from 'vitest';
-import type { Engine, EngineCommand, EngineEvent } from '../../types';
+import type { Engine, EngineCommand, EngineEvent } from '../../types.ts';
 
 type EventHandler = (event: EngineEvent) => void;
 
-export type MockEngineOverrides = {
+export interface MockEngineOverrides {
   start?: Engine['start'];
   getIssueDetails?: Engine['getIssueDetails'];
   getPRForIssue?: Engine['getPRForIssue'];
   getAgentStream?: Engine['getAgentStream'];
-};
+}
 
-export type MockEngineResult = {
+export interface MockEngineResult {
   engine: Engine;
   emit: (event: EngineEvent) => void;
   sentCommands: EngineCommand[];
-};
+}
 
 export function createMockEngine(overrides?: MockEngineOverrides): MockEngineResult {
   const handlers: EventHandler[] = [];
@@ -23,14 +23,16 @@ export function createMockEngine(overrides?: MockEngineOverrides): MockEngineRes
   const engine: Engine = {
     start:
       overrides?.start ?? vi.fn(() => Promise.resolve({ issueCount: 0, recoveriesPerformed: 0 })),
-    on(handler) {
+    on(handler: EventHandler): () => void {
       handlers.push(handler);
       return () => {
         const idx = handlers.indexOf(handler);
-        if (idx >= 0) handlers.splice(idx, 1);
+        if (idx >= 0) {
+          handlers.splice(idx, 1);
+        }
       };
     },
-    send(command) {
+    send(command: EngineCommand): void {
       sentCommands.push(command);
     },
     getIssueDetails:
@@ -58,7 +60,7 @@ export function createMockEngine(overrides?: MockEngineOverrides): MockEngineRes
     getAgentStream: overrides?.getAgentStream ?? vi.fn(() => null),
   };
 
-  function emit(event: EngineEvent) {
+  function emit(event: EngineEvent): void {
     for (const handler of handlers) {
       handler(event);
     }

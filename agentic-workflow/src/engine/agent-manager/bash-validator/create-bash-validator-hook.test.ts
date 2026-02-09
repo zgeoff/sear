@@ -1,10 +1,12 @@
 import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
 import { expect, test } from 'vitest';
-import { createBashValidatorHook } from './create-bash-validator-hook';
+import { createBashValidatorHook } from './create-bash-validator-hook.ts';
 
-type HookOptions = { signal: AbortSignal };
+interface HookOptions {
+  signal: AbortSignal;
+}
 
-function setupTest() {
+function setupTest(): { hook: ReturnType<typeof createBashValidatorHook>; options: HookOptions } {
   const hook = createBashValidatorHook();
   const options: HookOptions = { signal: AbortSignal.abort() };
   return { hook, options };

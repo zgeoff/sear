@@ -25,7 +25,7 @@ import type {
   ReposGetCombinedStatusResult,
   ReposGetContentParams,
   ReposGetContentResult,
-} from './types';
+} from './types.ts';
 
 export function createGitHubClient(config: GitHubClientConfig): GitHubClient {
   const octokit = new Octokit({

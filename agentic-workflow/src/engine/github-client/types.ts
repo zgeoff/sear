@@ -7,238 +7,238 @@
 // Issues
 // ---------------------------------------------------------------------------
 
-export type IssuesGetParams = {
+export interface IssuesGetParams {
   owner: string;
   repo: string;
   issue_number: number;
-};
+}
 
-export type IssueData = {
+export interface IssueData {
   number: number;
   title: string;
   body: string | null;
   labels: (string | { name?: string })[];
   created_at: string;
-};
+}
 
-export type IssuesGetResult = {
+export interface IssuesGetResult {
   data: IssueData;
-};
+}
 
-export type IssuesListForRepoParams = {
+export interface IssuesListForRepoParams {
   owner: string;
   repo: string;
   labels: string;
   state: 'open' | 'closed' | 'all';
   per_page: number;
-};
+}
 
-export type IssuesListForRepoResult = {
+export interface IssuesListForRepoResult {
   data: IssueData[];
-};
+}
 
-export type IssuesAddLabelsParams = {
+export interface IssuesAddLabelsParams {
   owner: string;
   repo: string;
   issue_number: number;
   labels: string[];
-};
+}
 
-export type IssuesAddLabelsResult = {
+export interface IssuesAddLabelsResult {
   data: unknown;
-};
+}
 
-export type IssuesRemoveLabelParams = {
+export interface IssuesRemoveLabelParams {
   owner: string;
   repo: string;
   issue_number: number;
   name: string;
-};
+}
 
-export type IssuesRemoveLabelResult = {
+export interface IssuesRemoveLabelResult {
   data: unknown;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Pulls
 // ---------------------------------------------------------------------------
 
-export type PullsListParams = {
+export interface PullsListParams {
   owner: string;
   repo: string;
   state: 'open' | 'closed' | 'all';
   per_page: number;
-};
+}
 
-export type PullsListItem = {
+export interface PullsListItem {
   number: number;
   body: string | null;
-};
+}
 
-export type PullsListResult = {
+export interface PullsListResult {
   data: PullsListItem[];
-};
+}
 
-export type PullsGetParams = {
+export interface PullsGetParams {
   owner: string;
   repo: string;
   pull_number: number;
-};
+}
 
-export type PullHeadRef = {
+export interface PullHeadRef {
   sha: string;
-};
+}
 
-export type PullData = {
+export interface PullData {
   number: number;
   title: string;
   changed_files: number;
   html_url: string;
   head: PullHeadRef;
-};
+}
 
-export type PullsGetResult = {
+export interface PullsGetResult {
   data: PullData;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Repos
 // ---------------------------------------------------------------------------
 
-export type ReposGetCombinedStatusParams = {
+export interface ReposGetCombinedStatusParams {
   owner: string;
   repo: string;
   ref: string;
-};
+}
 
-export type CombinedStatusData = {
+export interface CombinedStatusData {
   state: string;
   total_count: number;
-};
+}
 
-export type ReposGetCombinedStatusResult = {
+export interface ReposGetCombinedStatusResult {
   data: CombinedStatusData;
-};
+}
 
-export type ReposGetContentParams = {
+export interface ReposGetContentParams {
   owner: string;
   repo: string;
   path: string;
   ref: string;
-};
+}
 
-export type ReposContentData = {
+export interface ReposContentData {
   content?: string;
-};
+}
 
-export type ReposGetContentResult = {
+export interface ReposGetContentResult {
   data: ReposContentData;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------
 
-export type ChecksListForRefParams = {
+export interface ChecksListForRefParams {
   owner: string;
   repo: string;
   ref: string;
-};
+}
 
-export type CheckRun = {
+export interface CheckRun {
   status: string;
   conclusion: string | null;
-};
+}
 
-export type ChecksListForRefData = {
+export interface ChecksListForRefData {
   total_count: number;
   check_runs: CheckRun[];
-};
+}
 
-export type ChecksListForRefResult = {
+export interface ChecksListForRefResult {
   data: ChecksListForRefData;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Git
 // ---------------------------------------------------------------------------
 
-export type GitGetTreeParams = {
+export interface GitGetTreeParams {
   owner: string;
   repo: string;
   tree_sha: string;
   recursive?: string;
-};
+}
 
-export type TreeEntry = {
+export interface TreeEntry {
   path?: string;
   sha?: string;
   type?: string;
-};
+}
 
-export type GitTreeData = {
+export interface GitTreeData {
   sha: string;
   tree: TreeEntry[];
-};
+}
 
-export type GitGetTreeResult = {
+export interface GitGetTreeResult {
   data: GitTreeData;
-};
+}
 
-export type GitGetRefParams = {
+export interface GitGetRefParams {
   owner: string;
   repo: string;
   ref: string;
-};
+}
 
-export type GitRefObject = {
+export interface GitRefObject {
   sha: string;
-};
+}
 
-export type GitRefData = {
+export interface GitRefData {
   object: GitRefObject;
-};
+}
 
-export type GitGetRefResult = {
+export interface GitGetRefResult {
   data: GitRefData;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-export type GitHubClientConfig = {
+export interface GitHubClientConfig {
   appID: number;
   privateKey: string;
   installationID: number;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
 
-export type GitHubClient = {
+export interface GitHubClient {
   issues: {
-    get(params: IssuesGetParams): Promise<IssuesGetResult>;
-    listForRepo(params: IssuesListForRepoParams): Promise<IssuesListForRepoResult>;
-    addLabels(params: IssuesAddLabelsParams): Promise<IssuesAddLabelsResult>;
-    removeLabel(params: IssuesRemoveLabelParams): Promise<IssuesRemoveLabelResult>;
+    get: (params: IssuesGetParams) => Promise<IssuesGetResult>;
+    listForRepo: (params: IssuesListForRepoParams) => Promise<IssuesListForRepoResult>;
+    addLabels: (params: IssuesAddLabelsParams) => Promise<IssuesAddLabelsResult>;
+    removeLabel: (params: IssuesRemoveLabelParams) => Promise<IssuesRemoveLabelResult>;
   };
   pulls: {
-    list(params: PullsListParams): Promise<PullsListResult>;
-    get(params: PullsGetParams): Promise<PullsGetResult>;
+    list: (params: PullsListParams) => Promise<PullsListResult>;
+    get: (params: PullsGetParams) => Promise<PullsGetResult>;
   };
   repos: {
-    getCombinedStatusForRef(
+    getCombinedStatusForRef: (
       params: ReposGetCombinedStatusParams,
-    ): Promise<ReposGetCombinedStatusResult>;
-    getContent(params: ReposGetContentParams): Promise<ReposGetContentResult>;
+    ) => Promise<ReposGetCombinedStatusResult>;
+    getContent: (params: ReposGetContentParams) => Promise<ReposGetContentResult>;
   };
   checks: {
-    listForRef(params: ChecksListForRefParams): Promise<ChecksListForRefResult>;
+    listForRef: (params: ChecksListForRefParams) => Promise<ChecksListForRefResult>;
   };
   git: {
-    getTree(params: GitGetTreeParams): Promise<GitGetTreeResult>;
-    getRef(params: GitGetRefParams): Promise<GitGetRefResult>;
+    getTree: (params: GitGetTreeParams) => Promise<GitGetTreeResult>;
+    getRef: (params: GitGetRefParams) => Promise<GitGetRefResult>;
   };
-};
+}

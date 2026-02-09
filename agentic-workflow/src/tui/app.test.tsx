@@ -1,19 +1,25 @@
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
-import type { StartupResult } from '../types';
-import { App } from './app';
-import { createMockEngine } from './test-utils/create-mock-engine';
+import type { StartupResult } from '../types.ts';
+import { App } from './app.tsx';
+import { createMockEngine } from './test-utils/create-mock-engine.ts';
 
-type DeferredStartResult = {
+interface DeferredStartResult {
   resolveStart: (result: StartupResult) => void;
   rejectStart: (error: Error) => void;
   waitForStartCalled: () => Promise<void>;
-};
+}
 
 function createDeferredStart(): DeferredStartResult & { start: () => Promise<StartupResult> } {
-  let resolveStart: (result: StartupResult) => void = () => {};
-  let rejectStart: (error: Error) => void = () => {};
-  let resolveStartCalled: () => void = () => {};
+  let resolveStart: (result: StartupResult) => void = () => {
+    /* noop placeholder */
+  };
+  let rejectStart: (error: Error) => void = () => {
+    /* noop placeholder */
+  };
+  let resolveStartCalled: () => void = () => {
+    /* noop placeholder */
+  };
   const startCalledPromise = new Promise<void>((resolve) => {
     resolveStartCalled = resolve;
   });
@@ -29,20 +35,24 @@ function createDeferredStart(): DeferredStartResult & { start: () => Promise<Sta
 
   return {
     start,
-    resolveStart: (result) => resolveStart(result),
-    rejectStart: (error) => rejectStart(error),
+    resolveStart: (result: StartupResult) => resolveStart(result),
+    rejectStart: (error: Error) => rejectStart(error),
     waitForStartCalled: () => startCalledPromise,
   };
 }
 
-function setupTest() {
+function setupTest(): ReturnType<typeof createMockEngine> &
+  DeferredStartResult &
+  ReturnType<typeof render> & { start: () => Promise<StartupResult> } {
   const deferred = createDeferredStart();
   const mock = createMockEngine({ start: deferred.start });
   const instance = render(<App engine={mock.engine} repository="owner/repo" />);
   return { ...mock, ...deferred, ...instance };
 }
 
-async function setupStartedTest(startupResult?: StartupResult) {
+async function setupStartedTest(
+  startupResult?: StartupResult,
+): Promise<ReturnType<typeof setupTest>> {
   const result = setupTest();
   await result.waitForStartCalled();
   result.resolveStart(startupResult ?? { issueCount: 0, recoveriesPerformed: 0 });

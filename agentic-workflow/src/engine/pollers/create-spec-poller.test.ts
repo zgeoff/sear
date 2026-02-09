@@ -1,67 +1,73 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
-import type { GitHubClient } from '../github-client/types';
-import { createSpecPoller } from './create-spec-poller';
-import type { LogError, SpecPollerSnapshot } from './types';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.ts';
+import type { GitHubClient } from '../github-client/types.ts';
+import { createSpecPoller } from './create-spec-poller.ts';
+import type { LogError, SpecPollerSnapshot } from './types.ts';
 
 // ---------------------------------------------------------------------------
 // Mock GitHub client factory (builds on shared createMockGitHubClient)
 // ---------------------------------------------------------------------------
 
-type TreeEntry = {
+interface TreeEntry {
   path: string;
   sha: string;
   type: 'blob' | 'tree';
-};
+}
 
-type MockGetTreeParams = {
+interface MockGetTreeParams {
   tree_sha: string;
   recursive?: string;
-};
+}
 
-type MockGetTreeResult = {
+interface MockGetTreeResult {
   data: { sha: string; tree: TreeEntry[] };
-};
+}
 
-type MockGetContentParams = {
+interface MockGetContentParams {
   path: string;
   ref?: string;
-};
+}
 
-type MockGetContentResult = {
+interface MockGetContentResult {
   data: { content?: string };
-};
+}
 
-type MockGetRefParams = {
+interface MockGetRefParams {
   ref: string;
-};
+}
 
-type MockGetRefResult = {
+interface MockGetRefResult {
   data: { object: { sha: string } };
-};
+}
 
-type MockHandlers = {
+interface MockHandlers {
   getTree: (params: MockGetTreeParams) => MockGetTreeResult;
   getContent: (params: MockGetContentParams) => MockGetContentResult;
   getRef: (params: MockGetRefParams) => MockGetRefResult;
-};
+}
 
 function buildMockClient(handlers: Partial<MockHandlers> = {}): GitHubClient {
   const client = createMockGitHubClient();
 
-  vi.mocked(client.git.getTree).mockImplementation(async (params) => {
-    if (handlers.getTree && params) return handlers.getTree(params);
-    return { data: { sha: '', tree: [] } };
+  vi.mocked(client.git.getTree).mockImplementation((params) => {
+    if (handlers.getTree && params) {
+      return Promise.resolve(handlers.getTree(params));
+    }
+    return Promise.resolve({ data: { sha: '', tree: [] } });
   });
 
-  vi.mocked(client.git.getRef).mockImplementation(async (params) => {
-    if (handlers.getRef && params) return handlers.getRef(params);
-    return { data: { object: { sha: 'head-commit-sha' } } };
+  vi.mocked(client.git.getRef).mockImplementation((params) => {
+    if (handlers.getRef && params) {
+      return Promise.resolve(handlers.getRef(params));
+    }
+    return Promise.resolve({ data: { object: { sha: 'head-commit-sha' } } });
   });
 
-  vi.mocked(client.repos.getContent).mockImplementation(async (params) => {
-    if (handlers.getContent && params) return handlers.getContent(params);
-    return { data: {} };
+  vi.mocked(client.repos.getContent).mockImplementation((params) => {
+    if (handlers.getContent && params) {
+      return Promise.resolve().then(() => handlers.getContent(params));
+    }
+    return Promise.resolve({ data: {} });
   });
 
   return client;
@@ -83,15 +89,18 @@ function toBase64(content: string): string {
 // Default setup helper
 // ---------------------------------------------------------------------------
 
-type SetupOptions = {
+interface SetupOptions {
   handlers?: Partial<MockHandlers>;
   specsDir?: string;
   defaultBranch?: string;
   logError?: LogError;
   initialSnapshot?: SpecPollerSnapshot;
-};
+}
 
-function setupTest(options: SetupOptions = {}) {
+function setupTest(options: SetupOptions = {}): {
+  octokit: GitHubClient;
+  poller: ReturnType<typeof createSpecPoller>;
+} {
   const octokit = buildMockClient(options.handlers);
   const logError = options.logError ?? vi.fn();
   const poller = createSpecPoller({
@@ -110,9 +119,12 @@ function setupTest(options: SetupOptions = {}) {
 // Tree handler builder
 // ---------------------------------------------------------------------------
 
-function buildTreeHandlers(specsDirTreeSHA: string, specFiles: TreeEntry[]) {
+function buildTreeHandlers(
+  specsDirTreeSha: string,
+  specFiles: TreeEntry[],
+): { getTree: (params: MockGetTreeParams) => MockGetTreeResult } {
   return {
-    getTree: (params: { tree_sha: string; recursive?: string }) => {
+    getTree: (params: { tree_sha: string; recursive?: string }): MockGetTreeResult => {
       // Root recursive tree (branch name) -- includes specs dir entry
       if (params.tree_sha === 'main') {
         return {
@@ -120,16 +132,16 @@ function buildTreeHandlers(specsDirTreeSHA: string, specFiles: TreeEntry[]) {
             sha: 'root-tree-sha',
             tree: [
               { path: 'docs', sha: 'docs-tree-sha', type: 'tree' as const },
-              { path: 'docs/specs', sha: specsDirTreeSHA, type: 'tree' as const },
+              { path: 'docs/specs', sha: specsDirTreeSha, type: 'tree' as const },
             ],
           },
         };
       }
       // Specs subtree (recursive fetch for change detection)
-      if (params.tree_sha === specsDirTreeSHA) {
+      if (params.tree_sha === specsDirTreeSha) {
         return {
           data: {
-            sha: specsDirTreeSHA,
+            sha: specsDirTreeSha,
             tree: specFiles,
           },
         };
@@ -240,7 +252,7 @@ test('it detects new spec files and returns their frontmatter status', async () 
 // ---------------------------------------------------------------------------
 
 test('it detects modified files when the blob SHA changes between polls', async () => {
-  let specsDirTreeSHA = 'specs-tree-sha-1';
+  let specsDirTreeSha = 'specs-tree-sha-1';
   let specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
   let engineContent = buildSpecContent('draft');
 
@@ -252,12 +264,12 @@ test('it detects modified files when the blob SHA changes between polls', async 
             sha: 'root-sha',
             tree: [
               { path: 'docs', sha: 'docs-sha', type: 'tree' as const },
-              { path: 'docs/specs', sha: specsDirTreeSHA, type: 'tree' as const },
+              { path: 'docs/specs', sha: specsDirTreeSha, type: 'tree' as const },
             ],
           },
         };
       }
-      return { data: { sha: specsDirTreeSHA, tree: specFiles } };
+      return { data: { sha: specsDirTreeSha, tree: specFiles } };
     },
     getContent: () => ({
       data: { content: toBase64(engineContent) },
@@ -273,7 +285,7 @@ test('it detects modified files when the blob SHA changes between polls', async 
   expect(result1.changes[0]?.frontmatterStatus).toBe('draft');
 
   // Simulate file modification: new blob SHA, new tree SHA, new content
-  specsDirTreeSHA = 'specs-tree-sha-2';
+  specsDirTreeSha = 'specs-tree-sha-2';
   specFiles = [{ path: 'engine.md', sha: 'blob-sha-2', type: 'blob' as const }];
   engineContent = buildSpecContent('approved');
 
@@ -289,7 +301,7 @@ test('it detects modified files when the blob SHA changes between polls', async 
 // ---------------------------------------------------------------------------
 
 test('it removes deleted files from the snapshot without including them in the result', async () => {
-  let specsDirTreeSHA = 'specs-tree-sha-1';
+  let specsDirTreeSha = 'specs-tree-sha-1';
   let specFiles: TreeEntry[] = [
     { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
     { path: 'tui.md', sha: 'blob-sha-2', type: 'blob' as const },
@@ -308,12 +320,12 @@ test('it removes deleted files from the snapshot without including them in the r
             sha: 'root-sha',
             tree: [
               { path: 'docs', sha: 'docs-sha', type: 'tree' as const },
-              { path: 'docs/specs', sha: specsDirTreeSHA, type: 'tree' as const },
+              { path: 'docs/specs', sha: specsDirTreeSha, type: 'tree' as const },
             ],
           },
         };
       }
-      return { data: { sha: specsDirTreeSHA, tree: specFiles } };
+      return { data: { sha: specsDirTreeSha, tree: specFiles } };
     },
     getContent: (params: { path: string }) => ({
       data: { content: toBase64(contentMap[params.path] ?? '') },
@@ -328,7 +340,7 @@ test('it removes deleted files from the snapshot without including them in the r
   expect(result1.changes).toHaveLength(2);
 
   // Remove tui.md from tree
-  specsDirTreeSHA = 'specs-tree-sha-2';
+  specsDirTreeSha = 'specs-tree-sha-2';
   specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
 
   // Second poll: tree changed but engine.md blob SHA is same, tui.md removed
@@ -336,7 +348,7 @@ test('it removes deleted files from the snapshot without including them in the r
   expect(result2.changes).toHaveLength(0);
 
   // Verify: adding tui.md back as new should detect it again
-  specsDirTreeSHA = 'specs-tree-sha-3';
+  specsDirTreeSha = 'specs-tree-sha-3';
   specFiles = [
     { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
     { path: 'tui.md', sha: 'blob-sha-3', type: 'blob' as const },
@@ -451,7 +463,7 @@ test('it skips files whose content fetch fails and continues with others', async
 // ---------------------------------------------------------------------------
 
 test('it does not fetch content for files with unchanged blob SHA', async () => {
-  let specsDirTreeSHA = 'specs-tree-sha-1';
+  let specsDirTreeSha = 'specs-tree-sha-1';
   let specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
 
   const handlers = {
@@ -462,12 +474,12 @@ test('it does not fetch content for files with unchanged blob SHA', async () => 
             sha: 'root-sha',
             tree: [
               { path: 'docs', sha: 'docs-sha', type: 'tree' as const },
-              { path: 'docs/specs', sha: specsDirTreeSHA, type: 'tree' as const },
+              { path: 'docs/specs', sha: specsDirTreeSha, type: 'tree' as const },
             ],
           },
         };
       }
-      return { data: { sha: specsDirTreeSHA, tree: specFiles } };
+      return { data: { sha: specsDirTreeSha, tree: specFiles } };
     },
     getContent: () => ({
       data: { content: toBase64(buildSpecContent('approved')) },
@@ -481,7 +493,7 @@ test('it does not fetch content for files with unchanged blob SHA', async () => 
   await poller.poll();
 
   // Change tree SHA but keep same blob SHA for engine.md, add a new file
-  specsDirTreeSHA = 'specs-tree-sha-2';
+  specsDirTreeSha = 'specs-tree-sha-2';
   specFiles = [
     { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
     { path: 'tui.md', sha: 'blob-sha-new', type: 'blob' as const },

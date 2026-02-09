@@ -1,24 +1,25 @@
+import process from 'node:process';
 export type LogLevel = 'debug' | 'info' | 'error';
 
-export type LogEntry = {
+export interface LogEntry {
   timestamp: string;
   level: LogLevel;
   message: string;
   [key: string]: unknown;
-};
+}
 
 export type LogWriter = (entry: LogEntry) => void;
 
-export type Logger = {
-  debug(message: string, data?: Record<string, unknown>): void;
-  info(message: string, data?: Record<string, unknown>): void;
-  error(message: string, data?: Record<string, unknown>): void;
-};
+export interface Logger {
+  debug: (message: string, data?: Record<string, unknown>) => void;
+  info: (message: string, data?: Record<string, unknown>) => void;
+  error: (message: string, data?: Record<string, unknown>) => void;
+}
 
-type LoggerConfig = {
+interface LoggerConfig {
   logLevel: LogLevel;
   writer?: LogWriter;
-};
+}
 
 const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
@@ -31,19 +32,19 @@ export function createLogger(config: LoggerConfig): Logger {
   const writer = config.writer ?? defaultWriter;
 
   return {
-    debug(message, data) {
+    debug(message: string, data?: Record<string, unknown>): void {
       if (LOG_LEVEL_PRIORITY.debug >= threshold) {
         writer(buildEntry('debug', message, data));
       }
     },
 
-    info(message, data) {
+    info(message: string, data?: Record<string, unknown>): void {
       if (LOG_LEVEL_PRIORITY.info >= threshold) {
         writer(buildEntry('info', message, data));
       }
     },
 
-    error(message, data) {
+    error(message: string, data?: Record<string, unknown>): void {
       if (LOG_LEVEL_PRIORITY.error >= threshold) {
         writer(buildEntry('error', message, data));
       }

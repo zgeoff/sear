@@ -1,9 +1,9 @@
 import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { expect, test } from 'vitest';
-import { ConfirmationPrompt } from './confirmation-prompt';
+import { ConfirmationPrompt } from './confirmation-prompt.tsx';
 
-function renderPrompt(message: string) {
+function renderPrompt(message: string): ReturnType<typeof render> {
   return render(
     <Box width={80} height={24}>
       <ConfirmationPrompt message={message} terminalWidth={80} terminalHeight={24} />

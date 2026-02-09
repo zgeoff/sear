@@ -1,4 +1,4 @@
-export type { GitHubClient } from './engine/github-client/types';
+export type { GitHubClient } from './engine/github-client/types.ts';
 export type {
   AgentCompletedEvent,
   AgentFailedEvent,
@@ -37,4 +37,4 @@ export type {
   SpecPollerSnapshot,
   // Engine Interface
   StartupResult,
-} from './types';
+} from './types.ts';

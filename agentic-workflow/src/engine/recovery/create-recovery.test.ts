@@ -1,11 +1,16 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
-import type { EngineEvent } from '../../types';
-import { createEventEmitter } from '../event-emitter/create-event-emitter';
-import { createRecovery } from './create-recovery';
-import type { IssuePollerSnapshot, IssueSnapshotEntry } from './types';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.ts';
+import type { EngineEvent } from '../../types.ts';
+import { createEventEmitter } from '../event-emitter/create-event-emitter.ts';
+import { createRecovery } from './create-recovery.ts';
+import type { IssuePollerSnapshot, IssueSnapshotEntry } from './types.ts';
 
-function setupTest() {
+function setupTest(): {
+  octokit: ReturnType<typeof createMockGitHubClient>;
+  emitter: ReturnType<typeof createEventEmitter>;
+  events: EngineEvent[];
+  recovery: ReturnType<typeof createRecovery>;
+} {
   const octokit = createMockGitHubClient();
   const emitter = createEventEmitter();
   const events: EngineEvent[] = [];
@@ -24,8 +29,10 @@ function setupTest() {
 function createSnapshot(entries?: Map<number, IssueSnapshotEntry>): IssuePollerSnapshot {
   const map = entries ?? new Map<number, IssueSnapshotEntry>();
   return {
-    get: (issueNumber) => map.get(issueNumber),
-    set: (issueNumber, entry) => map.set(issueNumber, entry),
+    get: (issueNumber: number): IssueSnapshotEntry | undefined => map.get(issueNumber),
+    set: (issueNumber: number, entry: IssueSnapshotEntry): void => {
+      map.set(issueNumber, entry);
+    },
   };
 }
 

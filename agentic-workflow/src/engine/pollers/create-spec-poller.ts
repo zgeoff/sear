@@ -1,9 +1,9 @@
-import type { SpecChange, SpecPollerBatchResult } from '../../types';
-import type { GitHubClient } from '../github-client/types';
-import { parseFrontmatterStatus } from './parse-frontmatter-status';
-import type { LogError, SpecPoller, SpecPollerFileEntry, SpecPollerSnapshot } from './types';
+import type { SpecChange, SpecPollerBatchResult } from '../../types.ts';
+import type { GitHubClient } from '../github-client/types.ts';
+import { parseFrontmatterStatus } from './parse-frontmatter-status.ts';
+import type { LogError, SpecPoller, SpecPollerFileEntry, SpecPollerSnapshot } from './types.ts';
 
-type SpecPollerConfig = {
+interface SpecPollerConfig {
   octokit: GitHubClient;
   owner: string;
   repo: string;
@@ -11,22 +11,23 @@ type SpecPollerConfig = {
   defaultBranch: string;
   logError?: LogError;
   initialSnapshot?: SpecPollerSnapshot;
-};
+}
 
-type SpecSnapshot = {
+interface SpecSnapshot {
   treeSHA: string | null;
   fileSHAs: Map<string, string>; // filePath -> blob SHA
   fileStatuses: Map<string, string>; // filePath -> frontmatterStatus
-};
+}
 
 const EMPTY_RESULT: SpecPollerBatchResult = { changes: [], commitSHA: '' };
 
 export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
-  const { octokit, owner, repo, specsDir, defaultBranch, logError = console.error } = config;
+  const { octokit, owner, repo, specsDir, defaultBranch } = config;
+  const logError = config.logError ?? defaultLogError;
 
   const snapshot: SpecSnapshot = buildInitialSnapshot(config.initialSnapshot);
 
-  async function getSpecsDirTreeSHA(): Promise<string | null> {
+  async function getSpecsDirTreeSha(): Promise<string | null> {
     // Fetch the tree SHA of the specs directory using a single recursive API call.
     // The recursive tree includes entries with full paths, so we can find the
     // specs directory entry directly without walking path segments.
@@ -47,11 +48,13 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
   async function poll(): Promise<SpecPollerBatchResult> {
     try {
       // Step 1: Fetch the tree SHA of the specs directory
-      const currentTreeSHA = await getSpecsDirTreeSHA();
-      if (!currentTreeSHA) return EMPTY_RESULT;
+      const currentTreeSha = await getSpecsDirTreeSha();
+      if (!currentTreeSha) {
+        return EMPTY_RESULT;
+      }
 
       // Step 2: Compare tree SHA against snapshot -- if unchanged, done
-      if (currentTreeSHA === snapshot.treeSHA) {
+      if (currentTreeSha === snapshot.treeSHA) {
         return EMPTY_RESULT;
       }
 
@@ -59,7 +62,7 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
       const specsTree = await octokit.git.getTree({
         owner,
         repo,
-        tree_sha: currentTreeSHA,
+        tree_sha: currentTreeSha,
         recursive: 'true',
       });
 
@@ -82,57 +85,58 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
 
       // Step 5: Identify files that were added or modified (blob SHA differs)
       const changedFilePaths: string[] = [];
-      for (const [filePath, blobSHA] of currentFiles) {
-        if (snapshot.fileSHAs.get(filePath) !== blobSHA) {
+      for (const [filePath, blobSha] of currentFiles) {
+        if (snapshot.fileSHAs.get(filePath) !== blobSha) {
           changedFilePaths.push(filePath);
         }
       }
 
       // Step 6: Fetch content of changed files and parse frontmatter
+      const fetchResults = await Promise.allSettled(
+        changedFilePaths.map((filePath) =>
+          octokit.repos
+            .getContent({ owner, repo, path: filePath, ref: defaultBranch })
+            .then((fileResponse) => ({ filePath, fileResponse })),
+        ),
+      );
+
       const changes: SpecChange[] = [];
-      for (const filePath of changedFilePaths) {
-        try {
-          const fileResponse = await octokit.repos.getContent({
-            owner,
-            repo,
-            path: filePath,
-            ref: defaultBranch,
-          });
-
-          const data = fileResponse.data;
-          if (!('content' in data) || !data.content) continue;
-
-          const content = Buffer.from(data.content, 'base64').toString('utf-8');
-          const status = parseFrontmatterStatus(content);
-          if (!status) continue;
-
-          changes.push({ filePath, frontmatterStatus: status });
-          snapshot.fileStatuses.set(filePath, status);
-        } catch (error) {
-          logError(`Failed to fetch spec content for ${filePath}`, error);
+      for (const result of fetchResults) {
+        if (result.status === 'rejected') {
+          logError('Failed to fetch spec content', result.reason);
+        } else {
+          const data = result.value.fileResponse.data;
+          if ('content' in data && data.content) {
+            const content = Buffer.from(data.content, 'base64').toString('utf-8');
+            const status = parseFrontmatterStatus(content);
+            if (status) {
+              changes.push({ filePath: result.value.filePath, frontmatterStatus: status });
+              snapshot.fileStatuses.set(result.value.filePath, status);
+            }
+          }
         }
       }
 
       // Update blob SHAs in snapshot for all current files
-      for (const [filePath, blobSHA] of currentFiles) {
-        snapshot.fileSHAs.set(filePath, blobSHA);
+      for (const [filePath, blobSha] of currentFiles) {
+        snapshot.fileSHAs.set(filePath, blobSha);
       }
 
       // Step 7: Fetch HEAD commit SHA (only when changes detected)
-      let commitSHA = '';
+      let commitSha = '';
       if (changes.length > 0) {
         const ref = await octokit.git.getRef({
           owner,
           repo,
           ref: `heads/${defaultBranch}`,
         });
-        commitSHA = ref.data.object.sha;
+        commitSha = ref.data.object.sha;
       }
 
       // Step 8: Update snapshot tree SHA
-      snapshot.treeSHA = currentTreeSHA;
+      snapshot.treeSHA = currentTreeSha;
 
-      return { changes, commitSHA };
+      return { changes, commitSHA: commitSha };
     } catch (error) {
       logError('SpecPoller poll cycle failed', error);
       return EMPTY_RESULT;
@@ -141,9 +145,9 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
 
   function getSnapshot(): SpecPollerSnapshot {
     const files: Record<string, SpecPollerFileEntry> = {};
-    for (const [path, blobSHA] of snapshot.fileSHAs) {
+    for (const [path, blobSha] of snapshot.fileSHAs) {
       const frontmatterStatus = snapshot.fileStatuses.get(path) ?? '';
-      files[path] = { blobSHA, frontmatterStatus };
+      files[path] = { blobSHA: blobSha, frontmatterStatus };
     }
     return { specsDirTreeSHA: snapshot.treeSHA, files };
   }
@@ -156,11 +160,16 @@ function buildInitialSnapshot(initial?: SpecPollerSnapshot): SpecSnapshot {
     return { treeSHA: null, fileSHAs: new Map(), fileStatuses: new Map() };
   }
 
-  const fileSHAs = new Map<string, string>();
+  const fileShAs = new Map<string, string>();
   const fileStatuses = new Map<string, string>();
   for (const [path, entry] of Object.entries(initial.files)) {
-    fileSHAs.set(path, entry.blobSHA);
+    fileShAs.set(path, entry.blobSHA);
     fileStatuses.set(path, entry.frontmatterStatus);
   }
-  return { treeSHA: initial.specsDirTreeSHA, fileSHAs, fileStatuses };
+  return { treeSHA: initial.specsDirTreeSHA, fileSHAs: fileShAs, fileStatuses };
+}
+
+function defaultLogError(message: string, error: unknown): void {
+  // biome-ignore lint/suspicious/noConsole: fallback logger when none is injected
+  console.error(message, error);
 }

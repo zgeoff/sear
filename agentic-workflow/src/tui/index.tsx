@@ -1,13 +1,17 @@
 import { render } from 'ink';
-import type { Engine } from '../types';
-import { App } from './app';
+import type { Engine } from '../types.ts';
+import { App } from './app.tsx';
 
-export type RenderAppConfig = {
+export interface RenderAppConfig {
   engine: Engine;
   repository: string;
-};
+}
 
-export function renderApp(config: RenderAppConfig) {
+export interface RenderAppResult {
+  waitUntilExit: () => Promise<void>;
+}
+
+export function renderApp(config: RenderAppConfig): RenderAppResult {
   const { waitUntilExit } = render(<App engine={config.engine} repository={config.repository} />);
   return { waitUntilExit };
 }

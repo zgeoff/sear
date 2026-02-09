@@ -1,18 +1,18 @@
 import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentStream, AgentType } from '../../types';
-import type { EventEmitter } from '../event-emitter/types';
-import type { WorktreeManager } from '../worktree-manager/types';
+import type { AgentStream, AgentType } from '../../types.ts';
+import type { EventEmitter } from '../event-emitter/types.ts';
+import type { WorktreeManager } from '../worktree-manager/types.ts';
 
-export type QueryFactoryConfig = {
+export interface QueryFactoryConfig {
   repoRoot: string;
   bashValidatorHook: HookCallback;
-};
+}
 
 export type AgentQuery = AsyncIterable<unknown> & {
-  interrupt(): Promise<void>;
+  interrupt: () => Promise<void>;
 };
 
-export type AgentSessionTracker = {
+export interface AgentSessionTracker {
   agentType: AgentType;
   sessionID: string;
   query: AgentQuery;
@@ -24,22 +24,22 @@ export type AgentSessionTracker = {
   outputChunks: string[];
   outputListeners: Set<OutputListener>;
   done: boolean;
-};
+}
 
 export type OutputListener = (chunk: string) => void;
 
 export type QueryFactory = (params: QueryFactoryParams) => Promise<AgentQuery>;
 
-export type QueryFactoryParams = {
+export interface QueryFactoryParams {
   prompt: string;
   agent: string;
   cwd: string;
   abortController: AbortController;
-};
+}
 
 export type LogError = (message: string, error: unknown) => void;
 
-export type AgentManagerDeps = {
+export interface AgentManagerDeps {
   emitter: EventEmitter;
   worktreeManager: WorktreeManager;
   repoRoot: string;
@@ -51,29 +51,29 @@ export type AgentManagerDeps = {
   loggingEnabled: boolean;
   logsDir: string;
   logError: LogError;
-};
+}
 
-export type DispatchImplementorParams = {
+export interface DispatchImplementorParams {
   issueNumber: number;
-};
+}
 
-export type DispatchReviewerParams = {
+export interface DispatchReviewerParams {
   issueNumber: number;
-};
+}
 
-export type DispatchPlannerParams = {
+export interface DispatchPlannerParams {
   specPaths: string[];
-};
+}
 
-export type AgentManager = {
-  dispatchImplementor(params: DispatchImplementorParams): Promise<void>;
-  dispatchReviewer(params: DispatchReviewerParams): Promise<void>;
-  dispatchPlanner(params: DispatchPlannerParams): Promise<void>;
-  cancelAgent(issueNumber: number): void;
-  cancelPlanner(): void;
-  getAgentStream(issueNumber: number): AgentStream;
-  isRunning(issueNumber: number): boolean;
-  isPlannerRunning(): boolean;
-  getRunningSessionIDs(): string[];
-  cancelAll(): void;
-};
+export interface AgentManager {
+  dispatchImplementor: (params: DispatchImplementorParams) => Promise<void>;
+  dispatchReviewer: (params: DispatchReviewerParams) => Promise<void>;
+  dispatchPlanner: (params: DispatchPlannerParams) => Promise<void>;
+  cancelAgent: (issueNumber: number) => void;
+  cancelPlanner: () => void;
+  getAgentStream: (issueNumber: number) => AgentStream;
+  isRunning: (issueNumber: number) => boolean;
+  isPlannerRunning: () => boolean;
+  getRunningSessionIDs: () => string[];
+  cancelAll: () => void;
+}

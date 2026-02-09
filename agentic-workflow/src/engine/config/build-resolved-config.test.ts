@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
-import { buildValidConfig } from '../../test-utils/build-valid-config';
-import { buildResolvedConfig } from './build-resolved-config';
+import { buildValidConfig } from '../../test-utils/build-valid-config.ts';
+import { buildResolvedConfig } from './build-resolved-config.ts';
 
 test('it applies all default values when optional fields are omitted', () => {
   const config = buildValidConfig();
@@ -25,9 +25,9 @@ test('it preserves required fields in the resolved config', () => {
   const resolved = buildResolvedConfig(config);
 
   expect(resolved.repository).toBe('owner/repo');
-  expect(resolved.githubAppID).toBe(12345);
+  expect(resolved.githubAppID).toBe(12_345);
   expect(resolved.githubAppPrivateKeyPath).toBe('/path/to/key.pem');
-  expect(resolved.githubAppInstallationID).toBe(67890);
+  expect(resolved.githubAppInstallationID).toBe(67_890);
 });
 
 test('it uses provided optional values instead of defaults', () => {

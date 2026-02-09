@@ -1,17 +1,18 @@
 import { Box, Text } from 'ink';
+import type { ReactNode } from 'react';
 
-export type ListItemProps = {
+export interface ListItemProps {
   content: string;
   selected: boolean;
   focused: boolean;
   visibleIndex: number;
   paneWidth: number;
-};
+}
 
 const HORIZONTAL_PADDING = 1;
 const ELLIPSIS = '\u2026';
 
-export function ListItem(props: ListItemProps) {
+export function ListItem(props: ListItemProps): ReactNode {
   const isOddRow = props.visibleIndex % 2 === 1;
   const showInverse = props.selected && props.focused;
   const showDimBackground = isOddRow && !showInverse;
@@ -29,8 +30,14 @@ export function ListItem(props: ListItemProps) {
 }
 
 function truncateContent(content: string, maxWidth: number): string {
-  if (maxWidth <= 0) return '';
-  if (content.length <= maxWidth) return content;
-  if (maxWidth === 1) return ELLIPSIS;
+  if (maxWidth <= 0) {
+    return '';
+  }
+  if (content.length <= maxWidth) {
+    return content;
+  }
+  if (maxWidth === 1) {
+    return ELLIPSIS;
+  }
   return content.slice(0, maxWidth - 1) + ELLIPSIS;
 }

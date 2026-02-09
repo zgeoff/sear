@@ -2,16 +2,23 @@ import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { match } from 'ts-pattern';
 import { expect, test, vi } from 'vitest';
-import type { Notification } from '../types';
+import type { Notification } from '../types.ts';
 import {
   handleNotificationsInput,
   NotificationsPane,
   type NotificationsPaneProps,
-} from './notifications';
+} from './notifications.tsx';
 
-type PartialKeyState = { upArrow?: boolean; downArrow?: boolean; return?: boolean };
+const TIMESTAMP_PATTERN = /\[\d{2}:\d{2}\]/;
+const TIMESTAMP_WITH_SECONDS_PATTERN = /\[\d{2}:\d{2}:\d{2}\]/;
 
-function setupRenderTest(overrides?: Partial<NotificationsPaneProps>) {
+interface PartialKeyState {
+  upArrow?: boolean;
+  downArrow?: boolean;
+  return?: boolean;
+}
+
+function setupRenderTest(overrides?: Partial<NotificationsPaneProps>): ReturnType<typeof render> {
   const props: NotificationsPaneProps = {
     notifications: [],
     focused: false,
@@ -34,15 +41,23 @@ function setupRenderTest(overrides?: Partial<NotificationsPaneProps>) {
   return instance;
 }
 
-function setupInputTest(notifications: Notification[], selectedIndex: number) {
-  const openURL = vi.fn();
+function setupInputTest(
+  notifications: Notification[],
+  selectedIndex: number,
+): {
+  sendInput: (input: string, key: PartialKeyState) => void;
+  openURL: ReturnType<typeof vi.fn>;
+  copyToClipboard: ReturnType<typeof vi.fn>;
+  onSelectIndex: ReturnType<typeof vi.fn>;
+} {
+  const openUrl = vi.fn();
   const copyToClipboard = vi.fn();
   const onSelectIndex = vi.fn();
 
-  function sendInput(input: string, key: PartialKeyState) {
-    handleNotificationsInput(
+  function sendInput(input: string, key: PartialKeyState): void {
+    handleNotificationsInput({
       input,
-      {
+      key: {
         upArrow: key.upArrow ?? false,
         downArrow: key.downArrow ?? false,
         return: key.return ?? false,
@@ -50,12 +65,12 @@ function setupInputTest(notifications: Notification[], selectedIndex: number) {
       notifications,
       selectedIndex,
       onSelectIndex,
-      openURL,
+      openUrl,
       copyToClipboard,
-    );
+    });
   }
 
-  return { sendInput, openURL, copyToClipboard, onSelectIndex };
+  return { sendInput, openURL: openUrl, copyToClipboard, onSelectIndex };
 }
 
 // ---------------------------------------------------------------------------
@@ -137,9 +152,9 @@ test('it formats timestamps in bracketed hours and minutes without seconds', () 
   const frame = lastFrame() ?? '';
   // The timestamp 2026-02-08T10:30:45.000Z in local time should show [HH:MM]
   // We check for the bracket format pattern
-  expect(frame).toMatch(/\[\d{2}:\d{2}\]/);
+  expect(frame).toMatch(TIMESTAMP_PATTERN);
   // Ensure no seconds are present (no third colon group inside brackets)
-  expect(frame).not.toMatch(/\[\d{2}:\d{2}:\d{2}\]/);
+  expect(frame).not.toMatch(TIMESTAMP_WITH_SECONDS_PATTERN);
 });
 
 // ---------------------------------------------------------------------------
@@ -681,11 +696,11 @@ test('it does nothing when c is pressed on a notification without a clipboard co
 
 type AgentType = 'implementor' | 'reviewer' | 'planner';
 
-type BaseFields = {
+interface BaseFields {
   id: string;
   timestamp: string;
   summary: string;
-};
+}
 
 function buildBaseFields(id: string, eventType: string): BaseFields {
   return {
@@ -695,7 +710,7 @@ function buildBaseFields(id: string, eventType: string): BaseFields {
   };
 }
 
-type NotificationOverrides = {
+interface NotificationOverrides {
   agentType?: AgentType;
   issueNumber?: number;
   specCount?: number;
@@ -709,7 +724,7 @@ type NotificationOverrides = {
   specFileName?: string;
   issueCount?: number;
   recoveriesPerformed?: number;
-};
+}
 
 function buildAgentStartedNotification(
   id: string,
@@ -724,7 +739,9 @@ function buildAgentStartedNotification(
   if (agentType === 'planner' && overrides?.specCount !== undefined) {
     return { ...base, specCount: overrides.specCount };
   }
-  if (agentType === 'planner') return base;
+  if (agentType === 'planner') {
+    return base;
+  }
   return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
@@ -741,7 +758,9 @@ function buildAgentCompletedNotification(
   if (agentType === 'planner' && overrides?.specCount !== undefined) {
     return { ...base, specCount: overrides.specCount };
   }
-  if (agentType === 'planner') return base;
+  if (agentType === 'planner') {
+    return base;
+  }
   return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
@@ -754,7 +773,9 @@ function buildAgentFailedNotification(id: string, overrides?: NotificationOverri
     error: overrides?.error ?? 'err',
     sessionID: overrides?.sessionID ?? 'sess-1',
   };
-  if (agentType === 'planner') return base;
+  if (agentType === 'planner') {
+    return base;
+  }
   return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
@@ -768,7 +789,9 @@ function buildAgentSkippedNotification(
     eventType: 'agentSkipped' as const,
     agentType,
   };
-  if (agentType === 'planner') return base;
+  if (agentType === 'planner') {
+    return base;
+  }
   return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 

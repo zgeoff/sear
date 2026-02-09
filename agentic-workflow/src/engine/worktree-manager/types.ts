@@ -1,17 +1,17 @@
-export type WorktreeResult = {
+export interface WorktreeResult {
   worktreePath: string;
   branch: string;
   created: boolean; // true if newly created, false if reused
-};
+}
 
 export type ExecGit = (args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
-export type WorktreeManagerDeps = {
+export interface WorktreeManagerDeps {
   repoRoot: string;
   execGit?: ExecGit;
-};
+}
 
-export type WorktreeManager = {
-  createOrReuse(issueNumber: number): Promise<WorktreeResult>;
-  remove(issueNumber: number): Promise<void>;
-};
+export interface WorktreeManager {
+  createOrReuse: (issueNumber: number) => Promise<WorktreeResult>;
+  remove: (issueNumber: number) => Promise<void>;
+}

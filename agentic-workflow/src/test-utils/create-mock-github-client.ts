@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { GitHubClient } from '../engine/github-client/types';
+import type { GitHubClient } from '../engine/github-client/types.ts';
 
 export function createMockGitHubClient(): GitHubClient {
   return {

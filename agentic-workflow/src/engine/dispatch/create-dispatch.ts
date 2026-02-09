@@ -4,15 +4,15 @@ import type {
   IssueStatusChangedEvent,
   NotificationEvent,
   SpecPollerBatchResult,
-} from '../../types';
-import type { EventEmitter } from '../event-emitter/types';
-import type { AgentManagerDelegate, Dispatch, DispatchConfig } from './types';
+} from '../../types.ts';
+import type { EventEmitter } from '../event-emitter/types.ts';
+import type { AgentManagerDelegate, Dispatch, DispatchConfig } from './types.ts';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const USER_DISPATCH_STATUSES = ['pending', 'unblocked', 'needs-changes'];
+const USER_DISPATCH_STATUSES: string[] = ['pending', 'unblocked', 'needs-changes'];
 
 // ---------------------------------------------------------------------------
 // Primary export
@@ -31,12 +31,12 @@ export function createDispatch(
   const latestSpecStatuses = new Map<string, string>();
 
   return {
-    handleSpecPollerResult(result) {
-      handleSpecPollerResult(result, emitter, agentManager, deferredPaths, latestSpecStatuses);
+    handleSpecPollerResult(result: SpecPollerBatchResult): void {
+      handleSpecPollerResult(result, { emitter, agentManager, deferredPaths, latestSpecStatuses });
     },
 
-    handleIssueStatusChanged(event) {
-      handleIssueStatusChanged(event, emitter, agentManager, config, activeNotifications);
+    handleIssueStatusChanged(event: IssueStatusChangedEvent): void {
+      handleIssueStatusChanged(event, { emitter, agentManager, config, activeNotifications });
     },
   };
 }
@@ -45,13 +45,18 @@ export function createDispatch(
 // SpecPoller result handling
 // ---------------------------------------------------------------------------
 
+interface HandleSpecPollerResultDeps {
+  emitter: EventEmitter;
+  agentManager: AgentManagerDelegate;
+  deferredPaths: Set<string>;
+  latestSpecStatuses: Map<string, string>;
+}
+
 function handleSpecPollerResult(
   result: SpecPollerBatchResult,
-  emitter: EventEmitter,
-  agentManager: AgentManagerDelegate,
-  deferredPaths: Set<string>,
-  latestSpecStatuses: Map<string, string>,
+  deps: HandleSpecPollerResultDeps,
 ): void {
+  const { emitter, agentManager, deferredPaths, latestSpecStatuses } = deps;
   // Update the latest known statuses from this cycle's results
   for (const change of result.changes) {
     latestSpecStatuses.set(change.filePath, change.frontmatterStatus);
@@ -78,7 +83,9 @@ function handleSpecPollerResult(
     deferredPaths.add(path);
   }
 
-  if (deferredPaths.size === 0) return;
+  if (deferredPaths.size === 0) {
+    return;
+  }
 
   // Apply approval filter at dispatch time -- drop paths whose status is no longer approved
   const pathsToDispatch = filterApprovedPaths(deferredPaths, latestSpecStatuses);
@@ -118,13 +125,18 @@ function filterApprovedPaths(paths: Set<string>, latestStatuses: Map<string, str
 // Issue status change handling
 // ---------------------------------------------------------------------------
 
+interface HandleIssueStatusChangedDeps {
+  emitter: EventEmitter;
+  agentManager: AgentManagerDelegate;
+  config: DispatchConfig;
+  activeNotifications: Map<number, string>;
+}
+
 function handleIssueStatusChanged(
   event: IssueStatusChangedEvent,
-  emitter: EventEmitter,
-  agentManager: AgentManagerDelegate,
-  config: DispatchConfig,
-  activeNotifications: Map<number, string>,
+  deps: HandleIssueStatusChangedDeps,
 ): void {
+  const { emitter, agentManager, config, activeNotifications } = deps;
   // Dismiss any active notification for this issue if the status changed
   if (activeNotifications.has(event.issueNumber)) {
     activeNotifications.delete(event.issueNumber);

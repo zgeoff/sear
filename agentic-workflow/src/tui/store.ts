@@ -1,6 +1,7 @@
 import { match } from 'ts-pattern';
+import type { StoreApi } from 'zustand';
 import { createStore } from 'zustand/vanilla';
-import type { AgentType, EngineEvent } from '../types';
+import type { AgentType, EngineEvent } from '../types.ts';
 import type {
   AgentCompletedNotification,
   AgentFailedNotification,
@@ -22,13 +23,13 @@ import type {
   SpecChangedNotification,
   TaskAgentType,
   TrackedIssue,
-} from './types';
+} from './types.ts';
 
 const STREAM_BUFFER_LIMIT = 10_000;
 
 const PANE_ORDER: FocusedPane[] = ['issueList', 'detailPane', 'notifications'];
 
-export function createEngineStore(config: CreateEngineStoreConfig) {
+export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<EngineStore> {
   const { engine } = config;
   const repository = parseRepository(config.repository);
 
@@ -47,7 +48,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
     selectedIssue: null,
     shuttingDown: false,
 
-    dispatchImplementor(issueNumber) {
+    dispatchImplementor(issueNumber: number): void {
       engine.send({ command: 'dispatchImplementor', issueNumber });
       const issues = new Map(get().issues);
       const issue = issues.get(issueNumber);
@@ -57,7 +58,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       }
     },
 
-    dispatchReviewer(issueNumber) {
+    dispatchReviewer(issueNumber: number): void {
       engine.send({ command: 'dispatchReviewer', issueNumber });
       const issues = new Map(get().issues);
       const issue = issues.get(issueNumber);
@@ -67,16 +68,16 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       }
     },
 
-    cancelAgent(issueNumber) {
+    cancelAgent(issueNumber: number): void {
       engine.send({ command: 'cancelAgent', issueNumber });
     },
 
-    shutdown() {
+    shutdown(): void {
       engine.send({ command: 'shutdown' });
       set({ shuttingDown: true });
     },
 
-    cycleFocus(direction) {
+    cycleFocus(direction: 'forward' | 'backward'): void {
       const current = get().focusedPane;
       const currentIndex = PANE_ORDER.indexOf(current);
       const offset = direction === 'forward' ? 1 : -1;
@@ -87,10 +88,10 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       }
     },
 
-    selectIssue(issueNumber) {
+    selectIssue(issueNumber: number): void {
       set({ selectedIssue: issueNumber });
       fetchIssueDetailsIfNeeded(issueNumber);
-      fetchPRDetailsIfNeeded(issueNumber);
+      fetchPrDetailsIfNeeded(issueNumber);
     },
   }));
 
@@ -98,7 +99,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
     handleEngineEvent(event);
   });
 
-  function handleEngineEvent(event: EngineEvent) {
+  function handleEngineEvent(event: EngineEvent): void {
     match(event)
       .with({ type: 'issueStatusChanged' }, (e) => {
         const state = store.getState();
@@ -107,16 +108,16 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
 
         const shouldClearFailure = !e.isRecovery && existing?.lastFailure !== undefined;
 
-        const updated = buildTrackedIssue(
-          e.issueNumber,
-          e.title,
-          e.newStatus,
-          e.priorityLabel,
-          e.createdAt,
-          existing?.agentRunning ?? false,
-          existing?.agentType,
-          shouldClearFailure ? undefined : existing?.lastFailure,
-        );
+        const updated = buildTrackedIssue({
+          number: e.issueNumber,
+          title: e.title,
+          statusLabel: e.newStatus,
+          priorityLabel: e.priorityLabel,
+          createdAt: e.createdAt,
+          agentRunning: existing?.agentRunning ?? false,
+          agentType: existing?.agentType,
+          lastFailure: shouldClearFailure ? undefined : existing?.lastFailure,
+        });
 
         issues.set(e.issueNumber, updated);
 
@@ -131,7 +132,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           oldStatus: e.oldStatus,
           newStatus: e.newStatus,
           summary: `#${e.issueNumber}: ${oldStatusText} → ${e.newStatus}`,
-          contextURL: buildIssueURL(repository, e.issueNumber),
+          contextURL: buildIssueUrl(repository, e.issueNumber),
         };
 
         store.setState({
@@ -160,7 +161,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           return;
         }
 
-        if (e.issueNumber === undefined) return;
+        if (e.issueNumber === undefined) {
+          return;
+        }
         const issueNumber = e.issueNumber;
         const issues = new Map(state.issues);
         const existing = issues.get(issueNumber);
@@ -185,7 +188,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           agentType: e.agentType,
           issueNumber,
           summary: `${agentTypeLabel} started for #${issueNumber}`,
-          contextURL: buildIssueURL(repository, issueNumber),
+          contextURL: buildIssueUrl(repository, issueNumber),
         };
 
         store.setState({
@@ -217,7 +220,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           return;
         }
 
-        if (e.issueNumber === undefined) return;
+        if (e.issueNumber === undefined) {
+          return;
+        }
         const issueNumber = e.issueNumber;
         const issues = new Map(state.issues);
         const existing = issues.get(issueNumber);
@@ -235,7 +240,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           agentType: e.agentType,
           issueNumber,
           summary: `${agentTypeLabel} completed for #${issueNumber}`,
-          contextURL: buildIssueURL(repository, issueNumber),
+          contextURL: buildIssueUrl(repository, issueNumber),
         };
         if (e.logFilePath !== undefined) {
           notification.logFilePath = e.logFilePath;
@@ -253,7 +258,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         store.setState(updates);
 
         if (e.agentType === 'implementor') {
-          updateNotificationWithPRURL(notification.id, issueNumber);
+          updateNotificationWithPrurl(notification.id, issueNumber);
         }
       })
       .with({ type: 'agentFailed' }, (e) => {
@@ -278,18 +283,20 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           return;
         }
 
-        if (e.issueNumber === undefined) return;
+        if (e.issueNumber === undefined) {
+          return;
+        }
         const issueNumber = e.issueNumber;
         const issues = new Map(state.issues);
         const existing = issues.get(issueNumber);
         if (existing) {
-          const failure = buildLastFailure(
-            e.agentType,
-            e.error,
-            e.sessionID,
-            e.agentType === 'implementor' ? e.worktreePath : undefined,
-            e.logFilePath,
-          );
+          const failure = buildLastFailure({
+            agentType: e.agentType,
+            error: e.error,
+            sessionId: e.sessionID,
+            worktreePath: e.agentType === 'implementor' ? e.worktreePath : undefined,
+            logFilePath: e.logFilePath,
+          });
           issues.set(issueNumber, {
             ...existing,
             agentRunning: false,
@@ -306,7 +313,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           error: e.error,
           sessionID: e.sessionID,
           summary: `${agentTypeLabel} failed for #${issueNumber} — ${e.error}`,
-          contextURL: buildIssueURL(repository, issueNumber),
+          contextURL: buildIssueUrl(repository, issueNumber),
         };
         if (e.logFilePath !== undefined) {
           notification.logFilePath = e.logFilePath;
@@ -336,7 +343,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         };
         if (e.issueNumber !== undefined) {
           notification.issueNumber = e.issueNumber;
-          notification.contextURL = buildIssueURL(repository, e.issueNumber);
+          notification.contextURL = buildIssueUrl(repository, e.issueNumber);
         }
         store.setState({
           notifications: [notification, ...state.notifications],
@@ -349,7 +356,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           eventType: 'dispatchReady',
           issueNumber: e.issueNumber,
           summary: `#${e.issueNumber} ready for dispatch`,
-          contextURL: buildIssueURL(repository, e.issueNumber),
+          contextURL: buildIssueUrl(repository, e.issueNumber),
         };
         store.setState({
           notifications: [notification, ...state.notifications],
@@ -392,7 +399,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         });
 
         if (e.statusLabel === 'approved') {
-          updateNotificationWithPRURL(notification.id, e.issueNumber);
+          updateNotificationWithPrurl(notification.id, e.issueNumber);
         }
       })
       .with({ type: 'notificationDismissed' }, (e) => {
@@ -402,7 +409,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           eventType: 'notificationDismissed',
           issueNumber: e.issueNumber,
           summary: `#${e.issueNumber} dismissed`,
-          contextURL: buildIssueURL(repository, e.issueNumber),
+          contextURL: buildIssueUrl(repository, e.issueNumber),
         };
         store.setState({
           notifications: [notification, ...state.notifications],
@@ -432,7 +439,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           eventType: 'issueRemoved',
           issueNumber: e.issueNumber,
           summary: `#${e.issueNumber} removed`,
-          contextURL: buildIssueURL(repository, e.issueNumber),
+          contextURL: buildIssueUrl(repository, e.issueNumber),
         };
 
         store.setState({
@@ -452,7 +459,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           eventType: 'recoveryPerformed',
           issueNumber: e.issueNumber,
           summary: `#${e.issueNumber} recovered from stale`,
-          contextURL: buildIssueURL(repository, e.issueNumber),
+          contextURL: buildIssueUrl(repository, e.issueNumber),
         };
         store.setState({
           notifications: [notification, ...state.notifications],
@@ -476,7 +483,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
   }
 
   function buildBaseNotification(): BaseNotification {
-    notificationCounter++;
+    notificationCounter += 1;
     return {
       id: `notif-${notificationCounter}`,
       timestamp: new Date().toISOString(),
@@ -484,48 +491,56 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
     };
   }
 
-  function subscribeToAgentStream(issueNumber: number) {
+  function subscribeToAgentStream(issueNumber: number): void {
     const stream = engine.getAgentStream(issueNumber);
-    if (!stream) return;
+    if (!stream) {
+      return;
+    }
 
-    (async () => {
+    void (async () => {
       for await (const chunk of stream) {
         const lines = splitChunkIntoLines(chunk);
-        if (lines.length === 0) continue;
-
-        const state = store.getState();
-        const agentStreams = new Map(state.agentStreams);
-        const buffer = [...(agentStreams.get(issueNumber) ?? []), ...lines];
-
-        const overflow = buffer.length - STREAM_BUFFER_LIMIT;
-        const updates: Partial<EngineStoreState> = {};
-
-        if (overflow > 0) {
-          buffer.splice(0, overflow);
-          const currentOffset = state.streamViewportOffsets.get(issueNumber) ?? 0;
-          if (currentOffset > 0) {
-            const streamViewportOffsets = new Map(state.streamViewportOffsets);
-            const newOffset = Math.max(0, currentOffset - overflow);
-            streamViewportOffsets.set(issueNumber, newOffset);
-            updates.streamViewportOffsets = streamViewportOffsets;
-          }
+        if (lines.length > 0) {
+          appendStreamLines(issueNumber, lines);
         }
-
-        agentStreams.set(issueNumber, buffer);
-        updates.agentStreams = agentStreams;
-        store.setState(updates);
       }
     })();
   }
 
-  function fetchIssueDetailsIfNeeded(issueNumber: number) {
+  function appendStreamLines(issueNumber: number, lines: string[]): void {
+    const state = store.getState();
+    const agentStreams = new Map(state.agentStreams);
+    const buffer = [...(agentStreams.get(issueNumber) ?? []), ...lines];
+
+    const overflow = buffer.length - STREAM_BUFFER_LIMIT;
+    const updates: Partial<EngineStoreState> = {};
+
+    if (overflow > 0) {
+      buffer.splice(0, overflow);
+      const currentOffset = state.streamViewportOffsets.get(issueNumber) ?? 0;
+      if (currentOffset > 0) {
+        const streamViewportOffsets = new Map(state.streamViewportOffsets);
+        const newOffset = Math.max(0, currentOffset - overflow);
+        streamViewportOffsets.set(issueNumber, newOffset);
+        updates.streamViewportOffsets = streamViewportOffsets;
+      }
+    }
+
+    agentStreams.set(issueNumber, buffer);
+    updates.agentStreams = agentStreams;
+    store.setState(updates);
+  }
+
+  function fetchIssueDetailsIfNeeded(issueNumber: number): void {
     const state = store.getState();
     const cached = state.issueDetails.get(issueNumber);
 
-    if (cached && !cached.stale) return;
+    if (cached && !cached.stale) {
+      return;
+    }
 
     if (!cached) {
-      engine.getIssueDetails(issueNumber).then((result) => {
+      void engine.getIssueDetails(issueNumber).then((result) => {
         const current = store.getState();
         const issueDetails = new Map(current.issueDetails);
         issueDetails.set(issueNumber, {
@@ -538,7 +553,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       return;
     }
 
-    engine
+    void engine
       .getIssueDetails(issueNumber)
       .then((result) => {
         const current = store.getState();
@@ -555,15 +570,19 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       });
   }
 
-  function fetchPRDetailsIfNeeded(issueNumber: number) {
+  function fetchPrDetailsIfNeeded(issueNumber: number): void {
     const state = store.getState();
     const cached = state.prDetails.get(issueNumber);
 
-    if (cached && !cached.stale) return;
+    if (cached && !cached.stale) {
+      return;
+    }
 
     if (!cached) {
-      engine.getPRForIssue(issueNumber).then((result) => {
-        if (!result) return;
+      void engine.getPRForIssue(issueNumber).then((result) => {
+        if (!result) {
+          return;
+        }
         const current = store.getState();
         const prDetails = new Map(current.prDetails);
         prDetails.set(issueNumber, { ...result, stale: false });
@@ -572,10 +591,12 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       return;
     }
 
-    engine
+    void engine
       .getPRForIssue(issueNumber)
       .then((result) => {
-        if (!result) return;
+        if (!result) {
+          return;
+        }
         const current = store.getState();
         const prDetails = new Map(current.prDetails);
         prDetails.set(issueNumber, { ...result, stale: false });
@@ -586,15 +607,21 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
       });
   }
 
-  function updateNotificationWithPRURL(notificationID: string, issueNumber: number) {
-    engine.getPRForIssue(issueNumber).then((result) => {
-      if (!result) return;
+  function updateNotificationWithPrurl(notificationId: string, issueNumber: number): void {
+    void engine.getPRForIssue(issueNumber).then((result) => {
+      if (!result) {
+        return;
+      }
       const state = store.getState();
-      const index = state.notifications.findIndex((n) => n.id === notificationID);
-      if (index === -1) return;
+      const index = state.notifications.findIndex((n) => n.id === notificationId);
+      if (index === -1) {
+        return;
+      }
 
       const existing = state.notifications[index];
-      if (!existing) return;
+      if (!existing) {
+        return;
+      }
 
       const notifications = [...state.notifications];
       notifications[index] = { ...existing, contextURL: result.url };
@@ -605,46 +632,54 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
   return store;
 }
 
-function buildTrackedIssue(
-  number: number,
-  title: string,
-  statusLabel: string,
-  priorityLabel: string,
-  createdAt: string,
-  agentRunning: boolean,
-  agentType: TaskAgentType | undefined,
-  lastFailure: LastFailure | undefined,
-): TrackedIssue {
+interface BuildTrackedIssueParams {
+  number: number;
+  title: string;
+  statusLabel: string;
+  priorityLabel: string;
+  createdAt: string;
+  agentRunning: boolean;
+  agentType: TaskAgentType | undefined;
+  lastFailure: LastFailure | undefined;
+}
+
+function buildTrackedIssue(params: BuildTrackedIssueParams): TrackedIssue {
   const issue: TrackedIssue = {
-    number,
-    title,
-    statusLabel,
-    priorityLabel,
-    createdAt,
-    agentRunning,
+    number: params.number,
+    title: params.title,
+    statusLabel: params.statusLabel,
+    priorityLabel: params.priorityLabel,
+    createdAt: params.createdAt,
+    agentRunning: params.agentRunning,
   };
-  if (agentType !== undefined) {
-    issue.agentType = agentType;
+  if (params.agentType !== undefined) {
+    issue.agentType = params.agentType;
   }
-  if (lastFailure !== undefined) {
-    issue.lastFailure = lastFailure;
+  if (params.lastFailure !== undefined) {
+    issue.lastFailure = params.lastFailure;
   }
   return issue;
 }
 
-function buildLastFailure(
-  agentType: TaskAgentType,
-  error: string,
-  sessionID: string,
-  worktreePath: string | undefined,
-  logFilePath: string | undefined,
-): LastFailure {
-  const failure: LastFailure = { agentType, error, sessionID };
-  if (worktreePath !== undefined) {
-    failure.worktreePath = worktreePath;
+interface BuildLastFailureParams {
+  agentType: TaskAgentType;
+  error: string;
+  sessionId: string;
+  worktreePath: string | undefined;
+  logFilePath: string | undefined;
+}
+
+function buildLastFailure(params: BuildLastFailureParams): LastFailure {
+  const failure: LastFailure = {
+    agentType: params.agentType,
+    error: params.error,
+    sessionID: params.sessionId,
+  };
+  if (params.worktreePath !== undefined) {
+    failure.worktreePath = params.worktreePath;
   }
-  if (logFilePath !== undefined) {
-    failure.logFilePath = logFilePath;
+  if (params.logFilePath !== undefined) {
+    failure.logFilePath = params.logFilePath;
   }
   return failure;
 }
@@ -659,7 +694,9 @@ function markCacheStale<T extends { stale: boolean }>(
   issueNumber: number,
 ): Map<number, T> {
   const entry = cache.get(issueNumber);
-  if (!entry) return cache;
+  if (!entry) {
+    return cache;
+  }
   const updated = new Map(cache);
   updated.set(issueNumber, { ...entry, stale: true });
   return updated;
@@ -670,7 +707,7 @@ function parseRepository(repositoryString: string): Repository {
   return { owner: parts[0] ?? '', repo: parts[1] ?? '' };
 }
 
-function buildIssueURL(repo: Repository, issueNumber: number): string {
+function buildIssueUrl(repo: Repository, issueNumber: number): string {
   return `https://github.com/${repo.owner}/${repo.repo}/issues/${issueNumber}`;
 }
 
@@ -684,12 +721,12 @@ function formatAgentType(agentType: AgentType): string {
 
 function extractFileName(filePath: string): string {
   const parts = filePath.split('/');
-  return parts[parts.length - 1] ?? filePath;
+  return parts.at(-1) ?? filePath;
 }
 
 function splitChunkIntoLines(chunk: string): string[] {
   const parts = chunk.split('\n');
-  if (parts.length > 0 && parts[parts.length - 1] === '') {
+  if (parts.length > 0 && parts.at(-1) === '') {
     parts.pop();
   }
   return parts;
@@ -698,8 +735,12 @@ function splitChunkIntoLines(chunk: string): string[] {
 export function selectRunningAgentCount(state: EngineStoreState): number {
   let count = 0;
   for (const issue of state.issues.values()) {
-    if (issue.agentRunning) count++;
+    if (issue.agentRunning) {
+      count += 1;
+    }
   }
-  if (state.plannerRunning) count++;
+  if (state.plannerRunning) {
+    count += 1;
+  }
   return count;
 }
