@@ -313,6 +313,8 @@ This repo uses Yarn Plug'n'Play (PnP) with Zero Installs enabled:
 
 **After adding/updating dependencies**, commit the changes to `.yarn/cache` and `.pnp.cjs`.
 
+**Inspecting dependency types:** Dependencies in `.yarn/cache` are zip archives — do not attempt to read, grep, or unzip them directly. If you need to inspect a dependency's type definitions, use `yarn unplug <package>` to extract it to `.yarn/unplugged/` where files are readable on disk. Alternatively, rely on TypeScript error messages and existing type imports in the codebase rather than reading `.d.ts` files from dependencies.
+
 ### Turborepo
 
 Turborepo handles task orchestration with caching:
@@ -555,6 +557,30 @@ expect(() => validateConfig(config as Record<string, unknown>)).not.toThrow();
 
 // Correct — types match, no cast needed
 expect(() => validateConfig(config)).not.toThrow();
+```
+
+**Common cast-free patterns:**
+
+Narrow third-party interfaces at module boundaries — depend on what you use, not the full external type:
+```ts
+// Wrong — depending on full SDK type forces casts in tests
+import type { Query } from '@anthropic-ai/sdk';
+type QueryFactory = (params: Params) => Promise<Query>;
+
+// Correct — narrow interface at the boundary
+type AgentQuery = AsyncIterable<unknown> & { interrupt(): Promise<void> };
+type QueryFactory = (params: Params) => Promise<AgentQuery>;
+```
+
+Use Record lookups instead of Set checks when parsing string unions from untrusted input:
+```ts
+// Wrong — Set.has() doesn't narrow, requires cast
+const VALID = new Set(['a', 'b', 'c']);
+if (VALID.has(value)) return value as MyUnion;
+
+// Correct — Record lookup returns the union type directly
+const VALID: Record<string, MyUnion> = { a: 'a', b: 'b', c: 'c' };
+return VALID[value] ?? defaultValue;
 ```
 
 ### No non-null assertions
