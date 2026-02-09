@@ -1,18 +1,30 @@
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import invariant from 'tiny-invariant';
 import { match, P } from 'ts-pattern';
 import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentSkippedEvent,
   AgentStartedEvent,
+  AgentStream,
   AgentType,
-} from '../../types';
-import type { AgentManager, AgentManagerDeps, AgentSessionTracker, OutputListener } from './types';
+} from '../../types.ts';
+import type {
+  AgentManager,
+  AgentManagerDeps,
+  AgentSessionTracker,
+  DispatchImplementorParams,
+  DispatchPlannerParams,
+  DispatchReviewerParams,
+  OutputListener,
+} from './types.ts';
 
-type SessionLogger = {
+const SECONDS_TO_MS = 1000;
+
+interface SessionLogger {
   logFilePath: string;
   disabled: boolean;
-};
+}
 
 export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const {
@@ -36,7 +48,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   const sessionLoggers = new WeakMap<AgentSessionTracker, SessionLogger>();
 
   return {
-    async dispatchImplementor(params) {
+    async dispatchImplementor(params: DispatchImplementorParams): Promise<void> {
       const { issueNumber } = params;
 
       if (issueAgents.has(issueNumber)) {
@@ -62,7 +74,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    async dispatchReviewer(params) {
+    async dispatchReviewer(params: DispatchReviewerParams): Promise<void> {
       const { issueNumber } = params;
 
       if (issueAgents.has(issueNumber)) {
@@ -85,7 +97,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    async dispatchPlanner(params) {
+    async dispatchPlanner(params: DispatchPlannerParams): Promise<void> {
       const { specPaths } = params;
 
       if (plannerSession) {
@@ -108,35 +120,41 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    cancelAgent(issueNumber) {
+    cancelAgent(issueNumber: number): void {
       const tracker = issueAgents.get(issueNumber);
-      if (!tracker) return;
+      if (!tracker) {
+        return;
+      }
 
-      cancelSession(tracker, 'Cancelled by user');
+      void cancelSession(tracker, 'Cancelled by user');
     },
 
-    cancelPlanner() {
-      if (!plannerSession) return;
+    cancelPlanner(): void {
+      if (!plannerSession) {
+        return;
+      }
 
-      cancelSession(plannerSession, 'Cancelled by user');
+      void cancelSession(plannerSession, 'Cancelled by user');
     },
 
-    getAgentStream(issueNumber) {
+    getAgentStream(issueNumber: number): AgentStream {
       const tracker = issueAgents.get(issueNumber);
-      if (!tracker) return null;
+      if (!tracker) {
+        return null;
+      }
 
       return buildAsyncIterable(tracker);
     },
 
-    isRunning(issueNumber) {
+    isRunning(issueNumber: number): boolean {
       return issueAgents.has(issueNumber);
     },
 
-    isPlannerRunning() {
+    isPlannerRunning(): boolean {
       return plannerSession !== null;
     },
 
-    getRunningSessionIDs() {
+    getRunningSessionIDs(): string[] {
       const ids: string[] = [];
       for (const tracker of issueAgents.values()) {
         ids.push(tracker.sessionID);
@@ -147,12 +165,12 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       return ids;
     },
 
-    cancelAll() {
+    cancelAll(): void {
       for (const tracker of issueAgents.values()) {
-        cancelSession(tracker, 'Shutdown');
+        void cancelSession(tracker, 'Shutdown');
       }
       if (plannerSession) {
-        cancelSession(plannerSession, 'Shutdown');
+        void cancelSession(plannerSession, 'Shutdown');
       }
     },
   };
@@ -173,8 +191,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       query: queryHandle,
       abortController,
       timer: setTimeout(() => {
-        cancelSession(tracker, `Agent exceeded max duration of ${maxAgentDuration}s`);
-      }, maxAgentDuration * 1000),
+        void cancelSession(tracker, `Agent exceeded max duration of ${maxAgentDuration}s`);
+      }, maxAgentDuration * SECONDS_TO_MS),
       outputChunks: [],
       outputListeners: new Set(),
       done: false,
@@ -211,7 +229,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
 
     // Check if we already got a result message that set the outcome
-    if (tracker.done) return;
+    if (tracker.done) {
+      return;
+    }
 
     await finishSession(tracker, sessionSucceeded, errorMessage, onCleanup);
   }
@@ -260,13 +280,16 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
   }
 
+  // biome-ignore lint/suspicious/useAwait: callers await this function; async is retained for future internal awaits
   async function finishSession(
     tracker: AgentSessionTracker,
     succeeded: boolean,
     errorMessage: string | undefined,
     onCleanup: () => void,
   ): Promise<void> {
-    if (tracker.done) return;
+    if (tracker.done) {
+      return;
+    }
     tracker.done = true;
 
     clearTimeout(tracker.timer);
@@ -310,7 +333,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
   }
 
   async function cancelSession(tracker: AgentSessionTracker, reason: string): Promise<void> {
-    if (tracker.done) return;
+    if (tracker.done) {
+      return;
+    }
 
     tracker.abortController.abort();
     tracker.query.interrupt().catch(() => {
@@ -355,18 +380,22 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     message: AssistantMessageContent,
   ): Promise<void> {
     const logger = sessionLoggers.get(tracker);
-    if (!logger || logger.disabled) return;
+    if (!logger || logger.disabled) {
+      return;
+    }
 
     const content = message.content;
-    if (!Array.isArray(content)) return;
+    if (!Array.isArray(content)) {
+      return;
+    }
 
     const lines: string[] = [];
-    const timestamp = formatUTCTime(new Date());
+    const timestamp = formatUtcTime(new Date());
 
     for (const block of content) {
-      if (typeof block !== 'object' || block === null || !('type' in block)) continue;
-
-      if (block.type === 'text') {
+      if (typeof block !== 'object' || block === null || !('type' in block)) {
+        // Skip non-object or untyped blocks
+      } else if (block.type === 'text') {
         const textBlock = block as TextBlock;
         lines.push(`[${timestamp}] ASSISTANT`);
         const indented = textBlock.text
@@ -375,9 +404,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
           .join('\n');
         lines.push(indented);
         lines.push('');
-      }
-
-      if (block.type === 'tool_use') {
+      } else if (block.type === 'tool_use') {
         const toolBlock = block as ToolUseBlock;
         lines.push(`[${timestamp}] ASSISTANT`);
         lines.push(`  [tool_use] ${toolBlock.name}`);
@@ -385,7 +412,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       }
     }
 
-    if (lines.length === 0) return;
+    if (lines.length === 0) {
+      return;
+    }
 
     await appendToLog(tracker, lines.join('\n'));
   }
@@ -396,14 +425,16 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     message: ResultMessageShape,
   ): Promise<void> {
     const logger = sessionLoggers.get(tracker);
-    if (!logger || logger.disabled) return;
+    if (!logger || logger.disabled) {
+      return;
+    }
 
-    const timestamp = formatUTCTime(new Date());
+    const timestamp = formatUtcTime(new Date());
     const lines: string[] = [];
     lines.push(`[${timestamp}] RESULT ${subtype}`);
 
     if (message.duration_ms !== undefined) {
-      lines.push(`  Duration: ${(message.duration_ms / 1000).toFixed(1)}s`);
+      lines.push(`  Duration: ${(message.duration_ms / SECONDS_TO_MS).toFixed(1)}s`);
     }
     if (message.total_cost_usd !== undefined) {
       lines.push(`  Cost:     $${message.total_cost_usd.toFixed(2)}`);
@@ -423,11 +454,13 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
   async function logUnknownMessage(tracker: AgentSessionTracker, message: unknown): Promise<void> {
     const logger = sessionLoggers.get(tracker);
-    if (!logger || logger.disabled) return;
+    if (!logger || logger.disabled) {
+      return;
+    }
 
     const msg = message as { type?: string };
     const type = msg.type ?? 'unknown';
-    const timestamp = formatUTCTime(new Date());
+    const timestamp = formatUtcTime(new Date());
 
     const lines: string[] = [];
     lines.push(`[${timestamp}] UNKNOWN ${type}`);
@@ -439,7 +472,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
   async function writeLogFooter(tracker: AgentSessionTracker, outcome: string): Promise<void> {
     const logger = sessionLoggers.get(tracker);
-    if (!logger || logger.disabled) return;
+    if (!logger || logger.disabled) {
+      return;
+    }
 
     const now = new Date();
     const lines: string[] = [];
@@ -453,7 +488,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
   async function appendToLog(tracker: AgentSessionTracker, content: string): Promise<void> {
     const logger = sessionLoggers.get(tracker);
-    if (!logger || logger.disabled) return;
+    if (!logger || logger.disabled) {
+      return;
+    }
 
     try {
       await appendFile(logger.logFilePath, content);
@@ -469,7 +506,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 // Internal types
 // ---------------------------------------------------------------------------
 
-type StartSessionParams = {
+interface StartSessionParams {
   agentType: AgentType;
   prompt: string;
   cwd: string;
@@ -477,40 +514,40 @@ type StartSessionParams = {
   issueNumber?: number;
   specPaths?: string[];
   worktreePath?: string;
-};
+}
 
-type TextBlock = {
+interface TextBlock {
   type: 'text';
   text: string;
-};
+}
 
-type ToolUseBlock = {
+interface ToolUseBlock {
   type: 'tool_use';
   name: string;
-};
+}
 
-type AssistantMessageContent = {
+interface AssistantMessageContent {
   content: unknown;
-};
+}
 
-type InitMessageShape = {
+interface InitMessageShape {
   session_id: string;
   model?: string;
   cwd?: string;
   tools?: Array<{ name?: string } | string>;
-};
+}
 
-type ResultMessageUsage = {
+interface ResultMessageUsage {
   input_tokens: number;
   output_tokens: number;
-};
+}
 
-type ResultMessageShape = {
+interface ResultMessageShape {
   duration_ms?: number;
   total_cost_usd?: number;
   num_turns?: number;
   usage?: ResultMessageUsage;
-};
+}
 
 // ---------------------------------------------------------------------------
 // Pure helpers (below the primary export)
@@ -518,15 +555,16 @@ type ResultMessageShape = {
 
 function buildAsyncIterable(tracker: AgentSessionTracker): AsyncIterable<string> {
   return {
-    [Symbol.asyncIterator]() {
+    [Symbol.asyncIterator](): AsyncIterator<string> {
       let chunkIndex = 0;
 
       return {
-        next() {
+        next(): Promise<IteratorResult<string>> {
           // Yield any buffered chunks first
           if (chunkIndex < tracker.outputChunks.length) {
-            const value = tracker.outputChunks[chunkIndex]!;
-            chunkIndex++;
+            const value = tracker.outputChunks[chunkIndex];
+            invariant(value !== undefined, 'chunk must exist at index within bounds');
+            chunkIndex += 1;
             return Promise.resolve({ value, done: false });
           }
 
@@ -537,13 +575,13 @@ function buildAsyncIterable(tracker: AgentSessionTracker): AsyncIterable<string>
 
           // Wait for the next chunk
           return new Promise<IteratorResult<string>>((resolve) => {
-            const listener: OutputListener = (chunk) => {
+            const listener: OutputListener = (chunk: string): void => {
               tracker.outputListeners.delete(listener);
               if (chunk === '' || tracker.done) {
                 resolve({ value: undefined, done: true as const });
                 return;
               }
-              chunkIndex++;
+              chunkIndex += 1;
               resolve({ value: chunk, done: false });
             };
             tracker.outputListeners.add(listener);
@@ -557,9 +595,13 @@ function buildAsyncIterable(tracker: AgentSessionTracker): AsyncIterable<string>
 function extractTextFromAssistantMessage(message: { content: unknown }): string {
   const { content } = message;
 
-  if (typeof content === 'string') return content;
+  if (typeof content === 'string') {
+    return content;
+  }
 
-  if (!Array.isArray(content)) return '';
+  if (!Array.isArray(content)) {
+    return '';
+  }
 
   const textParts: string[] = [];
   for (const block of content) {
@@ -627,9 +669,13 @@ function buildSkippedEvent(
 }
 
 function buildLogFileContext(tracker: AgentSessionTracker): string | undefined {
-  if (tracker.agentType === 'planner') return undefined;
-  if (tracker.issueNumber !== undefined) return String(tracker.issueNumber);
-  return undefined;
+  if (tracker.agentType === 'planner') {
+    return;
+  }
+  if (tracker.issueNumber !== undefined) {
+    return String(tracker.issueNumber);
+  }
+  return;
 }
 
 function buildSessionHeader(tracker: AgentSessionTracker, initMessage: InitMessageShape): string {
@@ -654,7 +700,7 @@ function buildSessionHeader(tracker: AgentSessionTracker, initMessage: InitMessa
   lines.push('');
 
   // Log the init message itself
-  const timestamp = formatUTCTime(new Date());
+  const timestamp = formatUtcTime(new Date());
   lines.push(`[${timestamp}] SYSTEM init`);
   if (initMessage.model) {
     lines.push(`  Model: ${initMessage.model}`);
@@ -665,9 +711,12 @@ function buildSessionHeader(tracker: AgentSessionTracker, initMessage: InitMessa
   if (initMessage.tools && Array.isArray(initMessage.tools)) {
     const toolNames = initMessage.tools
       .map((t) => {
-        if (typeof t === 'string') return t;
-        if (typeof t === 'object' && t !== null && 'name' in t && typeof t.name === 'string')
+        if (typeof t === 'string') {
+          return t;
+        }
+        if (typeof t === 'object' && t !== null && 'name' in t && typeof t.name === 'string') {
           return t.name;
+        }
         return '';
       })
       .filter(Boolean);
@@ -704,7 +753,7 @@ function extractResultMetadata(message: Record<string, unknown>): ResultMessageS
   return result;
 }
 
-function formatUTCTime(date: Date): string {
+function formatUtcTime(date: Date): string {
   const hours = String(date.getUTCHours()).padStart(2, '0');
   const minutes = String(date.getUTCMinutes()).padStart(2, '0');
   const seconds = String(date.getUTCSeconds()).padStart(2, '0');

@@ -6,9 +6,9 @@ import type {
   IssueRemovedEvent,
   IssueStatusChangedEvent,
   NotificationEvent,
-} from '../types';
-import { createEngineStore, selectRunningAgentCount } from './store';
-import { createMockEngine } from './test-utils/create-mock-engine';
+} from '../types.ts';
+import { createEngineStore, selectRunningAgentCount } from './store.ts';
+import { createMockEngine } from './test-utils/create-mock-engine.ts';
 import type {
   AgentCompletedNotification,
   AgentFailedNotification,
@@ -16,9 +16,14 @@ import type {
   EngineEventNotification,
   IssueStatusChangedNotification,
   SpecChangedNotification,
-} from './types';
+} from './types.ts';
 
-function setupTest() {
+function setupTest(): {
+  store: ReturnType<typeof createEngineStore>;
+  engine: ReturnType<typeof createMockEngine>['engine'];
+  emit: ReturnType<typeof createMockEngine>['emit'];
+  sentCommands: ReturnType<typeof createMockEngine>['sentCommands'];
+} {
   const { engine, emit, sentCommands } = createMockEngine();
   const store = createEngineStore({ engine, repository: 'owner/repo' });
   return { store, engine, emit, sentCommands };
@@ -39,31 +44,33 @@ function buildIssueStatusChanged(
   };
 }
 
-type StreamController = {
+interface StreamController {
   stream: AsyncGenerator<string>;
   push: (value: string) => void;
-};
+}
 
 function buildStreamController(): StreamController {
   const pending: Array<(value: string) => void> = [];
   const queued: string[] = [];
 
   async function* generate(): AsyncGenerator<string> {
+    // biome-ignore lint/nursery/noUnnecessaryConditions: infinite generator loop is intentional
     while (true) {
       if (queued.length > 0) {
         const value = queued.shift();
         if (value !== undefined) {
           yield value;
-          continue;
         }
+      } else {
+        // biome-ignore lint/performance/noAwaitInLoops: generator must await each chunk sequentially
+        yield await new Promise<string>((resolve) => {
+          pending.push(resolve);
+        });
       }
-      yield await new Promise<string>((resolve) => {
-        pending.push(resolve);
-      });
     }
   }
 
-  function push(value: string) {
+  function push(value: string): void {
     const waiter = pending.shift();
     if (waiter) {
       waiter(value);
@@ -814,7 +821,7 @@ test('it drops the oldest output when the stream buffer is full', async () => {
   const { store, emit, engine } = setupTest();
 
   const chunks: string[] = [];
-  for (let i = 0; i < 10_001; i++) {
+  for (let i = 0; i < 10_001; i += 1) {
     chunks.push(`chunk-${i}`);
   }
 
@@ -823,6 +830,7 @@ test('it drops the oldest output when the stream buffer is full', async () => {
     resolveStream = resolve;
   });
 
+  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generateChunks(): AsyncGenerator<string> {
     for (const chunk of chunks) {
       yield chunk;
@@ -1201,6 +1209,7 @@ test('it splits a stream chunk with newlines into individual buffer lines', asyn
     resolveStream = resolve;
   });
 
+  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'line1\nline2\nline3\n';
     resolveStream();
@@ -1231,6 +1240,7 @@ test('it appends a chunk without newlines as a single buffer line', async () => 
     resolveStream = resolve;
   });
 
+  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'partial output';
     resolveStream();
@@ -1261,6 +1271,7 @@ test('it discards the trailing empty string when a chunk ends with a newline', a
     resolveStream = resolve;
   });
 
+  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'hello\n';
     resolveStream();
@@ -1291,6 +1302,7 @@ test('it accumulates lines from multiple chunks in order', async () => {
     resolveStream = resolve;
   });
 
+  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'first\nsecond\n';
     yield 'third';
@@ -1338,7 +1350,7 @@ test('it decrements the viewport offset when lines are dropped from a full buffe
 
   // Pre-fill buffer with 10,000 lines and set a viewport offset
   const prefilledBuffer: string[] = [];
-  for (let i = 0; i < 10_000; i++) {
+  for (let i = 0; i < 10_000; i += 1) {
     prefilledBuffer.push(`line-${i}`);
   }
   const agentStreams = new Map(store.getState().agentStreams);
@@ -1374,7 +1386,7 @@ test('it does not decrement the viewport offset below zero when lines are droppe
 
   // Pre-fill buffer with 10,000 lines and set offset to 0
   const prefilledBuffer: string[] = [];
-  for (let i = 0; i < 10_000; i++) {
+  for (let i = 0; i < 10_000; i += 1) {
     prefilledBuffer.push(`line-${i}`);
   }
   const agentStreams = new Map(store.getState().agentStreams);

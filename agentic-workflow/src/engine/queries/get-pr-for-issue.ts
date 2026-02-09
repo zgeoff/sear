@@ -1,5 +1,5 @@
-import type { PRDetailsResult } from '../../types';
-import type { CIStatus, QueriesConfig } from './types';
+import type { PRDetailsResult } from '../../types.ts';
+import type { CIStatus, QueriesConfig } from './types.ts';
 
 export async function getPRForIssue(
   config: QueriesConfig,
@@ -17,22 +17,22 @@ export async function getPRForIssue(
   });
 
   const matchingPRs = pullRequests
-    .filter((pr) => pr.body != null && closingPattern.test(pr.body))
+    .filter((pr) => pr.body !== null && closingPattern.test(pr.body))
     .sort((a, b) => a.number - b.number);
 
-  const linkedPR = matchingPRs[0];
+  const linkedPr = matchingPRs[0];
 
-  if (!linkedPR) {
+  if (!linkedPr) {
     return null;
   }
 
   const { data: prDetail } = await octokit.pulls.get({
     owner,
     repo,
-    pull_number: linkedPR.number,
+    pull_number: linkedPr.number,
   });
 
-  const ciStatus = await deriveCIStatus(config, prDetail.head.sha);
+  const ciStatus = await deriveCiStatus(config, prDetail.head.sha);
 
   return {
     number: prDetail.number,
@@ -55,29 +55,29 @@ export function buildClosingKeywordPattern(issueNumber: number): RegExp {
   );
 }
 
-async function deriveCIStatus(config: QueriesConfig, headSHA: string): Promise<CIStatus> {
+async function deriveCiStatus(config: QueriesConfig, headSha: string): Promise<CIStatus> {
   const { octokit, owner, repo } = config;
 
   try {
     const { data: combinedStatus } = await octokit.repos.getCombinedStatusForRef({
       owner,
       repo,
-      ref: headSHA,
+      ref: headSha,
     });
 
     const { data: checkRuns } = await octokit.checks.listForRef({
       owner,
       repo,
-      ref: headSHA,
+      ref: headSha,
     });
 
-    const FAILURE_CONCLUSIONS = new Set(['failure', 'cancelled', 'timed_out']);
+    const FailureConclusions = new Set(['failure', 'cancelled', 'timed_out']);
 
     // failure: combined status failure, or any check run with a failure conclusion
     if (combinedStatus.state === 'failure') {
       return 'failure';
     }
-    if (checkRuns.check_runs.some((run) => FAILURE_CONCLUSIONS.has(run.conclusion ?? ''))) {
+    if (checkRuns.check_runs.some((run) => FailureConclusions.has(run.conclusion ?? ''))) {
       return 'failure';
     }
 
@@ -94,12 +94,12 @@ async function deriveCIStatus(config: QueriesConfig, headSHA: string): Promise<C
     }
 
     // success: combined status success (or no statuses) and all check runs succeeded
-    const combinedOK = combinedStatus.state === 'success' || combinedStatus.total_count === 0;
-    const checksOK =
+    const combinedOk = combinedStatus.state === 'success' || combinedStatus.total_count === 0;
+    const checksOk =
       checkRuns.total_count === 0 ||
       checkRuns.check_runs.every((run) => run.conclusion === 'success');
 
-    if (combinedOK && checksOK) {
+    if (combinedOk && checksOk) {
       return 'success';
     }
 

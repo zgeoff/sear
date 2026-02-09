@@ -1,18 +1,19 @@
-import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types';
-import type { EventEmitter } from '../event-emitter/types';
-import type { GitHubClient } from '../github-client/types';
-import type { IssuePoller, IssueSnapshot } from './types';
+import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types.ts';
+import type { EventEmitter } from '../event-emitter/types.ts';
+import type { GitHubClient } from '../github-client/types.ts';
+import type { IssuePoller, IssueSnapshot } from './types.ts';
 
-type IssuePollerConfig = {
+interface IssuePollerConfig {
   octokit: GitHubClient;
   owner: string;
   repo: string;
   emitter: EventEmitter;
   logError?: (message: string, error: unknown) => void;
-};
+}
 
 export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
-  const { octokit, owner, repo, emitter, logError = console.error } = config;
+  const { octokit, owner, repo, emitter } = config;
+  const logError = config.logError ?? defaultLogError;
   const snapshot = new Map<number, IssueSnapshot>();
 
   async function poll(): Promise<void> {
@@ -39,36 +40,26 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
         if (!existing) {
           // New issue -- emit with oldStatus: null
           events.push(
-            buildStatusChangedEvent(
-              issue.number,
-              issue.title,
-              null,
-              statusLabel,
+            buildStatusChangedEvent({
+              issueNumber: issue.number,
+              title: issue.title,
+              oldStatus: null,
+              newStatus: statusLabel,
               priorityLabel,
-              issue.created_at,
-            ),
+              createdAt: issue.created_at,
+            }),
           );
-          snapshot.set(issue.number, {
-            issueNumber: issue.number,
-            title: issue.title,
-            statusLabel,
-            priorityLabel,
-            createdAt: issue.created_at,
-          });
-          continue;
-        }
-
-        // Existing issue -- check for status label change
-        if (existing.statusLabel !== statusLabel) {
+        } else if (existing.statusLabel !== statusLabel) {
+          // Existing issue -- status label changed
           events.push(
-            buildStatusChangedEvent(
-              issue.number,
-              issue.title,
-              existing.statusLabel,
-              statusLabel,
+            buildStatusChangedEvent({
+              issueNumber: issue.number,
+              title: issue.title,
+              oldStatus: existing.statusLabel,
+              newStatus: statusLabel,
               priorityLabel,
-              issue.created_at,
-            ),
+              createdAt: issue.created_at,
+            }),
           );
         }
 
@@ -121,7 +112,9 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
 function extractLabelValue(labels: (string | { name?: string })[], prefix: string): string {
   for (const label of labels) {
     const name = typeof label === 'string' ? label : label.name;
-    if (name?.startsWith(prefix)) return name.slice(prefix.length);
+    if (name?.startsWith(prefix)) {
+      return name.slice(prefix.length);
+    }
   }
   return '';
 }
@@ -129,26 +122,35 @@ function extractLabelValue(labels: (string | { name?: string })[], prefix: strin
 function extractLabel(labels: (string | { name?: string })[], prefix: string): string {
   for (const label of labels) {
     const name = typeof label === 'string' ? label : label.name;
-    if (name?.startsWith(prefix)) return name;
+    if (name?.startsWith(prefix)) {
+      return name;
+    }
   }
   return '';
 }
 
-function buildStatusChangedEvent(
-  issueNumber: number,
-  title: string,
-  oldStatus: string | null,
-  newStatus: string,
-  priorityLabel: string,
-  createdAt: string,
-): IssueStatusChangedEvent {
+interface BuildStatusChangedEventParams {
+  issueNumber: number;
+  title: string;
+  oldStatus: string | null;
+  newStatus: string;
+  priorityLabel: string;
+  createdAt: string;
+}
+
+function buildStatusChangedEvent(params: BuildStatusChangedEventParams): IssueStatusChangedEvent {
   return {
     type: 'issueStatusChanged',
-    issueNumber,
-    title,
-    oldStatus,
-    newStatus,
-    priorityLabel,
-    createdAt,
+    issueNumber: params.issueNumber,
+    title: params.title,
+    oldStatus: params.oldStatus,
+    newStatus: params.newStatus,
+    priorityLabel: params.priorityLabel,
+    createdAt: params.createdAt,
   };
+}
+
+function defaultLogError(message: string, error: unknown): void {
+  // biome-ignore lint/suspicious/noConsole: fallback logger when none is injected
+  console.error(message, error);
 }

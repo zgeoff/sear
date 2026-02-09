@@ -1,15 +1,26 @@
-import { fs, vol } from 'memfs';
+import { vol } from 'memfs';
+import invariant from 'tiny-invariant';
 import { expect, test, vi } from 'vitest';
-import type { AgentCompletedEvent, AgentFailedEvent, EngineEvent } from '../../types';
-import { createEventEmitter } from '../event-emitter/create-event-emitter';
-import type { WorktreeManager } from '../worktree-manager/types';
-import { createAgentManager } from './create-agent-manager';
-import type { AgentManager, AgentQuery, QueryFactoryParams } from './types';
+import type { AgentCompletedEvent, AgentFailedEvent, EngineEvent } from '../../types.ts';
+import { createEventEmitter } from '../event-emitter/create-event-emitter.ts';
+import type { WorktreeManager } from '../worktree-manager/types.ts';
+import { createAgentManager } from './create-agent-manager.ts';
+import type { AgentManager, AgentQuery, QueryFactoryParams } from './types.ts';
+
+// ---------------------------------------------------------------------------
+// Top-level regex patterns (useTopLevelRegex)
+// ---------------------------------------------------------------------------
+
+const IMPLEMENTOR_LOG_PATTERN = /^\d+-implementor-42\.log$/;
+const PLANNER_LOG_PATTERN = /^\d+-planner\.log$/;
+const REVIEWER_LOG_PATTERN = /^\d+-reviewer-7\.log$/;
+const ASSISTANT_TEXT_PATTERN = /\[\d{2}:\d{2}:\d{2}\] ASSISTANT\n {2}Let me read the spec\./;
+const UNKNOWN_MSG_PATTERN = /\[\d{2}:\d{2}:\d{2}\] UNKNOWN user/;
 
 type MockQuery = AgentQuery &
   AsyncIterator<unknown> & {
-    pushMessage(msg: unknown): void;
-    end(): void;
+    pushMessage: (msg: unknown) => void;
+    end: () => void;
   };
 
 function createMockQuery(): MockQuery {
@@ -20,7 +31,7 @@ function createMockQuery(): MockQuery {
   let ended = false;
 
   const mockQuery: MockQuery = {
-    pushMessage(msg: unknown) {
+    pushMessage(msg: unknown): void {
       if (pendingReads.length > 0) {
         const pending = pendingReads.shift();
         if (pending) {
@@ -31,7 +42,7 @@ function createMockQuery(): MockQuery {
       bufferedMessages.push(msg);
     },
 
-    end() {
+    end(): void {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
@@ -41,7 +52,7 @@ function createMockQuery(): MockQuery {
 
     interrupt: vi.fn().mockResolvedValue(undefined),
 
-    next() {
+    next(): Promise<IteratorResult<unknown>> {
       if (bufferedMessages.length > 0) {
         const msg = bufferedMessages.shift();
         return Promise.resolve({ value: msg, done: false });
@@ -54,7 +65,7 @@ function createMockQuery(): MockQuery {
       });
     },
 
-    return() {
+    return(): Promise<IteratorResult<unknown>> {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
@@ -63,7 +74,7 @@ function createMockQuery(): MockQuery {
       return Promise.resolve({ value: undefined, done: true as const });
     },
 
-    throw() {
+    throw(): Promise<IteratorResult<unknown>> {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
@@ -72,7 +83,7 @@ function createMockQuery(): MockQuery {
       return Promise.resolve({ value: undefined, done: true as const });
     },
 
-    [Symbol.asyncIterator]() {
+    [Symbol.asyncIterator](): MockQuery {
       return mockQuery;
     },
   };
@@ -91,20 +102,20 @@ function createMockWorktreeManager(): WorktreeManager {
   };
 }
 
-type SetupContext = {
+interface SetupContext {
   manager: AgentManager;
   emitter: ReturnType<typeof createEventEmitter>;
   worktreeManager: WorktreeManager;
   events: EngineEvent[];
   mockQueries: MockQuery[];
   queryParams: QueryFactoryParams[];
-};
+}
 
-type SetupOverrides = {
+interface SetupOverrides {
   maxAgentDuration?: number;
   loggingEnabled?: boolean;
   logsDir?: string;
-};
+}
 
 function setupTest(overrides?: SetupOverrides): SetupContext {
   const emitter = createEventEmitter();
@@ -115,11 +126,13 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
 
   emitter.on((event) => events.push(event));
 
-  const queryFactory = async (params: QueryFactoryParams) => {
+  const queryFactory: (params: QueryFactoryParams) => Promise<MockQuery> = (
+    params: QueryFactoryParams,
+  ) => {
     queryParams.push(params);
     const mockQuery = createMockQuery();
     mockQueries.push(mockQuery);
-    return mockQuery;
+    return Promise.resolve(mockQuery);
   };
 
   const manager = createAgentManager({
@@ -133,17 +146,33 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
     queryFactory,
     loggingEnabled: overrides?.loggingEnabled ?? false,
     logsDir: overrides?.logsDir ?? '/tmp/logs',
-    logError: () => {},
+    logError: () => {
+      // Intentionally empty — suppress error logging in tests
+    },
   });
 
   return { manager, emitter, worktreeManager, events, mockQueries, queryParams };
 }
 
-function buildInitMessage(sessionID: string) {
+function buildInitMessage(sessionId: string): {
+  type: 'system';
+  subtype: 'init';
+  session_id: string;
+  uuid: string;
+  agents: never[];
+  apiKeySource: 'user';
+  cwd: string;
+  tools: never[];
+  mcp_servers: never[];
+  model: string;
+  permissionMode: 'bypassPermissions';
+  slash_commands: never[];
+  output_style: string;
+} {
   return {
     type: 'system' as const,
     subtype: 'init' as const,
-    session_id: sessionID,
+    session_id: sessionId,
     uuid: '00000000-0000-0000-0000-000000000001',
     agents: [],
     apiKeySource: 'user' as const,
@@ -157,7 +186,13 @@ function buildInitMessage(sessionID: string) {
   };
 }
 
-function buildAssistantMessage(text: string) {
+function buildAssistantMessage(text: string): {
+  type: 'assistant';
+  uuid: string;
+  session_id: string;
+  message: { content: Array<{ type: 'text'; text: string }> };
+  parent_tool_use_id: null;
+} {
   return {
     type: 'assistant' as const,
     uuid: '00000000-0000-0000-0000-000000000002',
@@ -169,7 +204,26 @@ function buildAssistantMessage(text: string) {
   };
 }
 
-function buildSuccessResult() {
+function buildSuccessResult(): {
+  type: 'result';
+  subtype: 'success';
+  uuid: string;
+  session_id: string;
+  duration_ms: number;
+  duration_api_ms: number;
+  is_error: false;
+  num_turns: number;
+  result: string;
+  total_cost_usd: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens: number;
+    cache_creation_input_tokens: number;
+  };
+  modelUsage: Record<string, never>;
+  permission_denials: never[];
+} {
   return {
     type: 'result' as const,
     subtype: 'success' as const,
@@ -192,7 +246,25 @@ function buildSuccessResult() {
   };
 }
 
-function buildErrorResult() {
+function buildErrorResult(): {
+  type: 'result';
+  subtype: 'error_during_execution';
+  uuid: string;
+  session_id: string;
+  duration_ms: number;
+  duration_api_ms: number;
+  is_error: true;
+  num_turns: number;
+  total_cost_usd: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens: number;
+    cache_creation_input_tokens: number;
+  };
+  modelUsage: Record<string, never>;
+  permission_denials: never[];
+} {
   return {
     type: 'result' as const,
     subtype: 'error_during_execution' as const,
@@ -214,11 +286,13 @@ function buildErrorResult() {
   };
 }
 
-async function drain() {
+async function drain(): Promise<void> {
   // Multiple ticks to allow async generator protocol to process
-  for (let i = 0; i < 5; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +317,7 @@ test('it emits agentSkipped when dispatching an implementor for an issue with a 
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
@@ -261,7 +335,7 @@ test('it emits agentStarted with session ID when the init message is received', 
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('abc-123'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('abc-123'));
   await drain();
 
   const started = ctx.events.find((e) => e.type === 'agentStarted');
@@ -287,11 +361,11 @@ test('it emits agentCompleted and removes worktree when an implementor session s
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted');
@@ -309,11 +383,11 @@ test('it emits agentFailed with worktree path and preserves worktree when an imp
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildErrorResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildErrorResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
@@ -348,7 +422,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 10 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 10 });
@@ -376,11 +450,11 @@ test('it emits agentCompleted and does not remove worktree for reviewer sessions
   const ctx = setupTest();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 10 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-r'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted');
@@ -422,7 +496,7 @@ test('it emits agentSkipped with deferred paths when a planner is already runnin
   const ctx = setupTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
   await drain();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/b.md'] });
@@ -440,11 +514,11 @@ test('it emits agentCompleted for planner sessions', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted');
@@ -477,7 +551,7 @@ test('it cancels a running agent session and emits agentFailed', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   ctx.manager.cancelAgent(42);
@@ -507,7 +581,7 @@ test('it cancels a running planner session and emits agentFailed', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
   await drain();
 
   ctx.manager.cancelPlanner();
@@ -536,16 +610,17 @@ test('it completes the async iterable when an agent session is cancelled', async
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Hello'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Hello'));
   await drain();
 
   const stream = ctx.manager.getAgentStream(42);
   expect(stream).not.toBeNull();
 
   const chunks: string[] = [];
+  invariant(stream, 'stream must exist for a running agent');
   const streamPromise = (async () => {
-    for await (const chunk of stream!) {
+    for await (const chunk of stream) {
       chunks.push(chunk);
     }
   })();
@@ -573,11 +648,11 @@ test('it yields plain text output chunks from the agent stream', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Hello world'));
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('More output'));
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Hello world'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('More output'));
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   // After completion, stream returns null since agent is no longer running
@@ -589,27 +664,28 @@ test('it yields buffered and live chunks through the async iterable', async () =
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Chunk 1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Chunk 1'));
   await drain();
 
   const stream = ctx.manager.getAgentStream(42);
   expect(stream).not.toBeNull();
 
   const chunks: string[] = [];
+  invariant(stream, 'stream must exist for a running agent');
   const readPromise = (async () => {
-    for await (const chunk of stream!) {
+    for await (const chunk of stream) {
       chunks.push(chunk);
     }
   })();
 
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Chunk 2'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Chunk 2'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
   await readPromise;
 
@@ -626,7 +702,7 @@ test('it cancels a session that exceeds the max duration', async () => {
   const ctx = setupTest({ maxAgentDuration: 10 });
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
 
   // Allow the monitoring loop to start consuming
   await vi.advanceTimersByTimeAsync(0);
@@ -661,11 +737,11 @@ test('it tracks whether an agent is running for a given issue', async () => {
 
   expect(ctx.manager.isRunning(42)).toBe(true);
 
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   expect(ctx.manager.isRunning(42)).toBe(false);
@@ -680,11 +756,11 @@ test('it tracks whether a planner is running', async () => {
 
   expect(ctx.manager.isPlannerRunning()).toBe(true);
 
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   expect(ctx.manager.isPlannerRunning()).toBe(false);
@@ -694,15 +770,15 @@ test('it returns all running session IDs', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 1 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-impl'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-impl'));
   await drain();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 2 });
-  ctx.mockQueries[1]!.pushMessage(buildInitMessage('session-rev'));
+  ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-rev'));
   await drain();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
-  ctx.mockQueries[2]!.pushMessage(buildInitMessage('session-plan'));
+  ctx.mockQueries[2]?.pushMessage(buildInitMessage('session-plan'));
   await drain();
 
   const ids = ctx.manager.getRunningSessionIDs();
@@ -720,15 +796,15 @@ test('it cancels all running sessions when cancelAll is called', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 1 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 2 });
-  ctx.mockQueries[1]!.pushMessage(buildInitMessage('session-2'));
+  ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-2'));
   await drain();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
-  ctx.mockQueries[2]!.pushMessage(buildInitMessage('session-3'));
+  ctx.mockQueries[2]?.pushMessage(buildInitMessage('session-3'));
   await drain();
 
   ctx.manager.cancelAll();
@@ -749,11 +825,11 @@ test('it includes the session ID in the agentFailed event for implementor failur
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('my-session-id'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('my-session-id'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildErrorResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildErrorResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
@@ -770,11 +846,11 @@ test('it does not include worktreePath in agentFailed events for reviewers', asy
   const ctx = setupTest();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 10 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-r'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildErrorResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildErrorResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
@@ -785,11 +861,11 @@ test('it does not include worktreePath in agentFailed events for planners', asyn
   const ctx = setupTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildErrorResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildErrorResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
@@ -804,7 +880,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 5 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-impl'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-impl'));
   await drain();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 5 });
@@ -826,11 +902,11 @@ test('it only yields text content from assistant messages and filters out tool u
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   // Message with mixed content including tool_use blocks
-  ctx.mockQueries[0]!.pushMessage({
+  ctx.mockQueries[0]?.pushMessage({
     type: 'assistant',
     uuid: '00000000-0000-0000-0000-000000000002',
     session_id: 'test-session',
@@ -849,16 +925,17 @@ test('it only yields text content from assistant messages and filters out tool u
   expect(stream).not.toBeNull();
 
   const chunks: string[] = [];
+  invariant(stream, 'stream must exist for a running agent');
   const readPromise = (async () => {
-    for await (const chunk of stream!) {
+    for await (const chunk of stream) {
       chunks.push(chunk);
     }
   })();
 
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
   await readPromise;
 
@@ -874,11 +951,11 @@ test('it allows dispatching a new implementor after the previous one completes',
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   expect(ctx.manager.isRunning(42)).toBe(false);
@@ -923,14 +1000,15 @@ test('it creates a log file with session header when logging is enabled and an i
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-abc'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await drain();
 
   const files = readLogFiles();
   expect(files).toHaveLength(1);
-  expect(files[0]).toMatch(/^\d+-implementor-42\.log$/);
+  expect(files[0]).toMatch(IMPLEMENTOR_LOG_PATTERN);
 
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('=== Agent Session ===');
   expect(content).toContain('Type:       implementor');
   expect(content).toContain('Session ID: session-abc');
@@ -943,14 +1021,15 @@ test('it names planner log files without a context suffix', async () => {
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
   await drain();
 
   const files = readLogFiles();
   expect(files).toHaveLength(1);
-  expect(files[0]).toMatch(/^\d+-planner\.log$/);
+  expect(files[0]).toMatch(PLANNER_LOG_PATTERN);
 
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after planner init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('Spec Paths: docs/specs/a.md');
 });
 
@@ -959,7 +1038,7 @@ test('it does not create a log file when logging is disabled', async () => {
   vol.reset();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-abc'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await drain();
 
   const files = readLogFiles();
@@ -971,7 +1050,7 @@ test('it creates the logs directory automatically when it does not exist', async
   const ctx = setupTest({ loggingEnabled: true, logsDir: '/new-logs-dir' });
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-abc'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await drain();
 
   const dir = vol.readdirSync('/new-logs-dir') as string[];
@@ -986,25 +1065,26 @@ test('it appends formatted assistant text messages to the log file', async () =>
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Let me read the spec.'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Let me read the spec.'));
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
-  expect(content).toMatch(/\[\d{2}:\d{2}:\d{2}\] ASSISTANT\n {2}Let me read the spec\./);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
+  expect(content).toMatch(ASSISTANT_TEXT_PATTERN);
 });
 
 test('it logs tool use blocks with only the tool name', async () => {
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage({
+  ctx.mockQueries[0]?.pushMessage({
     type: 'assistant' as const,
     uuid: '00000000-0000-0000-0000-000000000002',
     session_id: 'test-session',
@@ -1018,7 +1098,8 @@ test('it logs tool use blocks with only the tool name', async () => {
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('[tool_use] Read');
   expect(content).not.toContain('/foo.ts');
 });
@@ -1027,16 +1108,17 @@ test('it logs unknown message types with raw JSON', async () => {
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   const userMessage = { type: 'user', content: 'hello' };
-  ctx.mockQueries[0]!.pushMessage(userMessage);
+  ctx.mockQueries[0]?.pushMessage(userMessage);
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
-  expect(content).toMatch(/\[\d{2}:\d{2}:\d{2}\] UNKNOWN user/);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
+  expect(content).toMatch(UNKNOWN_MSG_PATTERN);
   expect(content).toContain(JSON.stringify(userMessage));
 });
 
@@ -1048,15 +1130,16 @@ test('it writes a completed footer and includes logFilePath in the completed eve
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('=== Session End ===');
   expect(content).toContain('Outcome:  completed');
   expect(content).toContain('Finished:');
@@ -1069,15 +1152,16 @@ test('it writes a failed footer and includes logFilePath in the failed event', a
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildErrorResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildErrorResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('Outcome:  failed');
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed') as AgentFailedEvent;
@@ -1088,14 +1172,15 @@ test('it writes a cancelled footer when an agent session is cancelled', async ()
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   ctx.manager.cancelAgent(42);
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('Outcome:  cancelled');
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed') as AgentFailedEvent;
@@ -1107,11 +1192,11 @@ test('it does not include logFilePath in events when logging is disabled', async
   const ctx = setupTest({ loggingEnabled: false });
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
@@ -1126,15 +1211,16 @@ test('it logs result message metadata in the log file', async () => {
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('RESULT success');
   expect(content).toContain('Duration: 1.0s');
   expect(content).toContain('Cost:     $0.01');
@@ -1150,28 +1236,32 @@ test('it writes to independent log files when two agents run concurrently', asyn
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 1 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-a'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-a'));
   await drain();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 2 });
-  ctx.mockQueries[1]!.pushMessage(buildInitMessage('session-b'));
+  ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-b'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('Output from agent 1'));
-  ctx.mockQueries[1]!.pushMessage(buildAssistantMessage('Output from agent 2'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Output from agent 1'));
+  ctx.mockQueries[1]?.pushMessage(buildAssistantMessage('Output from agent 2'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
-  ctx.mockQueries[1]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[1]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
+  ctx.mockQueries[1]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[1]?.end();
   await drain();
 
   const files = readLogFiles();
   expect(files).toHaveLength(2);
 
-  const content1 = readLogContent(files.find((f) => f.includes('-1.log'))!);
-  const content2 = readLogContent(files.find((f) => f.includes('-2.log'))!);
+  const file1 = files.find((f) => f.includes('-1.log'));
+  const file2 = files.find((f) => f.includes('-2.log'));
+  invariant(file1, 'log file for agent 1 must exist');
+  invariant(file2, 'log file for agent 2 must exist');
+  const content1 = readLogContent(file1);
+  const content2 = readLogContent(file2);
 
   expect(content1).toContain('Output from agent 1');
   expect(content1).not.toContain('Output from agent 2');
@@ -1192,11 +1282,11 @@ test('it continues the agent session when the log file cannot be created', async
   const ctx = setupTest({ loggingEnabled: true, logsDir: '/bad-path/logs' });
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   // Agent should still complete normally
@@ -1209,7 +1299,7 @@ test('it includes logFilePath pointing to the partial file when a write fails mi
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   // Find the log file and make it read-only to cause write failures
@@ -1217,17 +1307,17 @@ test('it includes logFilePath pointing to the partial file when a write fails mi
   const logPath = `/test-logs/${files[0]}`;
 
   // Remove the file and replace the directory with something that blocks writes
-  const originalContent = vol.readFileSync(logPath, 'utf-8');
+  const _originalContent = vol.readFileSync(logPath, 'utf-8');
   vol.unlinkSync(logPath);
   // Re-create as a directory to cause appendFile to fail
   vol.mkdirSync(logPath, { recursive: true });
 
-  ctx.mockQueries[0]!.pushMessage(buildAssistantMessage('This write will fail'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('This write will fail'));
   await drain();
 
   // The logger should now be disabled, but agent continues
-  ctx.mockQueries[0]!.pushMessage(buildSuccessResult());
-  ctx.mockQueries[0]!.end();
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
@@ -1244,14 +1334,15 @@ test('it names reviewer log files with the issue number as context', async () =>
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 7 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-r'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await drain();
 
   const files = readLogFiles();
   expect(files).toHaveLength(1);
-  expect(files[0]).toMatch(/^\d+-reviewer-7\.log$/);
+  expect(files[0]).toMatch(REVIEWER_LOG_PATTERN);
 
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after reviewer init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('Type:       reviewer');
   expect(content).toContain('Issue:      #7');
 });
@@ -1264,11 +1355,12 @@ test('it logs model, working directory, and tools from the init message', async 
   const ctx = setupLoggingTest();
 
   await ctx.manager.dispatchImplementor({ issueNumber: 42 });
-  ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
   const files = readLogFiles();
-  const content = readLogContent(files[0]!);
+  invariant(files[0], 'log file must exist after agent init');
+  const content = readLogContent(files[0]);
   expect(content).toContain('Model: claude-opus-4-6');
   expect(content).toContain('CWD: /repo');
 });

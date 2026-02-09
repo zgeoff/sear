@@ -1,7 +1,8 @@
 import type { HookCallback, HookInput, HookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
-import { validateBashCommand } from './validate-bash-command';
+import { validateBashCommand } from './validate-bash-command.ts';
 
 export function createBashValidatorHook(): HookCallback {
+  // biome-ignore lint/suspicious/useAwait: HookCallback contract requires async but validation is synchronous
   return async (
     input: HookInput,
     _toolUseID: string | undefined,
@@ -24,7 +25,7 @@ export function createBashValidatorHook(): HookCallback {
 }
 
 function extractCommand(input: HookInput): string {
-  if (!('tool_input' in input) || input.tool_input == null) {
+  if (!('tool_input' in input) || input.tool_input === null) {
     return '';
   }
   if (typeof input.tool_input !== 'object') {

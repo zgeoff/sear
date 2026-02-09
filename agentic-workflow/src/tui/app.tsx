@@ -1,24 +1,30 @@
 import { spawn } from 'node:child_process';
+import process from 'node:process';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
+import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import type { Engine, StartupResult } from '../types';
-import { ConfirmationPrompt } from './components/confirmation-prompt';
-import { DetailPane } from './components/detail-pane';
-import { IssueList } from './components/issue-list';
-import { handleNotificationsInput, NotificationsPane } from './components/notifications';
-import { useEngine } from './hooks';
-import { selectRunningAgentCount } from './store';
-import type { FocusedPane } from './types';
+import type { Engine, StartupResult } from '../types.ts';
+import { ConfirmationPrompt } from './components/confirmation-prompt.tsx';
+import { DetailPane } from './components/detail-pane.tsx';
+import { IssueList } from './components/issue-list.tsx';
+import { handleNotificationsInput, NotificationsPane } from './components/notifications.tsx';
+import { useEngine } from './hooks.ts';
+import { selectRunningAgentCount } from './store.ts';
+import type { FocusedPane } from './types.ts';
 
-export type AppProps = {
+export interface AppProps {
   engine: Engine;
   repository: string;
-};
+}
 
 type PromptState = { type: 'none' } | { type: 'quit'; previousPane: FocusedPane };
 
-export function App(props: AppProps) {
+const DEFAULT_TERMINAL_WIDTH = 80;
+const DEFAULT_TERMINAL_HEIGHT = 24;
+const PANE_COUNT = 3;
+
+export function App(props: AppProps): ReactNode {
   const engineStore = useEngine({ engine: props.engine, repository: props.repository });
   const [startupResult, setStartupResult] = useState<StartupResult | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -38,9 +44,9 @@ export function App(props: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
 
-  const terminalWidth = stdout?.columns ?? 80;
-  const terminalHeight = stdout?.rows ?? 24;
-  const paneWidth = Math.floor(terminalWidth / 3);
+  const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
+  const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
+  const paneWidth = Math.floor(terminalWidth / PANE_COUNT);
 
   const anyPromptActive = prompt.type !== 'none' || issueListPromptMessage !== null;
   const activePromptMessage =
@@ -71,7 +77,9 @@ export function App(props: AppProps) {
   }, [props.engine]);
 
   useEffect(() => {
-    if (!shuttingDown) return;
+    if (!shuttingDown) {
+      return;
+    }
     if (runningAgentCount === 0) {
       exit();
     }
@@ -101,7 +109,9 @@ export function App(props: AppProps) {
       return;
     }
 
-    if (issueListPromptMessageRef.current !== null) return;
+    if (issueListPromptMessageRef.current !== null) {
+      return;
+    }
 
     if (key.tab && key.shift) {
       cycleFocus('backward');
@@ -119,16 +129,18 @@ export function App(props: AppProps) {
 
   useInput(
     (input, key) => {
-      if (promptRef.current.type !== 'none' || issueListPromptMessageRef.current !== null) return;
-      handleNotificationsInput(
+      if (promptRef.current.type !== 'none' || issueListPromptMessageRef.current !== null) {
+        return;
+      }
+      handleNotificationsInput({
         input,
         key,
         notifications,
-        selectedNotificationIndex,
-        setSelectedNotificationIndex,
-        openURL,
+        selectedIndex: selectedNotificationIndex,
+        onSelectIndex: setSelectedNotificationIndex,
+        openUrl,
         copyToClipboard,
-      );
+      });
     },
     { isActive: focusedPane === 'notifications' },
   );
@@ -143,7 +155,7 @@ export function App(props: AppProps) {
         flexDirection="column"
       >
         <Text color="red">Startup failed: {startupError}</Text>
-        <Text dimColor>Press any key to exit.</Text>
+        <Text dimColor={true}>Press any key to exit.</Text>
       </Box>
     );
   }
@@ -190,13 +202,13 @@ export function App(props: AppProps) {
           mouseScrolled={notificationMouseScrolled}
           onMouseScrolledChange={setNotificationMouseScrolled}
         />
-        {startupNotification && <Text>{startupNotification}</Text>}
+        {startupNotification !== '' ? <Text>{startupNotification}</Text> : null}
       </Box>
       <Box width={paneWidth} height={terminalHeight} flexDirection="column">
         <IssueList
           store={engineStore}
           focused={focusedPane === 'issueList'}
-          onOpenURL={openURL}
+          onOpenURL={openUrl}
           repository={props.repository}
           height={terminalHeight}
           promptActive={prompt.type !== 'none'}
@@ -206,13 +218,13 @@ export function App(props: AppProps) {
       <Box width={paneWidth} height={terminalHeight} flexDirection="column">
         <DetailPane store={engineStore} />
       </Box>
-      {anyPromptActive && activePromptMessage && (
+      {anyPromptActive && activePromptMessage !== null ? (
         <ConfirmationPrompt
           message={activePromptMessage}
           terminalWidth={terminalWidth}
           terminalHeight={terminalHeight}
         />
-      )}
+      ) : null}
     </Box>
   );
 }
@@ -232,7 +244,7 @@ function buildQuitMessage(runningAgentCount: number): string {
   return 'Quit?';
 }
 
-function openURL(url: string) {
+function openUrl(url: string): void {
   const platform = process.platform;
   if (platform === 'darwin') {
     spawn('open', [url], { stdio: 'ignore' });
@@ -245,7 +257,7 @@ function openURL(url: string) {
   spawn('xdg-open', [url], { stdio: 'ignore' });
 }
 
-function copyToClipboard(text: string) {
+function copyToClipboard(text: string): void {
   const platform = process.platform;
   let proc: ReturnType<typeof spawn>;
   if (platform === 'darwin') {

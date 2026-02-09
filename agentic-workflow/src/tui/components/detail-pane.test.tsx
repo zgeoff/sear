@@ -1,11 +1,15 @@
 import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
-import { createEngineStore } from '../store';
-import { createMockEngine } from '../test-utils/create-mock-engine';
-import { DetailPane } from './detail-pane';
+import { createEngineStore } from '../store.ts';
+import { createMockEngine } from '../test-utils/create-mock-engine.ts';
+import { DetailPane } from './detail-pane.tsx';
 
-function setupTest() {
+function setupTest(): ReturnType<typeof render> & {
+  store: ReturnType<typeof createEngineStore>;
+  engine: ReturnType<typeof createMockEngine>['engine'];
+  emit: ReturnType<typeof createMockEngine>['emit'];
+} {
   const { engine, emit } = createMockEngine();
   const store = createEngineStore({ engine, repository: 'owner/repo' });
   const instance = render(

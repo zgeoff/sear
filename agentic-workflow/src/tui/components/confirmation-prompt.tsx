@@ -1,16 +1,25 @@
 import { Box, Text } from 'ink';
+import type { ReactNode } from 'react';
 
-export type ConfirmationPromptProps = {
+export interface ConfirmationPromptProps {
   message: string;
   terminalWidth: number;
   terminalHeight: number;
-};
+}
 
-export function ConfirmationPrompt(props: ConfirmationPromptProps) {
-  const contentWidth = props.message.length + 4;
-  const boxWidth = contentWidth + 2;
-  const leftOffset = Math.max(0, Math.floor((props.terminalWidth - boxWidth) / 2));
-  const topOffset = Math.max(0, Math.floor((props.terminalHeight - 4) / 2));
+const CONTENT_PADDING = 4;
+const BORDER_WIDTH = 2;
+const PROMPT_HEIGHT = 4;
+const CENTER_DIVISOR = 2;
+
+export function ConfirmationPrompt(props: ConfirmationPromptProps): ReactNode {
+  const contentWidth = props.message.length + CONTENT_PADDING;
+  const boxWidth = contentWidth + BORDER_WIDTH;
+  const leftOffset = Math.max(0, Math.floor((props.terminalWidth - boxWidth) / CENTER_DIVISOR));
+  const topOffset = Math.max(
+    0,
+    Math.floor((props.terminalHeight - PROMPT_HEIGHT) / CENTER_DIVISOR),
+  );
 
   return (
     <Box

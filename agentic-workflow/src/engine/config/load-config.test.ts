@@ -1,5 +1,6 @@
+import process from 'node:process';
 import { expect, test, vi } from 'vitest';
-import { loadConfig } from './load-config';
+import { loadConfig } from './load-config.ts';
 
 test('it exits the process when the config file does not exist', async () => {
   const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
@@ -9,7 +10,9 @@ test('it exits the process when the config file does not exist', async () => {
   await expect(
     loadConfig({
       configPath: '/nonexistent/agentic-workflow.config.ts',
-      logError: () => {},
+      logError: () => {
+        /* intentionally suppress error output in test */
+      },
     }),
   ).rejects.toThrow('process.exit called');
 

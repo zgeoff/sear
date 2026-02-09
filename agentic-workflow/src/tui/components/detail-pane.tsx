@@ -1,5 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import Link from 'ink-link';
+import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { match, P } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
@@ -10,11 +11,11 @@ import type {
   EngineStore,
   LastFailure,
   TrackedIssue,
-} from '../types';
+} from '../types.ts';
 
-export type DetailPaneProps = {
+export interface DetailPaneProps {
   store: StoreApi<EngineStore>;
-};
+}
 
 type IssueState =
   | { view: 'none' }
@@ -26,35 +27,35 @@ type IssueState =
   | { view: 'prSummary'; issue: TrackedIssue; pr: CachedPRDetails }
   | { view: 'prApproved'; issue: TrackedIssue; pr: CachedPRDetails };
 
-type LoadingViewProps = {
+interface LoadingViewProps {
   issue: TrackedIssue;
-};
+}
 
-type FailureViewProps = {
+interface FailureViewProps {
   issue: TrackedIssue;
   failure: LastFailure;
-};
+}
 
-type StreamingViewProps = {
+interface StreamingViewProps {
   issue: TrackedIssue;
   chunks: string[];
   scrollOffset: number;
-};
+}
 
-type IssueDetailsViewProps = {
+interface IssueDetailsViewProps {
   issue: TrackedIssue;
   details: CachedIssueDetails;
   scrollOffset: number;
-};
+}
 
-type PRViewProps = {
+interface PrViewProps {
   issue: TrackedIssue;
   pr: CachedPRDetails;
-};
+}
 
 const SCROLL_STEP = 1;
 
-export function DetailPane(props: DetailPaneProps) {
+export function DetailPane(props: DetailPaneProps): ReactNode {
   const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
   const issues = useStore(props.store, (s) => s.issues);
   const agentStreams = useStore(props.store, (s) => s.agentStreams);
@@ -67,7 +68,13 @@ export function DetailPane(props: DetailPaneProps) {
   const prevChunkCountRef = useRef(0);
 
   const issue = selectedIssue !== null ? (issues.get(selectedIssue) ?? null) : null;
-  const issueState = resolveIssueState(issue, selectedIssue, agentStreams, issueDetails, prDetails);
+  const issueState = resolveIssueState({
+    issue,
+    selectedIssue,
+    agentStreams,
+    issueDetails,
+    prDetails,
+  });
 
   const chunks = issueState.view === 'streaming' ? issueState.chunks : undefined;
   const chunkCount = chunks?.length ?? 0;
@@ -91,7 +98,9 @@ export function DetailPane(props: DetailPaneProps) {
   }, [selectedIssue]);
 
   useInput((input, key) => {
-    if (focusedPane !== 'detailPane') return;
+    if (focusedPane !== 'detailPane') {
+      return;
+    }
 
     const isUp = key.upArrow || input === 'k';
     const isDown = key.downArrow || input === 'j';
@@ -125,18 +134,21 @@ export function DetailPane(props: DetailPaneProps) {
     .with({ view: 'issueDetailsWithGuidance' }, ({ issue: i, details }) => (
       <IssueDetailsWithGuidanceView issue={i} details={details} scrollOffset={scrollOffset} />
     ))
-    .with({ view: 'prSummary' }, ({ issue: i, pr }) => <PRSummaryView issue={i} pr={pr} />)
-    .with({ view: 'prApproved' }, ({ issue: i, pr }) => <PRApprovedView issue={i} pr={pr} />)
+    .with({ view: 'prSummary' }, ({ issue: i, pr }) => <PrSummaryView issue={i} pr={pr} />)
+    .with({ view: 'prApproved' }, ({ issue: i, pr }) => <PrApprovedView issue={i} pr={pr} />)
     .exhaustive();
 }
 
-function resolveIssueState(
-  issue: TrackedIssue | null,
-  selectedIssue: number | null,
-  agentStreams: Map<number, string[]>,
-  issueDetails: Map<number, CachedIssueDetails>,
-  prDetails: Map<number, CachedPRDetails>,
-): IssueState {
+interface ResolveIssueStateParams {
+  issue: TrackedIssue | null;
+  selectedIssue: number | null;
+  agentStreams: Map<number, string[]>;
+  issueDetails: Map<number, CachedIssueDetails>;
+  prDetails: Map<number, CachedPRDetails>;
+}
+
+function resolveIssueState(params: ResolveIssueStateParams): IssueState {
+  const { issue, selectedIssue, agentStreams, issueDetails, prDetails } = params;
   if (selectedIssue === null || !issue) {
     return { view: 'none' };
   }
@@ -188,27 +200,27 @@ function resolveIssueState(
     });
 }
 
-function NoIssueSelected() {
+function NoIssueSelected(): ReactNode {
   return <Text>No issue selected</Text>;
 }
 
-function LoadingView(props: LoadingViewProps) {
+function LoadingView(props: LoadingViewProps): ReactNode {
   return (
     <Box flexDirection="column">
-      <Text bold>
+      <Text bold={true}>
         #{props.issue.number} {props.issue.title}
       </Text>
-      <Text dimColor>Loading...</Text>
+      <Text dimColor={true}>Loading...</Text>
     </Box>
   );
 }
 
-function FailureView(props: FailureViewProps) {
+function FailureView(props: FailureViewProps): ReactNode {
   const agentLabel = props.failure.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
 
   return (
     <Box flexDirection="column">
-      <Text bold color="red">
+      <Text bold={true} color="red">
         Agent Failure
       </Text>
       <Text>
@@ -217,27 +229,27 @@ function FailureView(props: FailureViewProps) {
       <Text>Agent: {agentLabel}</Text>
       <Text>Error: {props.failure.error}</Text>
       <Text>Session: {props.failure.sessionID}</Text>
-      {props.failure.worktreePath && <Text>Worktree: {props.failure.worktreePath}</Text>}
-      {props.failure.logFilePath && (
+      {props.failure.worktreePath ? <Text>Worktree: {props.failure.worktreePath}</Text> : null}
+      {props.failure.logFilePath ? (
         <Text>
           Log:{' '}
           <Link url={`file://${props.failure.logFilePath}`} fallback={false}>
             {props.failure.logFilePath}
           </Link>
         </Text>
-      )}
-      <Text dimColor>Press Enter in the issue list to retry.</Text>
+      ) : null}
+      <Text dimColor={true}>Press Enter in the issue list to retry.</Text>
     </Box>
   );
 }
 
-function StreamingView(props: StreamingViewProps) {
+function StreamingView(props: StreamingViewProps): ReactNode {
   const agentLabel = props.issue.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
   const visible = props.chunks.slice(props.scrollOffset);
 
   return (
     <Box flexDirection="column">
-      <Text bold>
+      <Text bold={true}>
         {agentLabel} output for #{props.issue.number}
       </Text>
       {visible.map((chunk, i) => (
@@ -248,17 +260,17 @@ function StreamingView(props: StreamingViewProps) {
   );
 }
 
-function IssueDetailsView(props: IssueDetailsViewProps) {
+function IssueDetailsView(props: IssueDetailsViewProps): ReactNode {
   const lines = props.details.body.split('\n');
   const visible = lines.slice(props.scrollOffset);
 
   return (
     <Box flexDirection="column">
-      <Text bold>
+      <Text bold={true}>
         #{props.issue.number} {props.issue.title}
       </Text>
-      <Text dimColor>Labels: {props.details.labels.join(', ')}</Text>
-      {props.details.stale && <Text dimColor>(Refreshing...)</Text>}
+      <Text dimColor={true}>Labels: {props.details.labels.join(', ')}</Text>
+      {props.details.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
       <Text> </Text>
       {visible.map((line, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: text lines have no stable identity
@@ -268,7 +280,7 @@ function IssueDetailsView(props: IssueDetailsViewProps) {
   );
 }
 
-function IssueDetailsWithGuidanceView(props: IssueDetailsViewProps) {
+function IssueDetailsWithGuidanceView(props: IssueDetailsViewProps): ReactNode {
   const statusDisplay =
     props.issue.statusLabel === 'needs-refinement' ? 'Needs Refinement' : 'Blocked';
   const lines = props.details.body.split('\n');
@@ -276,14 +288,14 @@ function IssueDetailsWithGuidanceView(props: IssueDetailsViewProps) {
 
   return (
     <Box flexDirection="column">
-      <Text bold>
+      <Text bold={true}>
         #{props.issue.number} {props.issue.title}
       </Text>
-      <Text bold color="yellow">
+      <Text bold={true} color="yellow">
         {statusDisplay}
       </Text>
-      <Text dimColor>Labels: {props.details.labels.join(', ')}</Text>
-      {props.details.stale && <Text dimColor>(Refreshing...)</Text>}
+      <Text dimColor={true}>Labels: {props.details.labels.join(', ')}</Text>
+      {props.details.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
       <Text> </Text>
       {visible.map((line, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: text lines have no stable identity
@@ -293,10 +305,10 @@ function IssueDetailsWithGuidanceView(props: IssueDetailsViewProps) {
   );
 }
 
-function PRSummaryView(props: PRViewProps) {
+function PrSummaryView(props: PrViewProps): ReactNode {
   return (
     <Box flexDirection="column">
-      <Text bold>
+      <Text bold={true}>
         PR #{props.pr.number}: {props.pr.title}
       </Text>
       <Text>
@@ -304,18 +316,18 @@ function PRSummaryView(props: PRViewProps) {
       </Text>
       <Text>Changed files: {props.pr.changedFilesCount}</Text>
       <Text>CI: {props.pr.ciStatus}</Text>
-      {props.pr.stale && <Text dimColor>(Refreshing...)</Text>}
+      {props.pr.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
     </Box>
   );
 }
 
-function PRApprovedView(props: PRViewProps) {
+function PrApprovedView(props: PrViewProps): ReactNode {
   return (
     <Box flexDirection="column">
-      <Text bold color="green">
+      <Text bold={true} color="green">
         Ready to Merge
       </Text>
-      <Text bold>
+      <Text bold={true}>
         PR #{props.pr.number}: {props.pr.title}
       </Text>
       <Text>
@@ -323,7 +335,7 @@ function PRApprovedView(props: PRViewProps) {
       </Text>
       <Text>Changed files: {props.pr.changedFilesCount}</Text>
       <Text>CI: {props.pr.ciStatus}</Text>
-      {props.pr.stale && <Text dimColor>(Refreshing...)</Text>}
+      {props.pr.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
     </Box>
   );
 }

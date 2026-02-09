@@ -1,8 +1,10 @@
 import invariant from 'tiny-invariant';
-import type { BashValidationResult } from './types';
-import { ALLOWLIST_PREFIXES, BLOCKLIST_PATTERNS } from './types';
+import type { BashValidationResult } from './types.ts';
+import { ALLOWLIST_PREFIXES, BLOCKLIST_PATTERNS } from './types.ts';
 
 const ALLOWED: BashValidationResult = { allowed: true };
+
+const FIRST_WORD_PATTERN = /^(\S+)/;
 
 export function validateBashCommand(command: string): BashValidationResult {
   if (command === '') {
@@ -21,11 +23,7 @@ export function validateBashCommand(command: string): BashValidationResult {
 
   for (const segment of segments) {
     const firstWord = extractFirstWord(segment);
-    if (firstWord === '') {
-      continue;
-    }
-
-    if (!ALLOWLIST_PREFIXES.includes(firstWord)) {
+    if (firstWord !== '' && !ALLOWLIST_PREFIXES.includes(firstWord)) {
       return {
         allowed: false,
         reason: `Blocked: '${firstWord}' is not in the allowed command list`,
@@ -55,57 +53,37 @@ function splitSegments(command: string): string[] {
       if (c === '\\' && quote === '"' && i + 1 < command.length) {
         current += c + command[i + 1];
         i += 2;
-        continue;
+      } else {
+        // Closing quote
+        if (c === quote) {
+          quote = '';
+        }
+        current += c;
+        i += 1;
       }
-
-      // Closing quote
-      if (c === quote) {
-        quote = '';
-      }
-
-      current += c;
-      i++;
-      continue;
-    }
-
-    // Outside quotes — opening quote
-    if (c === '"' || c === "'") {
+    } else if (c === '"' || c === "'") {
+      // Outside quotes — opening quote
       quote = c;
       current += c;
-      i++;
-      continue;
-    }
-
-    // Outside quotes — backslash escape
-    if (c === '\\' && i + 1 < command.length) {
+      i += 1;
+    } else if (c === '\\' && i + 1 < command.length) {
+      // Outside quotes — backslash escape
       current += c + command[i + 1];
       i += 2;
-      continue;
-    }
-
-    // Outside quotes — two-character operators (checked before single-char)
-    if (i + 1 < command.length) {
-      const next = command[i + 1];
-      invariant(next !== undefined, 'character at i+1 must exist within bounds');
-      const twoChar = c + next;
-      if (twoChar === '&&' || twoChar === '||') {
-        segments.push(current);
-        current = '';
-        i += 2;
-        continue;
-      }
-    }
-
-    // Outside quotes — single-character operators
-    if (c === '|' || c === ';' || c === '\n') {
+    } else if (i + 1 < command.length && isTwoCharOperator(c, command[i + 1])) {
+      // Outside quotes — two-character operators
       segments.push(current);
       current = '';
-      i++;
-      continue;
+      i += 2;
+    } else if (c === '|' || c === ';' || c === '\n') {
+      // Outside quotes — single-character operators
+      segments.push(current);
+      current = '';
+      i += 1;
+    } else {
+      current += c;
+      i += 1;
     }
-
-    current += c;
-    i++;
   }
 
   if (current !== '') {
@@ -113,6 +91,14 @@ function splitSegments(command: string): string[] {
   }
 
   return segments;
+}
+
+function isTwoCharOperator(c: string, next: string | undefined): boolean {
+  if (next === undefined) {
+    return false;
+  }
+  const twoChar = c + next;
+  return twoChar === '&&' || twoChar === '||';
 }
 
 // Extracts the first word from a segment. Takes only the first line,
@@ -125,7 +111,7 @@ function extractFirstWord(segment: string): string {
   if (trimmed === '') {
     return '';
   }
-  const match = trimmed.match(/^(\S+)/);
+  const match = trimmed.match(FIRST_WORD_PATTERN);
   if (match === null) {
     return '';
   }

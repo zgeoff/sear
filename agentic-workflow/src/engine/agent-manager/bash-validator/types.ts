@@ -1,10 +1,10 @@
 export type BashValidationResult = { allowed: true } | { allowed: false; reason: string };
 
-export type BlocklistPattern = {
+export interface BlocklistPattern {
   category: string;
   pattern: RegExp;
   source: string;
-};
+}
 
 export const BLOCKLIST_PATTERNS: BlocklistPattern[] = [
   // Git destructive operations

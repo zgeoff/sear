@@ -1,13 +1,14 @@
 import { Box, Text, useInput } from 'ink';
+import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
-import type { CachedPRDetails, EngineStore, TrackedIssue } from '../types';
+import type { CachedPRDetails, EngineStore, TrackedIssue } from '../types.ts';
 
 export type IssueListPromptChangeHandler = (message: string | null) => void;
 
-export type IssueListProps = {
+export interface IssueListProps {
   store: StoreApi<EngineStore>;
   focused: boolean;
   onOpenURL: (url: string) => void;
@@ -15,7 +16,7 @@ export type IssueListProps = {
   height: number;
   promptActive: boolean;
   onPromptChange: IssueListPromptChangeHandler;
-};
+}
 
 type PromptState =
   | { type: 'none' }
@@ -29,7 +30,7 @@ const PRIORITY_ORDER: Record<string, number> = {
   'priority:low': 2,
 };
 
-export function IssueList(props: IssueListProps) {
+export function IssueList(props: IssueListProps): ReactNode {
   const issues = useStore(props.store, (s) => s.issues);
   const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
   const selectIssue = useStore(props.store, (s) => s.selectIssue);
@@ -52,7 +53,9 @@ export function IssueList(props: IssueListProps) {
 
   useInput(
     (input, key) => {
-      if (!props.focused) return;
+      if (!props.focused) {
+        return;
+      }
 
       const currentPrompt = promptRef.current;
 
@@ -69,7 +72,9 @@ export function IssueList(props: IssueListProps) {
         return;
       }
 
-      if (sortedIssues.length === 0) return;
+      if (sortedIssues.length === 0) {
+        return;
+      }
 
       const currentIndex = sortedIssues.findIndex((i) => i.number === selectedIssue);
 
@@ -93,7 +98,9 @@ export function IssueList(props: IssueListProps) {
 
       if (key.return && !props.promptActive) {
         const selected = sortedIssues.find((i) => i.number === selectedIssue);
-        if (!selected) return;
+        if (!selected) {
+          return;
+        }
         handleEnter(selected);
         return;
       }
@@ -101,7 +108,7 @@ export function IssueList(props: IssueListProps) {
     { isActive: props.focused },
   );
 
-  function confirmPrompt(currentPrompt: PromptState) {
+  function confirmPrompt(currentPrompt: PromptState): void {
     match(currentPrompt)
       .with({ type: 'dispatch' }, (p) => {
         dispatchImplementor(p.issueNumber);
@@ -116,11 +123,13 @@ export function IssueList(props: IssueListProps) {
           dispatchReviewer(p.issueNumber);
         }
       })
-      .with({ type: 'none' }, () => {})
+      .with({ type: 'none' }, () => {
+        /* no-op for dismissed prompt */
+      })
       .exhaustive();
   }
 
-  function handleEnter(issue: TrackedIssue) {
+  function handleEnter(issue: TrackedIssue): void {
     const action = getEnterAction(issue, prDetails, props.repository);
 
     match(action)
@@ -168,19 +177,27 @@ function sortIssues(issues: Map<number, TrackedIssue>): TrackedIssue[] {
   return Array.from(issues.values()).sort((a, b) => {
     const aRunning = a.agentRunning ? 0 : 1;
     const bRunning = b.agentRunning ? 0 : 1;
-    if (aRunning !== bRunning) return aRunning - bRunning;
+    if (aRunning !== bRunning) {
+      return aRunning - bRunning;
+    }
 
     const aPriority = PRIORITY_ORDER[a.priorityLabel] ?? 1;
     const bPriority = PRIORITY_ORDER[b.priorityLabel] ?? 1;
-    if (aPriority !== bPriority) return aPriority - bPriority;
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
+    }
 
     return a.createdAt.localeCompare(b.createdAt);
   });
 }
 
 function getStateIndicator(issue: TrackedIssue): string {
-  if (issue.lastFailure) return '[ERROR]';
-  if (issue.agentRunning) return '[RUNNING]';
+  if (issue.lastFailure) {
+    return '[ERROR]';
+  }
+  if (issue.agentRunning) {
+    return '[RUNNING]';
+  }
 
   return match(issue.statusLabel)
     .with('pending', () => '[READY]')
@@ -258,17 +275,21 @@ function buildPromptMessage(prompt: PromptState): string {
     .exhaustive();
 }
 
-type VisibleWindow = {
+interface VisibleWindow {
   start: number;
-};
+}
 
 function computeVisibleWindow(
   selectedIndex: number,
   totalCount: number,
   visibleRows: number,
 ): VisibleWindow {
-  if (totalCount <= visibleRows) return { start: 0 };
-  if (selectedIndex < 0) return { start: 0 };
+  if (totalCount <= visibleRows) {
+    return { start: 0 };
+  }
+  if (selectedIndex < 0) {
+    return { start: 0 };
+  }
 
   let start = 0;
   if (selectedIndex >= visibleRows) {

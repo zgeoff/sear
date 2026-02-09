@@ -4,40 +4,49 @@ import {
   buildBranchName,
   buildWorktreePath,
   createWorktreeManager,
-} from './create-worktree-manager';
-import type { ExecGit } from './types';
+} from './create-worktree-manager.ts';
+import type { ExecGit } from './types.ts';
 
-type GitCall = { args: string[] };
+interface GitCall {
+  args: string[];
+}
 
-function setupTest() {
+function setupTest(): {
+  manager: ReturnType<typeof createWorktreeManager>;
+  execGit: ExecGit;
+  calls: GitCall[];
+  setResponse: (args: string[], stdout: string) => void;
+  setFailure: (args: string[]) => void;
+  repoRoot: string;
+} {
   const repoRoot = '/repo';
   const calls: GitCall[] = [];
   const responses = new Map<string, { stdout: string; stderr: string }>();
   const failures = new Set<string>();
 
-  const execGit: ExecGit = vi.fn(async (args: string[]) => {
+  const execGit: ExecGit = vi.fn((args: string[]) => {
     const key = args.join(' ');
     calls.push({ args });
 
     if (failures.has(key)) {
-      throw new Error(`git ${key} failed`);
+      return Promise.reject(new Error(`git ${key} failed`));
     }
 
     const response = responses.get(key);
     if (response) {
-      return response;
+      return Promise.resolve(response);
     }
 
-    return { stdout: '', stderr: '' };
+    return Promise.resolve({ stdout: '', stderr: '' });
   });
 
   const manager = createWorktreeManager({ repoRoot, execGit });
 
-  function setResponse(args: string[], stdout: string) {
+  function setResponse(args: string[], stdout: string): void {
     responses.set(args.join(' '), { stdout, stderr: '' });
   }
 
-  function setFailure(args: string[]) {
+  function setFailure(args: string[]): void {
     failures.add(args.join(' '));
   }
 

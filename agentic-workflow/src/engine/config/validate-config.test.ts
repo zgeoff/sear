@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
-import { buildValidConfig } from '../../test-utils/build-valid-config';
-import { validateConfig } from './validate-config';
+import { buildValidConfig } from '../../test-utils/build-valid-config.ts';
+import { validateConfig } from './validate-config.ts';
 
 test('it accepts a valid config with all required fields', () => {
   const config = buildValidConfig();

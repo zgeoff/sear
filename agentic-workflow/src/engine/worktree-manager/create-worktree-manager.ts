@@ -1,14 +1,16 @@
 import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { ExecGit, WorktreeManager, WorktreeManagerDeps } from './types';
+import type { ExecGit, WorktreeManager, WorktreeManagerDeps, WorktreeResult } from './types.ts';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync: typeof execFile.__promisify__ = promisify(execFile);
 
 export function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManager {
   const { repoRoot } = deps;
   const execGit: ExecGit =
-    deps.execGit ?? ((args) => execFileAsync('git', args, { cwd: repoRoot }));
+    deps.execGit ??
+    ((args: string[]): Promise<{ stdout: string; stderr: string }> =>
+      execFileAsync('git', args, { cwd: repoRoot }));
 
   async function listWorktrees(): Promise<string[]> {
     const { stdout } = await execGit(['worktree', 'list', '--porcelain']);
@@ -36,7 +38,7 @@ export function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManage
   }
 
   return {
-    async createOrReuse(issueNumber) {
+    async createOrReuse(issueNumber: number): Promise<WorktreeResult> {
       const worktreePath = buildWorktreePath(repoRoot, issueNumber);
       const branch = buildBranchName(issueNumber);
 
@@ -61,7 +63,7 @@ export function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManage
       return { worktreePath, branch, created: true };
     },
 
-    async remove(issueNumber) {
+    async remove(issueNumber: number): Promise<void> {
       const worktreePath = buildWorktreePath(repoRoot, issueNumber);
       await execGit(['worktree', 'remove', worktreePath, '--force']);
     },

@@ -1,18 +1,24 @@
 import { expect, test, vi } from 'vitest';
-import type { EngineEvent, IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types';
-import { createEventEmitter } from '../event-emitter/create-event-emitter';
-import { createDispatch } from './create-dispatch';
-import type { AgentManagerDelegate } from './types';
+import type { EngineEvent, IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types.ts';
+import { createEventEmitter } from '../event-emitter/create-event-emitter.ts';
+import { createDispatch } from './create-dispatch.ts';
+import type { AgentManagerDelegate } from './types.ts';
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-type SetupTestOptions = {
+interface SetupTestOptions {
   isPlannerRunning?: boolean;
-};
+}
 
-function setupTest(options: SetupTestOptions = {}) {
+function setupTest(options: SetupTestOptions = {}): {
+  dispatch: ReturnType<typeof createDispatch>;
+  emitter: ReturnType<typeof createEventEmitter>;
+  events: EngineEvent[];
+  agentManager: AgentManagerDelegate;
+  config: { repository: string };
+} {
   const emitter = createEventEmitter();
   const events: EngineEvent[] = [];
   emitter.on((event) => events.push(event));

@@ -1,16 +1,16 @@
-import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types';
+import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types.ts';
 
-export type AgentManagerDelegate = {
-  dispatchPlanner(specPaths: string[]): void;
-  dispatchReviewer(issueNumber: number): void;
-  isPlannerRunning(): boolean;
-};
+export interface AgentManagerDelegate {
+  dispatchPlanner: (specPaths: string[]) => void;
+  dispatchReviewer: (issueNumber: number) => void;
+  isPlannerRunning: () => boolean;
+}
 
-export type DispatchConfig = {
+export interface DispatchConfig {
   repository: string; // owner/repo format
-};
+}
 
-export type Dispatch = {
-  handleSpecPollerResult(result: SpecPollerBatchResult): void;
-  handleIssueStatusChanged(event: IssueStatusChangedEvent): void;
-};
+export interface Dispatch {
+  handleSpecPollerResult: (result: SpecPollerBatchResult) => void;
+  handleIssueStatusChanged: (event: IssueStatusChangedEvent) => void;
+}

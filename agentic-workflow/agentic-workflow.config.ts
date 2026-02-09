@@ -1,13 +1,13 @@
-import type { EngineConfig } from './src/types';
+import type { EngineConfig } from './src/types.ts';
 
 const config: EngineConfig = {
   // Required: GitHub repository in owner/repo format
   repository: 'zgeoff/sear',
 
   // Required: GitHub App credentials
-  githubAppID: 2801903,
+  githubAppID: 2_801_903,
   githubAppPrivateKeyPath: './private-key.pem',
-  githubAppInstallationID: 108185071,
+  githubAppInstallationID: 108_185_071,
 
   logging: {
     agentSessions: true,
@@ -40,4 +40,5 @@ const config: EngineConfig = {
   },
 };
 
+// biome-ignore lint/style/noDefaultExport: config files use default export by convention
 export default config;

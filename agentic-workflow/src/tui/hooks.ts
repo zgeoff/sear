@@ -1,14 +1,15 @@
 import { useRef } from 'react';
-import type { Engine } from '../types';
-import { createEngineStore } from './store';
-import type { CreateEngineStoreConfig } from './types';
+import type { StoreApi } from 'zustand';
+import type { Engine } from '../types.ts';
+import { createEngineStore } from './store.ts';
+import type { CreateEngineStoreConfig, EngineStore } from './types.ts';
 
-export type UseEngineConfig = {
+export interface UseEngineConfig {
   engine: Engine;
   repository: string;
-};
+}
 
-export function useEngine(config: UseEngineConfig) {
+export function useEngine(config: UseEngineConfig): StoreApi<EngineStore> {
   const storeRef = useRef<ReturnType<typeof createEngineStore> | null>(null);
 
   if (storeRef.current === null) {

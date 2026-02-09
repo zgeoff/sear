@@ -1,18 +1,18 @@
 import { expect, test, vi } from 'vitest';
-import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
-import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types';
-import { createEventEmitter } from '../event-emitter/create-event-emitter';
-import type { GitHubClient, IssueData } from '../github-client/types';
-import { createIssuePoller } from './create-issue-poller';
+import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.ts';
+import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types.ts';
+import { createEventEmitter } from '../event-emitter/create-event-emitter.ts';
+import type { IssueData } from '../github-client/types.ts';
+import { createIssuePoller } from './create-issue-poller.ts';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-type SetupOptions = {
+interface SetupOptions {
   issues?: IssueData[];
   logError?: (message: string, error: unknown) => void;
-};
+}
 
 function buildIssue(overrides: Partial<IssueData> & { number: number }): IssueData {
   return {
@@ -24,7 +24,12 @@ function buildIssue(overrides: Partial<IssueData> & { number: number }): IssueDa
   };
 }
 
-function setupTest(options: SetupOptions = {}) {
+function setupTest(options: SetupOptions = {}): {
+  octokit: ReturnType<typeof createMockGitHubClient>;
+  emitter: ReturnType<typeof createEventEmitter>;
+  events: EngineEvent[];
+  poller: ReturnType<typeof createIssuePoller>;
+} {
   const octokit = createMockGitHubClient();
   const emitter = createEventEmitter();
   const events: EngineEvent[] = [];

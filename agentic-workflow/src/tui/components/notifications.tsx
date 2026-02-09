@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react';
 import { match, P } from 'ts-pattern';
-import type { Notification } from '../types';
-import { List } from './list/list';
-import type { ListItemData } from './list/types';
-import type { CopyToClipboard, NotificationsKeyState, OpenURL, SelectIndex } from './types';
+import type { Notification } from '../types.ts';
+import { List } from './list/list.tsx';
+import type { ListItemData } from './list/types.ts';
+import type { CopyToClipboard, NotificationsKeyState, OpenURL, SelectIndex } from './types.ts';
 
-export type NotificationsPaneProps = {
+export interface NotificationsPaneProps {
   notifications: Notification[];
   focused: boolean;
   selectedIndex: number;
@@ -14,9 +15,9 @@ export type NotificationsPaneProps = {
   onViewportOffsetChange: (offset: number) => void;
   mouseScrolled: boolean;
   onMouseScrolledChange: (scrolled: boolean) => void;
-};
+}
 
-export function NotificationsPane(props: NotificationsPaneProps) {
+export function NotificationsPane(props: NotificationsPaneProps): ReactNode {
   const items = buildListItems(props.notifications);
 
   return (
@@ -35,17 +36,23 @@ export function NotificationsPane(props: NotificationsPaneProps) {
   );
 }
 
-export function handleNotificationsInput(
-  input: string,
-  key: NotificationsKeyState,
-  notifications: Notification[],
-  selectedIndex: number,
-  onSelectIndex: SelectIndex,
-  openURL: OpenURL,
-  copyToClipboard: CopyToClipboard,
-) {
+export interface HandleNotificationsInputParams {
+  input: string;
+  key: NotificationsKeyState;
+  notifications: Notification[];
+  selectedIndex: number;
+  onSelectIndex: SelectIndex;
+  openUrl: OpenURL;
+  copyToClipboard: CopyToClipboard;
+}
+
+export function handleNotificationsInput(params: HandleNotificationsInputParams): void {
+  const { input, key, notifications, selectedIndex, onSelectIndex, openUrl, copyToClipboard } =
+    params;
   const reversed = [...notifications].reverse();
-  if (reversed.length === 0) return;
+  if (reversed.length === 0) {
+    return;
+  }
 
   if (key.upArrow || input === 'k') {
     const newIndex = Math.max(0, selectedIndex - 1);
@@ -62,7 +69,7 @@ export function handleNotificationsInput(
   if (key.return) {
     const selected = reversed[selectedIndex];
     if (selected?.contextURL) {
-      openURL(selected.contextURL);
+      openUrl(selected.contextURL);
     }
     return;
   }
@@ -197,5 +204,5 @@ function getLogFilePath(notification: Notification): string | undefined {
   if (notification.eventType === 'agentCompleted' || notification.eventType === 'agentFailed') {
     return notification.logFilePath;
   }
-  return undefined;
+  return;
 }

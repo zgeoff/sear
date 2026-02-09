@@ -10,7 +10,8 @@
   "scripts": {
     "build": "turbo run build",
     "test": "turbo run test",
-    "lint": "turbo run lint",
+    "lint": "biome lint",
+    "lint:fix": "biome lint --fix",
     "format": "biome format --write . && prettier --write .",
     "format:check": "biome format . && prettier --check .",
     "check": "turbo run lint typecheck test",

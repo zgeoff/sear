@@ -27,18 +27,18 @@ yarn install
 
 - `packages/` - Shared libraries and utilities
 - `apps/` - Applications (Electron-based inspector, etc.)
+- `agentic-workflow/` - Agentic workflow control plane (`@sear/agentic-workflow`)
 - `docs/` - Technical specs and design documents
-
-<!-- TODO: Add ## Documentation section with format guidelines, templates, etc. -->
 
 ### Package Namespace
 
 All packages use the `@sear/` npm scope.
 
-### Planned Packages
+### Packages
 
 | Package | Description | Status |
 |---------|-------------|--------|
+| `@sear/agentic-workflow` | Workflow control plane (engine + TUI) | Active |
 | `@sear/core` | Pipeline, scheduler, job management | Planned |
 | `@sear/tesseractjs` | Tesseract.js wrapper for OCR | Planned |
 | `@sear/opencvjs` | OpenCV.js wrapper for CV/template matching | Planned |
@@ -62,7 +62,7 @@ Each package should have:
 - `tsconfig.json` extending root config: `"extends": "../../tsconfig.json"`
 - `vitest.config.ts` if tests are needed
 
-## Build Commands
+## Commands
 
 ```bash
 yarn build          # Build all packages/apps
@@ -78,228 +78,8 @@ yarn typecheck      # TypeScript type checking
 
 ```bash
 yarn workspace <package-name> <command>
-# Example: yarn workspace @sear/core build
+# Example: yarn workspace @sear/agentic-workflow test
 ```
-
-### Turborepo Commands
-
-```bash
-yarn turbo run build --filter=<package-name>  # Build single package with deps
-yarn turbo run build --filter=...<package>    # Build package and dependents
-```
-
-## Testing
-
-### Test orchestration
-
-Turborepo is the test orchestrator. Each package owns its own vitest instance — there is no root-level vitest or vitest workspace config.
-
-**Running tests:**
-```bash
-yarn test                           # Run all tests (turbo run test)
-yarn workspace <pkg> test           # Run tests for single package
-yarn workspace <pkg> test --watch   # Watch mode
-```
-
-Do not invoke `vitest` directly. Always go through `yarn test` or `yarn workspace`.
-
-**Package requirements:** Every package that has tests must have all three of:
-1. `vitest` in `devDependencies` (pinned, like all deps)
-2. `vitest.config.ts`
-3. `"test": "vitest run"` in `scripts`
-
-Packages without tests simply omit the `test` script — Turborepo skips them automatically.
-
-### Never test TypeScript types
-
-Do not write tests that only verify type-level behavior (e.g., `expectTypeOf`, `type-fest` helpers, assignability checks). Types are validated by `tsc` — testing them adds no value.
-
-### Use `test`, never `describe`/`it`
-
-```ts
-// Correct
-import { test, expect } from 'vitest';
-
-test('it parses valid input', () => { ... });
-test('it throws on empty string', () => { ... });
-
-// Wrong — do not use describe or it
-describe('parser', () => {
-  it('parses valid input', () => { ... });
-});
-```
-
-### Test naming
-
-Start every test name with "it" — each test reads as a natural-language behavioral sentence about the subject under test. Describe behavior and outcomes in plain English, not implementation details. Avoid variable names, field names, method names, event type strings, or internal component names in the test string. The reader should understand the test's intent without knowing the codebase.
-
-```ts
-// Correct — natural language, describes behavior
-test('it flags the planner as not running when the planner completes', () => { ... });
-test('it preserves the failure overlay when recovering from a crash', () => { ... });
-test('it returns stale data immediately while refreshing in the background', () => { ... });
-test('it removes the issue and clears associated caches when an issue is dropped', () => { ... });
-
-// Wrong — leaks implementation details (field names, event strings, method names)
-test('it sets plannerRunning to false when Planner agentCompleted is emitted', () => { ... });
-test('it does not clear lastFailure when issueStatusChanged has isRecovery true', () => { ... });
-test('it returns stale cached data immediately and re-fetches in the background', () => { ... });
-test('it calls getPRForIssue to update notification contextURL when Implementor agentCompleted is emitted', () => { ... });
-```
-
-### No `beforeEach`/`beforeAll` — use a `setupTest()` helper
-
-```ts
-// Correct
-function setupTest() {
-  const store = createStore();
-  const handler = buildHandler(store);
-  return { store, handler };
-}
-
-test('it updates the store when an event is processed', () => {
-  const { store, handler } = setupTest();
-  handler.process(event);
-  expect(store.getState().count).toBe(1);
-});
-
-// Wrong — do not use beforeEach or beforeAll
-let store: Store;
-beforeEach(() => {
-  store = createStore();
-});
-```
-
-### Never test logging
-
-Do not spy on `console.log`, `console.error`, or similar logging functions. Do not assert that a logger or `logError` callback was called. Logging is an implementation detail — tests should verify observable behavior (return values, thrown errors, state changes), not side-effect noise.
-
-```ts
-// Wrong — testing logging output
-const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-await doThing();
-expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('failed'));
-
-// Wrong — asserting a logError callback
-expect(logError).toHaveBeenCalledWith('SpecPoller poll cycle failed', expect.any(Error));
-
-// Correct — test the observable outcome instead
-const result = await doThing();
-expect(result).toStrictEqual(EMPTY_RESULT);
-```
-
-### No type assertions in tests
-
-Never use `as` to cast values for assertion. Use structural matchers (`toMatchObject`, `toStrictEqual`) instead — they verify shape without requiring type casts and produce better error messages.
-
-```ts
-// Wrong — casting to assert a property
-const failNotif = notifications.find((n) => n.eventType === 'agentFailed');
-expect(failNotif).toBeDefined();
-expect((failNotif as AgentFailedNotification).logFilePath).toBe('/logs/agent.log');
-
-// Wrong — casting to narrow a union for assertion
-const completedNotif = notifications.find(
-  (n) => n.eventType === 'agentCompleted' && 'issueNumber' in n && n.issueNumber === 1,
-) as AgentCompletedNotification;
-expect(completedNotif.logFilePath).toBeUndefined();
-
-// Correct — toMatchObject verifies shape without casts
-expect(notifications).toContainEqual(
-  expect.objectContaining({
-    eventType: 'agentFailed',
-    logFilePath: '/logs/agent.log',
-  }),
-);
-
-// Correct — assert the full object shape
-expect(notifications).toContainEqual(
-  expect.objectContaining({
-    eventType: 'agentCompleted',
-    issueNumber: 1,
-    logFilePath: undefined,
-  }),
-);
-```
-
-### Use `toStrictEqual`, never `toEqual`
-
-Always use `toStrictEqual` — never `toEqual`. `toStrictEqual` catches undefined properties, sparse arrays, and class mismatches that `toEqual` silently ignores.
-
-When asserting a subset of properties, use `toMatchObject` or asymmetric matchers (`expect.objectContaining`, `expect.any`) instead of asserting individual properties one at a time.
-
-```ts
-// Wrong — toEqual misses undefined vs missing, class mismatches
-expect(result).toEqual({ issueCount: 2, recoveriesPerformed: 0 });
-
-// Wrong — asserting properties one-by-one
-expect(result.issueCount).toBe(2);
-expect(result.recoveriesPerformed).toBe(0);
-
-// Correct — toStrictEqual for full object assertion
-expect(result).toStrictEqual({ issueCount: 2, recoveriesPerformed: 0 });
-
-// Correct — toMatchObject for partial assertion (result may have other fields)
-expect(result).toMatchObject({ issueCount: 2, recoveriesPerformed: 0 });
-
-// Correct — asymmetric matchers when some fields are dynamic
-expect(result).toMatchObject({
-  issueCount: 2,
-  timestamp: expect.any(Number),
-});
-```
-
-### Test utilities
-
-Place mock factories and test helpers under `src/test-utils/` within each package, one per file following the standard file organization rules:
-
-```
-src/test-utils/create-mock-github-client.ts   → export createMockGitHubClient
-src/test-utils/build-valid-config.ts          → export buildValidConfig
-```
-
-### Filesystem mocking
-
-Use `memfs` as a global mock for `node:fs/promises`. Configure it as a per-package vitest setup file:
-
-```ts
-// vitest.setup.ts
-import { vi } from 'vitest';
-import { fs } from 'memfs';
-
-vi.mock('node:fs/promises', () => fs.promises);
-```
-
-```ts
-// vitest.config.ts
-import { defineConfig } from 'vitest/config';
-
-export default defineConfig({
-  test: {
-    setupFiles: ['./vitest.setup.ts'],
-  },
-});
-```
-
-Do not mock `node:fs/promises` inline in individual test files — rely on the setup file.
-
-### MSW (Mock Service Worker)
-
-MSW is available for HTTP mocking in tests. Set up handlers per-package as needed.
-
-## Dependencies
-
-Always install dependencies via `yarn add`, never by editing `package.json` directly. Yarn must run its resolution and PnP toolchain for dependencies to work.
-
-```bash
-# Correct
-yarn workspace @sear/agentic-workflow add zustand --exact
-yarn workspace @sear/agentic-workflow add -D vitest --exact
-
-# Wrong — editing package.json by hand and running yarn install
-```
-
-Always use **pinned (exact) versions** (`--exact` flag) — no ranges, carets, tildes, or wildcards.
 
 ## Tooling
 
@@ -313,6 +93,13 @@ This repo uses Yarn Plug'n'Play (PnP) with Zero Installs enabled:
 
 **After adding/updating dependencies**, commit the changes to `.yarn/cache` and `.pnp.cjs`.
 
+**Installing dependencies:** Always use `yarn add` with pinned versions — never edit `package.json` directly:
+
+```bash
+yarn workspace @sear/agentic-workflow add zustand --exact
+yarn workspace @sear/agentic-workflow add -D vitest --exact
+```
+
 **Inspecting dependency types:** Dependencies in `.yarn/cache` are zip archives — do not attempt to read, grep, or unzip them directly. If you need to inspect a dependency's type definitions, use `yarn unplug <package>` to extract it to `.yarn/unplugged/` where files are readable on disk. Alternatively, rely on TypeScript error messages and existing type imports in the codebase rather than reading `.d.ts` files from dependencies.
 
 ### Turborepo
@@ -320,14 +107,14 @@ This repo uses Yarn Plug'n'Play (PnP) with Zero Installs enabled:
 Turborepo handles task orchestration with caching:
 - Build artifacts are cached in `.turbo/`
 - Remote caching can be enabled for CI
+- Filter by package: `yarn turbo run build --filter=<package-name>`
 
 ### Biome
 
-Biome (v2.x) handles linting and formatting:
-- 2 spaces, 100 char line width
-- Single quotes, semicolons always, trailing commas
+Biome (v2.x) handles linting and formatting. The full config is in `biome.jsonc` — highlights:
+- 2 spaces, 100 char line width, single quotes, semicolons always, trailing commas
+- Strict rule set including nursery rules: `noNonNullAssertion`, `useExplicitType`, `useConsistentTypeDefinitions` (interface), `useConsistentMethodSignatures` (property-style), `noMagicNumbers` (off in tests), `noContinue`, `noIncrementDecrement`, `useBlockStatements`
 - CSS, HTML, GraphQL formatting enabled
-- Nursery (experimental) lint rules enabled
 - Uses `.gitignore` for file exclusions
 
 ### Lefthook
@@ -363,46 +150,6 @@ All commits must follow the conventional commits format:
 - `fix(api): handle null response from server`
 - `chore: update dependencies`
 - `refactor(core): simplify error handling logic`
-
-## Naming Conventions
-
-### Acronym Casing
-Acronyms and initialisms should be **uppercase** in both type names and property names:
-
-```ts
-type ROIConfig = { ... };
-type CVConfig = { templateID: string };
-const jobID = 'abc';
-const roiID = 'def';
-```
-
-### Function Naming
-
-**Core actions:**
-```ts
-getUser(userId)                 // retrieve existing data (no side effects)
-createUser(userInput)           // persist/allocate/register (changes the world)
-buildUserEntity(userDto)        // assemble in-memory object (pure, no I/O)
-parseAuthHeader(header)         // raw input -> structured data
-validateRunConfig(runConfig)    // enforce constraints (no mutation)
-updateUser(userId, patch)       // mutate existing persisted state
-deleteUser(userId)              // remove persisted state
-executeModelRun(runId)          // orchestrate workflow (side effects likely)
-```
-
-**Predicates:**
-```ts
-isAdmin(user)                   // factual classification / property
-canDelete(user, post)           // capability check (given permissions/state)
-shouldScrubKey(key)             // policy decision / heuristic gate
-```
-
-**Transformers:**
-```ts
-transformQueryParams(params)    // structural input -> output mapping (pure)
-scrubQueryString(url)           // remove/replace sensitive values (privacy/security)
-serializeRunConfig(runConfig)   // convert structured -> string/JSON (format transform)
-```
 
 ## Code Style
 
@@ -462,7 +209,7 @@ engine/pollers/parse-frontmatter-status.test.ts
 Each module directory has a `types.ts` file that contains the module's exported type definitions — the public API contract for that module. This keeps types discoverable and separates interface from implementation.
 
 **Goes in `types.ts`:**
-- All exported types (interfaces, type aliases, discriminated unions)
+- All exported interfaces and type aliases (discriminated unions, intersections)
 - Configuration/dependency types (`*Config`, `*Deps`, `*Params`)
 - Return/result types (`*Result`, the module's main interface type)
 - Types shared across multiple files in the same directory
@@ -474,26 +221,19 @@ Each module directory has a `types.ts` file that contains the module's exported 
 
 ```ts
 // list/list.tsx — props type lives with its component
-export type ListProps = { label: string; items: ListItem[]; focused: boolean };
+export interface ListProps { label: string; items: ListItem[]; focused: boolean }
 
-export function List(props: ListProps) { ... }
-
-// Wrong — props type in types.ts, separated from its only consumer
-// list/types.ts
-export type ListProps = { ... };
-// list/list.tsx
-import type { ListProps } from './types';
 export function List(props: ListProps) { ... }
 ```
 
 ```ts
 // recovery/types.ts — the module's public API types
-export type RecoveryConfig = { octokit: GitHubClient; owner: string; repo: string };
-export type StartupRecoveryResult = { snapshot: IssuePollerSnapshot };
-export type Recovery = {
-  performStartupRecovery(): Promise<StartupRecoveryResult>;
-  performCrashRecovery(params: CrashRecoveryParams): Promise<void>;
-};
+export interface RecoveryConfig { octokit: GitHubClient; owner: string; repo: string }
+export interface StartupRecoveryResult { snapshot: IssuePollerSnapshot }
+export interface Recovery {
+  performStartupRecovery: () => Promise<StartupRecoveryResult>;
+  performCrashRecovery: (params: CrashRecoveryParams) => Promise<void>;
+}
 
 // recovery/create-recovery.ts — imports types, keeps internals private
 import type { RecoveryConfig, Recovery } from './types';
@@ -530,7 +270,7 @@ const EMPTY_RESULT: SpecPollerBatchResult = { changes: [], commitSHA: '' };
 // Primary export — first function in the file
 export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
   const snapshot = initSnapshot();
-  async function poll() {
+  async function poll(): Promise<SpecPollerBatchResult> {
     const treeSHA = await getSpecsDirTreeSHA(config);
     // ...
   }
@@ -548,18 +288,132 @@ async function fetchTree(config: SpecPollerConfig) { ... }
 function findEntry(tree: TreeEntry[]) { ... }
 ```
 
-### Type assertions
-Never use type assertions (`as`) unless there is a genuine TypeScript error that cannot be resolved through correct typing. If the types are wrong, fix the types — don't cast around them. This includes `as unknown as X`, `as Record<string, unknown>`, `as any`, and similar escape hatches.
+### Exports
+
+Always export inline at the declaration site. Never collect exports at the bottom of a file.
 
 ```ts
-// Wrong — unnecessary cast, fix the function signature instead
-expect(() => validateConfig(config as Record<string, unknown>)).not.toThrow();
+// Correct — inline exports
+export type EventHandler = (event: EngineEvent) => void;
 
-// Correct — types match, no cast needed
-expect(() => validateConfig(config)).not.toThrow();
+export interface EventEmitter {
+  on: (handler: EventHandler) => Unsubscribe;
+  emit: (event: EngineEvent) => void;
+}
+
+export function createEventEmitter(): EventEmitter {
+  // ...
+}
+
+// Wrong — barrel exports at the bottom
+function createEventEmitter(): EventEmitter { ... }
+export { createEventEmitter };
+export type { EventEmitter, EventHandler };
 ```
 
-**Common cast-free patterns:**
+### Naming
+
+**Acronym casing:** Acronyms and initialisms should be **uppercase** in both type names and property names:
+
+```ts
+interface ROIConfig { ... }
+interface CVConfig { templateID: string }
+const jobID = 'abc';
+const roiID = 'def';
+```
+
+**Function naming:** Use verb prefixes that signal the function's behavior:
+
+```ts
+// Core actions
+getUser(userId)                 // retrieve existing data (no side effects)
+createUser(userInput)           // persist/allocate/register (changes the world)
+buildUserEntity(userDto)        // assemble in-memory object (pure, no I/O)
+parseAuthHeader(header)         // raw input -> structured data
+validateRunConfig(runConfig)    // enforce constraints (no mutation)
+updateUser(userId, patch)       // mutate existing persisted state
+deleteUser(userId)              // remove persisted state
+executeModelRun(runId)          // orchestrate workflow (side effects likely)
+
+// Predicates
+isAdmin(user)                   // factual classification / property
+canDelete(user, post)           // capability check (given permissions/state)
+shouldScrubKey(key)             // policy decision / heuristic gate
+
+// Transformers
+transformQueryParams(params)    // structural input -> output mapping (pure)
+scrubQueryString(url)           // remove/replace sensitive values (privacy/security)
+serializeRunConfig(runConfig)   // convert structured -> string/JSON (format transform)
+```
+
+### Prefer `interface` over `type` for object shapes
+
+Use `interface` for any standalone object type definition. Reserve `type` for unions, intersections, mapped types, and type aliases for primitives/tuples. Biome enforces this via `useConsistentTypeDefinitions`.
+
+```ts
+// Correct
+interface PollerConfig { interval: number; octokit: GitHubClient }
+
+// Wrong — use interface instead
+type PollerConfig = { interval: number; octokit: GitHubClient };
+
+// Correct — type for unions/intersections (can't be interface)
+type AgentQuery = AsyncIterable<unknown> & { interrupt: () => Promise<void> };
+type EngineEvent = IssueStatusChangedEvent | AgentCompletedEvent | AgentFailedEvent;
+```
+
+### Property-style method signatures
+
+In interfaces and type literals, use property-style (`method: () => Type`) instead of method-style (`method(): Type`). Biome enforces this via `useConsistentMethodSignatures`.
+
+```ts
+// Correct — property-style
+interface EventEmitter {
+  on: (handler: EventHandler) => Unsubscribe;
+  emit: (event: EngineEvent) => void;
+}
+
+// Wrong — method-style
+interface EventEmitter {
+  on(handler: EventHandler): Unsubscribe;
+  emit(event: EngineEvent): void;
+}
+```
+
+### No inline types
+
+Never use inline object types — not in function arguments, return types, interface method signatures, or generic parameters. Always define named types.
+
+```ts
+// Wrong — inline types
+function getROIFromBBox(bbox: { x: number; y: number; w: number; h: number }): ROIConfig { ... }
+
+// Correct — named types
+interface BBox { x: number; y: number; w: number; h: number }
+function getROIFromBBox(bbox: BBox): ROIConfig { ... }
+```
+
+### Type assertions
+
+Never use type assertions (`as`) unless there is a genuine TypeScript error that cannot be resolved through correct typing. If the types are wrong, fix the types — don't cast around them. This includes `as unknown as X`, `as Record<string, unknown>`, `as any`, and similar escape hatches.
+
+**In tests:** Use structural matchers (`toMatchObject`, `toStrictEqual`, `expect.objectContaining`) instead of casting to assert properties — they verify shape without type casts and produce better error messages:
+
+```ts
+// Wrong — casting to assert a property
+const failNotif = notifications.find((n) => n.eventType === 'agentFailed');
+expect((failNotif as AgentFailedNotification).logFilePath).toBe('/logs/agent.log');
+
+// Correct — structural matcher, no cast needed
+expect(notifications).toContainEqual(
+  expect.objectContaining({
+    eventType: 'agentFailed',
+    logFilePath: '/logs/agent.log',
+  }),
+);
+```
+
+**Cast-free patterns:**
 
 Narrow third-party interfaces at module boundaries — depend on what you use, not the full external type:
 ```ts
@@ -568,7 +422,7 @@ import type { Query } from '@anthropic-ai/sdk';
 type QueryFactory = (params: Params) => Promise<Query>;
 
 // Correct — narrow interface at the boundary
-type AgentQuery = AsyncIterable<unknown> & { interrupt(): Promise<void> };
+type AgentQuery = AsyncIterable<unknown> & { interrupt: () => Promise<void> };
 type QueryFactory = (params: Params) => Promise<AgentQuery>;
 ```
 
@@ -583,76 +437,16 @@ const VALID: Record<string, MyUnion> = { a: 'a', b: 'b', c: 'c' };
 return VALID[value] ?? defaultValue;
 ```
 
-### No non-null assertions
+### No non-null assertions — use `tiny-invariant`
 
-Never use the non-null assertion operator (`!`). A `!` silently assumes a value is present with no runtime check and no explanation of why that assumption is safe. Use `tiny-invariant` instead — it crashes immediately with a meaningful message when the assumption is violated.
+Biome enforces `noNonNullAssertion`. When you need to narrow a nullable type, use `tiny-invariant` — it crashes with a meaningful message and narrows the type:
 
 ```ts
 import invariant from 'tiny-invariant';
 
-// Wrong — non-null assertion, silent assumption
-const issue = issues.find((i) => i.number === issueNumber);
-const title = issue!.title;
-
-// Wrong — non-null assertion in a chain
-const treeSHA = response.data.tree.find((e) => e.path === 'specs')!.sha;
-
-// Correct — invariant with reasoning
 const issue = issues.find((i) => i.number === issueNumber);
 invariant(issue, `issue #${issueNumber} must exist in the tracked set`);
-const title = issue.title;
-
-// Correct — invariant narrows the type
-const entry = response.data.tree.find((e) => e.path === 'specs');
-invariant(entry, 'specs directory must exist in the repository tree');
-const treeSHA = entry.sha;
-```
-
-### Pattern Matching
-Prefer `ts-pattern` over switch statements for discriminated unions:
-
-```ts
-import { match } from 'ts-pattern';
-
-// Preferred
-match(event)
-  .with({ type: 'health.updated' }, (e) => handleHealth(e.data))
-  .with({ type: 'mana.updated' }, (e) => handleMana(e.data))
-  .exhaustive();
-
-// Avoid
-switch (event.type) {
-  case 'health.updated': ...
-  case 'mana.updated': ...
-}
-```
-
-### No inline types
-
-Never use inline object types — not in function arguments, return types, interface method signatures, or generic parameters. Always define named types.
-
-```ts
-// Wrong — inline types everywhere
-function getROIFromBBox(bbox: { x: number; y: number; w: number; h: number }): ROIConfig { ... }
-
-type GitHubClient = {
-  pulls: {
-    list(params: { owner: string; repo: string }): Promise<{ data: { number: number }[] }>;
-  };
-};
-
-// Correct — named types
-type BBox = { x: number; y: number; w: number; h: number };
-function getROIFromBBox(bbox: BBox): ROIConfig { ... }
-
-type PullsListParams = { owner: string; repo: string };
-type PullsListResult = { data: { number: number }[] };
-
-type GitHubClient = {
-  pulls: {
-    list(params: PullsListParams): Promise<PullsListResult>;
-  };
-};
+const title = issue.title; // type is narrowed, no cast needed
 ```
 
 ### No parameter destructuring
@@ -678,58 +472,152 @@ const { children, ...rest } = props;
 const { secret, ...safeConfig } = config;
 ```
 
-### Flat control flow
+### Pattern matching
 
-Avoid nested `if` statements. Flatten with guard clauses, early returns, or sequential conditions. Each level of nesting makes code harder to follow.
+Prefer `ts-pattern` over switch statements for discriminated unions:
 
 ```ts
-// Wrong — nested ifs
-if (combinedStatus.total_count > 0) {
-  if (combinedStatus.state === 'success') {
-    ciStatus = 'success';
-  } else if (combinedStatus.state === 'failure') {
-    ciStatus = 'failure';
-  }
-}
+import { match } from 'ts-pattern';
 
-// Correct — flat guard clauses
-if (combinedStatus.total_count > 0 && combinedStatus.state === 'success') {
-  ciStatus = 'success';
-}
-if (combinedStatus.total_count > 0 && combinedStatus.state === 'failure') {
-  ciStatus = 'failure';
-}
+match(event)
+  .with({ type: 'health.updated' }, (e) => handleHealth(e.data))
+  .with({ type: 'mana.updated' }, (e) => handleMana(e.data))
+  .exhaustive();
+```
 
-// Also correct — early return to avoid nesting
+### Flat control flow
+
+Prefer guard clauses and early returns over nested conditions. Biome enforces `useCollapsedIf`, `useCollapsedElseIf`, `noContinue`, and `useBlockStatements`, but the general principle of keeping control flow flat goes further:
+
+```ts
 function processItem(item: Item): Result {
-  if (!item.isValid) return defaultResult;
-  if (!item.hasData) return defaultResult;
-  // main logic at top level, no nesting
+  if (!item.isValid) { return defaultResult; }
+  if (!item.hasData) { return defaultResult; }
   return computeResult(item.data);
 }
 ```
 
-### Exports
-Always export inline at the declaration site. Never collect exports at the bottom of a file.
+## Testing
+
+### Test orchestration
+
+Turborepo is the test orchestrator. Each package owns its own vitest instance — there is no root-level vitest or vitest workspace config.
+
+**Running tests:**
+```bash
+yarn test                           # Run all tests (turbo run test)
+yarn workspace <pkg> test           # Run tests for single package
+yarn workspace <pkg> test --watch   # Watch mode
+```
+
+Do not invoke `vitest` directly. Always go through `yarn test` or `yarn workspace`.
+
+**Package requirements:** Every package that has tests must have all three of:
+1. `vitest` in `devDependencies` (pinned, like all deps)
+2. `vitest.config.ts`
+3. `"test": "vitest run"` in `scripts`
+
+Packages without tests simply omit the `test` script — Turborepo skips them automatically.
+
+### Never test TypeScript types
+
+Do not write tests that only verify type-level behavior (e.g., `expectTypeOf`, `type-fest` helpers, assignability checks). Types are validated by `tsc` — testing them adds no value.
+
+### Use `test`, never `describe`/`it`
 
 ```ts
-// Correct — inline exports
-export type EventHandler = (event: EngineEvent) => void;
+import { test, expect } from 'vitest';
 
-export type EventEmitter = {
-  on(handler: EventHandler): Unsubscribe;
-  emit(event: EngineEvent): void;
-};
+test('it parses valid input', () => { ... });
+test('it throws on empty string', () => { ... });
+```
 
-export function createEventEmitter(): EventEmitter {
-  // ...
+### Test naming
+
+Start every test name with "it" — each test reads as a natural-language behavioral sentence about the subject under test. Describe behavior and outcomes in plain English, not implementation details. Avoid variable names, field names, method names, event type strings, or internal component names in the test string.
+
+```ts
+// Correct — natural language, describes behavior
+test('it flags the planner as not running when the planner completes', () => { ... });
+test('it preserves the failure overlay when recovering from a crash', () => { ... });
+
+// Wrong — leaks implementation details
+test('it sets plannerRunning to false when Planner agentCompleted is emitted', () => { ... });
+test('it does not clear lastFailure when issueStatusChanged has isRecovery true', () => { ... });
+```
+
+### No `beforeEach`/`beforeAll` — use a `setupTest()` helper
+
+```ts
+function setupTest() {
+  const store = createStore();
+  const handler = buildHandler(store);
+  return { store, handler };
 }
 
-// Wrong — barrel exports at the bottom
-function createEventEmitter(): EventEmitter { ... }
-export { createEventEmitter };
-export type { EventEmitter, EventHandler };
+test('it updates the store when an event is processed', () => {
+  const { store, handler } = setupTest();
+  handler.process(event);
+  expect(store.getState().count).toBe(1);
+});
 ```
+
+### Never test logging
+
+Do not spy on `console.log`, `console.error`, or similar logging functions. Do not assert that a logger or `logError` callback was called. Logging is an implementation detail — tests should verify observable behavior (return values, thrown errors, state changes).
+
+### Use `toStrictEqual`, never `toEqual`
+
+Always use `toStrictEqual` — never `toEqual`. `toStrictEqual` catches undefined properties, sparse arrays, and class mismatches that `toEqual` silently ignores.
+
+When asserting a subset of properties, use `toMatchObject` or asymmetric matchers (`expect.objectContaining`, `expect.any`) instead of asserting individual properties one at a time.
+
+```ts
+// Wrong — toEqual misses undefined vs missing, class mismatches
+expect(result).toEqual({ issueCount: 2, recoveriesPerformed: 0 });
+
+// Correct — toStrictEqual for full object assertion
+expect(result).toStrictEqual({ issueCount: 2, recoveriesPerformed: 0 });
+
+// Correct — toMatchObject for partial assertion (result may have other fields)
+expect(result).toMatchObject({ issueCount: 2, recoveriesPerformed: 0 });
+```
+
+### Test utilities
+
+Place mock factories and test helpers under `src/test-utils/` within each package, one per file following the standard file organization rules:
+
+```
+src/test-utils/create-mock-github-client.ts   → export createMockGitHubClient
+src/test-utils/build-valid-config.ts          → export buildValidConfig
+```
+
+MSW is available for HTTP mocking. Set up handlers per-package as needed.
+
+### Filesystem mocking
+
+Use `memfs` as a global mock for `node:fs/promises`. Configure it as a per-package vitest setup file:
+
+```ts
+// vitest.setup.ts
+import { vi } from 'vitest';
+import { fs } from 'memfs';
+
+vi.mock('node:fs/promises', () => fs.promises);
+```
+
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    setupFiles: ['./vitest.setup.ts'],
+  },
+});
+```
+
+Do not mock `node:fs/promises` inline in individual test files — rely on the setup file.
 
 ## Terminology
 

@@ -1,9 +1,15 @@
-import type { CrashRecoveryParams, Recovery, RecoveryConfig, StartupRecoveryResult } from './types';
+import type {
+  CrashRecoveryParams,
+  Recovery,
+  RecoveryConfig,
+  StartupRecoveryResult,
+} from './types.ts';
 
 export function createRecovery(config: RecoveryConfig): Recovery {
   return {
     performStartupRecovery: () => performStartupRecovery(config),
-    performCrashRecovery: (params) => performCrashRecovery(config, params),
+    performCrashRecovery: (params: CrashRecoveryParams): Promise<void> =>
+      performCrashRecovery(config, params),
   };
 }
 
@@ -18,14 +24,10 @@ async function performStartupRecovery(config: RecoveryConfig): Promise<StartupRe
     per_page: 100,
   });
 
-  let recoveriesPerformed = 0;
+  await Promise.all(issues.map((issue) => resetIssueToPending(octokit, owner, repo, issue.number)));
 
   for (const issue of issues) {
-    await resetIssueToPending(octokit, owner, repo, issue.number);
-
-    const title = issue.title;
     const priorityLabel = extractPriorityLabel(issue.labels);
-    const createdAt = issue.created_at;
 
     emitter.emit({
       type: 'recoveryPerformed',
@@ -37,18 +39,16 @@ async function performStartupRecovery(config: RecoveryConfig): Promise<StartupRe
     emitter.emit({
       type: 'issueStatusChanged',
       issueNumber: issue.number,
-      title,
+      title: issue.title,
       oldStatus: 'in-progress',
       newStatus: 'pending',
       priorityLabel,
-      createdAt,
+      createdAt: issue.created_at,
       isRecovery: true,
     });
-
-    recoveriesPerformed++;
   }
 
-  return { recoveriesPerformed };
+  return { recoveriesPerformed: issues.length };
 }
 
 async function performCrashRecovery(

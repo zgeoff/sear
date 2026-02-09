@@ -1,26 +1,26 @@
-export type ResolvedIssuePollerConfig = {
+export interface ResolvedIssuePollerConfig {
   pollInterval: number;
-};
+}
 
-export type ResolvedSpecPollerConfig = {
+export interface ResolvedSpecPollerConfig {
   pollInterval: number;
   specsDir: string;
   defaultBranch: string;
-};
+}
 
-export type ResolvedAgentsConfig = {
+export interface ResolvedAgentsConfig {
   agentPlanner: string;
   agentImplementor: string;
   agentReviewer: string;
   maxAgentDuration: number;
-};
+}
 
-export type ResolvedLoggingConfig = {
+export interface ResolvedLoggingConfig {
   agentSessions: boolean;
   logsDir: string;
-};
+}
 
-export type ResolvedEngineConfig = {
+export interface ResolvedEngineConfig {
   repository: string;
   githubAppID: number;
   githubAppPrivateKeyPath: string;
@@ -31,4 +31,4 @@ export type ResolvedEngineConfig = {
   specPoller: ResolvedSpecPollerConfig;
   agents: ResolvedAgentsConfig;
   logging: ResolvedLoggingConfig;
-};
+}

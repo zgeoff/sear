@@ -3,10 +3,10 @@ import { join } from 'node:path';
 import type { AgentDefinition } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import matter from 'gray-matter';
-import type { QueryFactory, QueryFactoryConfig } from './types';
+import type { AgentQuery, QueryFactory, QueryFactoryConfig, QueryFactoryParams } from './types.ts';
 
 export function buildQueryFactory(config: QueryFactoryConfig): QueryFactory {
-  return async (params) => {
+  return async (params: QueryFactoryParams): Promise<AgentQuery> => {
     const agentDefinition = await loadAgentDefinition(config.repoRoot, params.agent);
     return query({
       prompt: params.prompt,
@@ -61,18 +61,24 @@ async function loadAgentDefinition(repoRoot: string, agentName: string): Promise
 }
 
 function parseModel(raw: unknown): AgentModel {
-  if (raw == null) return 'inherit';
+  if (raw === null) {
+    return 'inherit';
+  }
   return VALID_MODELS[String(raw)] ?? 'inherit';
 }
 
 function parseTools(raw: unknown): string[] | undefined {
-  if (raw == null) return undefined;
-  if (Array.isArray(raw)) return raw.map(String);
+  if (raw === null) {
+    return;
+  }
+  if (Array.isArray(raw)) {
+    return raw.map(String);
+  }
   if (typeof raw === 'string') {
     return raw
       .split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
   }
-  return undefined;
+  return;
 }

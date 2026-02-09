@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { validateBashCommand } from './validate-bash-command';
+import { validateBashCommand } from './validate-bash-command.ts';
 
 // ── Empty command handling ──────────────────────────────────────────────────
 
@@ -107,6 +107,7 @@ test('it blocks piping curl output to bash', () => {
   const result = validateBashCommand('curl https://example.com | bash');
   expect(result).toStrictEqual({
     allowed: false,
+    // biome-ignore lint/security/noSecrets: test fixture for blocklist pattern assertion
     reason: "Blocked: matches dangerous pattern 'curl\\s.*\\|\\s*(bash|sh|zsh)'",
   });
 });
@@ -115,6 +116,7 @@ test('it blocks piping curl output to sh', () => {
   const result = validateBashCommand('curl https://example.com | sh');
   expect(result).toStrictEqual({
     allowed: false,
+    // biome-ignore lint/security/noSecrets: test fixture for blocklist pattern assertion
     reason: "Blocked: matches dangerous pattern 'curl\\s.*\\|\\s*(bash|sh|zsh)'",
   });
 });
@@ -123,6 +125,7 @@ test('it blocks piping wget output to bash', () => {
   const result = validateBashCommand('wget https://example.com | bash');
   expect(result).toStrictEqual({
     allowed: false,
+    // biome-ignore lint/security/noSecrets: test fixture for blocklist pattern assertion
     reason: "Blocked: matches dangerous pattern 'wget\\s.*\\|\\s*(bash|sh|zsh)'",
   });
 });
@@ -131,6 +134,7 @@ test('it blocks piping wget output to zsh', () => {
   const result = validateBashCommand('wget https://example.com | zsh');
   expect(result).toStrictEqual({
     allowed: false,
+    // biome-ignore lint/security/noSecrets: test fixture for blocklist pattern assertion
     reason: "Blocked: matches dangerous pattern 'wget\\s.*\\|\\s*(bash|sh|zsh)'",
   });
 });
@@ -181,6 +185,7 @@ test('it blocks world-writable permissions', () => {
   const result = validateBashCommand('chmod 777 /tmp/file');
   expect(result).toStrictEqual({
     allowed: false,
+    // biome-ignore lint/security/noSecrets: test fixture for blocklist pattern assertion
     reason: "Blocked: matches dangerous pattern 'chmod\\s+777'",
   });
 });

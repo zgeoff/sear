@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
+import invariant from 'tiny-invariant';
 import { expect, test, vi } from 'vitest';
-import { buildValidConfig } from '../test-utils/build-valid-config';
-import { createMockGitHubClient } from '../test-utils/create-mock-github-client';
-import type { AgentFailedEvent, EngineEvent, IssueStatusChangedEvent } from '../types';
-import type { AgentQuery, QueryFactory } from './agent-manager/types';
-import { createEngine } from './create-engine';
-import type { GitHubClient } from './github-client/types';
-import type { WorktreeManager } from './worktree-manager/types';
+import { buildValidConfig } from '../test-utils/build-valid-config.ts';
+import { createMockGitHubClient } from '../test-utils/create-mock-github-client.ts';
+import type { AgentFailedEvent, EngineEvent, IssueStatusChangedEvent } from '../types.ts';
+import type { AgentQuery, QueryFactory, QueryFactoryParams } from './agent-manager/types.ts';
+import { createEngine } from './create-engine.ts';
+import type { GitHubClient } from './github-client/types.ts';
+import type { WorktreeManager } from './worktree-manager/types.ts';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -22,8 +23,8 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 type MockQuery = AgentQuery &
   AsyncIterator<unknown> & {
-    pushMessage(msg: unknown): void;
-    end(): void;
+    pushMessage: (msg: unknown) => void;
+    end: () => void;
   };
 
 function createMockQuery(): MockQuery {
@@ -32,16 +33,17 @@ function createMockQuery(): MockQuery {
   let ended = false;
 
   const mockQuery: MockQuery = {
-    pushMessage(msg: unknown) {
+    pushMessage(msg: unknown): void {
       if (pendingReads.length > 0) {
-        const pending = pendingReads.shift()!;
+        const pending = pendingReads.shift();
+        invariant(pending, 'pendingReads must have an entry when length > 0');
         pending.resolve({ value: msg, done: false });
         return;
       }
       bufferedMessages.push(msg);
     },
 
-    end() {
+    end(): void {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
@@ -51,9 +53,10 @@ function createMockQuery(): MockQuery {
 
     interrupt: vi.fn().mockResolvedValue(undefined),
 
-    next() {
+    next(): Promise<IteratorResult<unknown>> {
       if (bufferedMessages.length > 0) {
-        const msg = bufferedMessages.shift()!;
+        const msg = bufferedMessages.shift();
+        invariant(msg !== undefined, 'bufferedMessages must have an entry when length > 0');
         return Promise.resolve({ value: msg, done: false });
       }
       if (ended) {
@@ -64,7 +67,7 @@ function createMockQuery(): MockQuery {
       });
     },
 
-    return() {
+    return(): Promise<IteratorResult<unknown>> {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
@@ -73,7 +76,7 @@ function createMockQuery(): MockQuery {
       return Promise.resolve({ value: undefined, done: true as const });
     },
 
-    throw() {
+    throw(): Promise<IteratorResult<unknown>> {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
@@ -82,7 +85,7 @@ function createMockQuery(): MockQuery {
       return Promise.resolve({ value: undefined, done: true as const });
     },
 
-    [Symbol.asyncIterator]() {
+    [Symbol.asyncIterator](): MockQuery {
       return mockQuery;
     },
   };
@@ -93,9 +96,17 @@ function createMockQuery(): MockQuery {
 function buildMockIssueData(
   number: number,
   status: string,
-  title = `Issue #${number}`,
-  priority = 'priority:medium',
-) {
+  // biome-ignore lint/style/noInferrableTypes: explicit type required by useExplicitType
+  title: string = `Issue #${number}`,
+  // biome-ignore lint/style/noInferrableTypes: explicit type required by useExplicitType
+  priority: string = 'priority:medium',
+): {
+  number: number;
+  title: string;
+  body: string;
+  labels: Array<{ name: string }>;
+  created_at: string;
+} {
   return {
     number,
     title,
@@ -108,17 +119,17 @@ function buildMockIssueData(
 function setupMockGitHubClient(
   octokit: GitHubClient,
   issues: ReturnType<typeof buildMockIssueData>[] = [],
-) {
+): void {
   // Differentiate between recovery query (status:in-progress) and regular poll
-  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+  vi.mocked(octokit.issues.listForRepo).mockImplementation((params: { labels: string }) => {
     if (params.labels.includes('status:in-progress')) {
-      return { data: [] }; // No in-progress issues by default (startup recovery)
+      return Promise.resolve({ data: [] }); // No in-progress issues by default (startup recovery)
     }
-    return { data: issues };
+    return Promise.resolve({ data: issues });
   });
-  vi.mocked(octokit.issues.get).mockImplementation(async (params: { issue_number: number }) => {
+  vi.mocked(octokit.issues.get).mockImplementation((params: { issue_number: number }) => {
     const issue = issues.find((i) => i.number === params.issue_number);
-    return { data: issue ?? buildMockIssueData(params.issue_number, 'pending') };
+    return Promise.resolve({ data: issue ?? buildMockIssueData(params.issue_number, 'pending') });
   });
   vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
   vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
@@ -164,15 +175,23 @@ function createMockWorktreeManager(): WorktreeManager {
   };
 }
 
-type SetupOptions = {
+interface SetupOptions {
   issues?: ReturnType<typeof buildMockIssueData>[];
   autoComplete?: boolean;
   shutdownTimeout?: number;
-};
+}
 
 function setupTest(
   issueOverridesOrOptions?: ReturnType<typeof buildMockIssueData>[] | SetupOptions,
-) {
+): {
+  engine: ReturnType<typeof createEngine>;
+  events: EngineEvent[];
+  octokit: ReturnType<typeof createMockGitHubClient>;
+  queryFactory: QueryFactory;
+  mockQueries: MockQuery[];
+  config: ReturnType<typeof buildValidConfig>;
+  worktreeManager: WorktreeManager;
+} {
   const options: SetupOptions = Array.isArray(issueOverridesOrOptions)
     ? { issues: issueOverridesOrOptions }
     : (issueOverridesOrOptions ?? {});
@@ -184,7 +203,7 @@ function setupTest(
   const mockQueries: MockQuery[] = [];
   const worktreeManager = createMockWorktreeManager();
 
-  const queryFactory: QueryFactory = async (params) => {
+  const queryFactory: QueryFactory = (_params: QueryFactoryParams) => {
     const q = createMockQuery();
     if (autoComplete) {
       // Auto-complete the session immediately
@@ -204,7 +223,7 @@ function setupTest(
       });
     }
     mockQueries.push(q);
-    return q;
+    return Promise.resolve(q);
   };
 
   const config = buildValidConfig(
@@ -244,24 +263,24 @@ test('it resolves with issue count and recoveries after startup', async () => {
 
 test('it performs startup recovery for in-progress issues', async () => {
   const octokit = createMockGitHubClient();
-  const queryFactory: QueryFactory = async (params) => {
+  const queryFactory: QueryFactory = (_params: QueryFactoryParams) => {
     const q = createMockQuery();
     q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
     q.pushMessage({ type: 'result', subtype: 'success' });
     q.end();
-    return q;
+    return Promise.resolve(q);
   };
   const config = buildValidConfig();
 
   // Startup recovery query returns in-progress issues
   const recoveryIssues = [buildMockIssueData(5, 'in-progress')];
 
-  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+  vi.mocked(octokit.issues.listForRepo).mockImplementation((params: { labels: string }) => {
     if (params.labels.includes('status:in-progress')) {
-      return { data: recoveryIssues };
+      return Promise.resolve({ data: recoveryIssues });
     }
     // Regular poll returns the issue as pending (after recovery reset)
-    return { data: [buildMockIssueData(5, 'pending')] };
+    return Promise.resolve({ data: [buildMockIssueData(5, 'pending')] });
   });
 
   vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
@@ -299,7 +318,8 @@ test('it runs the first issue poller cycle during startup', async () => {
   );
   expect(statusEvents.length).toBeGreaterThan(0);
 
-  const firstEvent = statusEvents[0]!;
+  const firstEvent = statusEvents[0];
+  invariant(firstEvent, 'statusEvents must have at least one entry');
   expect(firstEvent.issueNumber).toBe(1);
   expect(firstEvent.oldStatus).toBeNull();
   expect(firstEvent.newStatus).toBe('pending');
@@ -510,25 +530,25 @@ test('it returns null from getAgentStream when no agent is running', async () =>
 
 test('it does not crash when a poll cycle throws a github API error', async () => {
   const octokit = createMockGitHubClient();
-  const queryFactory: QueryFactory = async (params) => {
+  const queryFactory: QueryFactory = (_params: QueryFactoryParams) => {
     const q = createMockQuery();
     q.end();
-    return q;
+    return Promise.resolve(q);
   };
   const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
 
   let callCount = 0;
-  vi.mocked(octokit.issues.listForRepo).mockImplementation(async () => {
-    callCount++;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(() => {
+    callCount += 1;
     if (callCount === 1) {
       // First call (startup recovery)
-      return { data: [] };
+      return Promise.resolve({ data: [] });
     }
     if (callCount === 2) {
       // Second call (first poll cycle) -- throw error
-      throw new Error('GitHub API rate limited');
+      return Promise.reject(new Error('GitHub API rate limited'));
     }
-    return { data: [] };
+    return Promise.resolve({ data: [] });
   });
   vi.mocked(octokit.git.getTree).mockResolvedValue({
     data: { sha: 'tree-sha-1', tree: [] },
@@ -575,7 +595,7 @@ test('it dispatches an implementor agent when the issue is in a user-dispatch st
 
 test('it cancels a running agent and emits an agent-failed event', async () => {
   const issues = [buildMockIssueData(42, 'review')];
-  const { engine, events, mockQueries } = setupTest({ issues, autoComplete: false });
+  const { engine, events } = setupTest({ issues, autoComplete: false });
 
   await engine.start();
 
@@ -597,14 +617,14 @@ test('it cancels a running agent and emits an agent-failed event', async () => {
       e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
   );
   expect(agentFailed.length).toBe(1);
-  expect(agentFailed[0]!.error).toContain('Cancelled');
+  expect(agentFailed[0]?.error).toContain('Cancelled');
 });
 
 test('it cancels running agents after shutdown timeout expires', async () => {
   vi.useFakeTimers();
 
   const issues = [buildMockIssueData(42, 'review')];
-  const { engine, events, mockQueries } = setupTest({
+  const { engine, events } = setupTest({
     issues,
     autoComplete: false,
     shutdownTimeout: 5,
@@ -640,16 +660,16 @@ test('it cancels a running agent when its issue is removed from the poller snaps
   const worktreeManager = createMockWorktreeManager();
 
   let pollCount = 0;
-  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+  vi.mocked(octokit.issues.listForRepo).mockImplementation((params: { labels: string }) => {
     if (params.labels.includes('status:in-progress')) {
-      return { data: [] };
+      return Promise.resolve({ data: [] });
     }
-    pollCount++;
+    pollCount += 1;
     if (pollCount === 1) {
-      return { data: [buildMockIssueData(42, 'review')] };
+      return Promise.resolve({ data: [buildMockIssueData(42, 'review')] });
     }
     // Second poll: issue removed
-    return { data: [] };
+    return Promise.resolve({ data: [] });
   });
   vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
   vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
@@ -662,7 +682,7 @@ test('it cancels a running agent when its issue is removed from the poller snaps
   vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
   vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
 
-  const queryFactory: QueryFactory = async () => {
+  const queryFactory: QueryFactory = () => {
     const q = createMockQuery();
     // Send init but don't auto-complete -- agent stays running
     q.pushMessage({
@@ -671,7 +691,7 @@ test('it cancels a running agent when its issue is removed from the poller snaps
       session_id: `session-${mockQueries.length + 1}`,
     });
     mockQueries.push(q);
-    return q;
+    return Promise.resolve(q);
   };
 
   const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
@@ -726,10 +746,10 @@ test('it uses the provided repository root when one is given via dependency inje
 
   createEngine(config, {
     octokit,
-    queryFactory: async () => {
+    queryFactory: () => {
       const q = createMockQuery();
       q.end();
-      return q;
+      return Promise.resolve(q);
     },
     repoRoot: '/explicit/repo/root',
     worktreeManager,
@@ -748,10 +768,10 @@ test('it resolves the repository root via git when none is provided', () => {
 
   createEngine(config, {
     octokit,
-    queryFactory: async () => {
+    queryFactory: () => {
       const q = createMockQuery();
       q.end();
-      return q;
+      return Promise.resolve(q);
     },
   });
 

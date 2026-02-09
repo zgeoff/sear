@@ -1,24 +1,24 @@
 import { createAppAuth } from '@octokit/auth-app';
 import { Octokit } from '@octokit/rest';
 import { expect, test, vi } from 'vitest';
-import { createGitHubClient } from './create-github-client';
-import type { GitHubClientConfig } from './types';
+import { createGitHubClient } from './create-github-client.ts';
+import type { GitHubClientConfig } from './types.ts';
 
-vi.mock('@octokit/rest', () => {
-  return {
-    Octokit: vi.fn(),
-  };
-});
+vi.mock('@octokit/rest', () => ({
+  Octokit: vi.fn(),
+}));
 
-vi.mock('@octokit/auth-app', () => {
-  return {
-    createAppAuth: vi.fn(),
-  };
-});
+vi.mock('@octokit/auth-app', () => ({
+  createAppAuth: vi.fn(),
+}));
 
-const mockedOctokit = vi.mocked(Octokit);
+const mockedOctokit: ReturnType<typeof vi.mocked<typeof Octokit>> = vi.mocked(Octokit);
 
-function setupTest() {
+function setupTest(): {
+  client: ReturnType<typeof createGitHubClient>;
+  mockOctokit: Record<string, Record<string, ReturnType<typeof vi.fn>>>;
+  config: GitHubClientConfig;
+} {
   const mockOctokit = {
     issues: {
       get: vi.fn(),
@@ -49,9 +49,10 @@ function setupTest() {
   });
 
   const config: GitHubClientConfig = {
-    appID: 12345,
+    appID: 12_345,
+    // biome-ignore lint/security/noSecrets: test fixture with fake credential format
     privateKey: '-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----',
-    installationID: 67890,
+    installationID: 67_890,
   };
 
   const client = createGitHubClient(config);
@@ -165,8 +166,8 @@ test('it delegates issue listing and returns the narrowed result', async () => {
 
   expect(mockOctokit.issues.listForRepo).toHaveBeenCalledWith(params);
   expect(result.data).toHaveLength(2);
-  expect(result.data[0]!.number).toBe(1);
-  expect(result.data[1]!.body).toBeNull();
+  expect(result.data[0]?.number).toBe(1);
+  expect(result.data[1]?.body).toBeNull();
 });
 
 test('it delegates adding labels and returns the result', async () => {
@@ -212,9 +213,9 @@ test('it delegates pull request listing and returns the narrowed result', async 
 
   expect(mockOctokit.pulls.list).toHaveBeenCalledWith(params);
   expect(result.data).toHaveLength(2);
-  expect(result.data[0]!.number).toBe(10);
-  expect(result.data[0]!.body).toBe('Closes #1');
-  expect(result.data[1]!.body).toBeNull();
+  expect(result.data[0]?.number).toBe(10);
+  expect(result.data[0]?.body).toBe('Closes #1');
+  expect(result.data[1]?.body).toBeNull();
 });
 
 test('it delegates pull request retrieval and returns the narrowed result', async () => {
@@ -313,9 +314,9 @@ test('it delegates check runs listing and returns the narrowed result', async ()
   expect(mockOctokit.checks.listForRef).toHaveBeenCalledWith(params);
   expect(result.data.total_count).toBe(2);
   expect(result.data.check_runs).toHaveLength(2);
-  expect(result.data.check_runs[0]!.status).toBe('completed');
-  expect(result.data.check_runs[0]!.conclusion).toBe('success');
-  expect(result.data.check_runs[1]!.conclusion).toBeNull();
+  expect(result.data.check_runs[0]?.status).toBe('completed');
+  expect(result.data.check_runs[0]?.conclusion).toBe('success');
+  expect(result.data.check_runs[1]?.conclusion).toBeNull();
 });
 
 // ---------------------------------------------------------------------------
@@ -342,8 +343,8 @@ test('it delegates tree retrieval and returns the narrowed result', async () => 
   expect(mockOctokit.git.getTree).toHaveBeenCalledWith(params);
   expect(result.data.sha).toBe('tree-sha-1');
   expect(result.data.tree).toHaveLength(2);
-  expect(result.data.tree[0]!.path).toBe('docs/spec.md');
-  expect(result.data.tree[1]!.type).toBe('tree');
+  expect(result.data.tree[0]?.path).toBe('docs/spec.md');
+  expect(result.data.tree[1]?.type).toBe('tree');
 });
 
 test('it delegates ref retrieval and returns the narrowed result', async () => {

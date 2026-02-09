@@ -1,9 +1,12 @@
 import { expect, test, vi } from 'vitest';
-import type { EngineCommand } from '../../types';
-import { createCommandDispatcher } from './create-command-dispatcher';
-import type { CommandHandlers } from './types';
+import type { EngineCommand } from '../../types.ts';
+import { createCommandDispatcher } from './create-command-dispatcher.ts';
+import type { CommandHandlers } from './types.ts';
 
-function setupTest() {
+function setupTest(): {
+  handlers: CommandHandlers;
+  dispatcher: ReturnType<typeof createCommandDispatcher>;
+} {
   const handlers: CommandHandlers = {
     dispatchImplementor: vi.fn(),
     dispatchReviewer: vi.fn(),

@@ -1,21 +1,23 @@
 import { resolve } from 'node:path';
-import { buildResolvedConfig } from './build-resolved-config';
-import type { ResolvedEngineConfig } from './types';
-import { validateConfig } from './validate-config';
+import process from 'node:process';
+import { buildResolvedConfig } from './build-resolved-config.ts';
+import type { ResolvedEngineConfig } from './types.ts';
+import { validateConfig } from './validate-config.ts';
 
 export type LogError = (message: string) => void;
 
-export type LoadConfigOptions = {
+export interface LoadConfigOptions {
   configPath?: string;
   logError?: LogError;
-};
+}
 
 export async function loadConfig(options?: LoadConfigOptions): Promise<ResolvedEngineConfig> {
   const configPath = resolve(options?.configPath ?? 'agentic-workflow.config.ts');
-  const logError = options?.logError ?? console.error;
+  // biome-ignore lint/suspicious/noConsole: fallback logger when none is injected
+  const logError = options?.logError ?? ((msg: string): void => console.error(msg));
   const rawModule = await importConfigFile(configPath, logError);
 
-  if (!isRecord(rawModule) || !('default' in rawModule)) {
+  if (!(isRecord(rawModule) && 'default' in rawModule)) {
     throw new Error(`Config file must have a default export: ${configPath}`);
   }
 

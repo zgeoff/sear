@@ -1,11 +1,11 @@
 import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { expect, test } from 'vitest';
-import type { ListProps } from './list';
-import { List } from './list';
-import type { ListItemProps } from './list-item';
-import { ListItem } from './list-item';
-import type { ListItemData } from './types';
+import type { ListProps } from './list.tsx';
+import { List } from './list.tsx';
+import type { ListItemProps } from './list-item.tsx';
+import { ListItem } from './list-item.tsx';
+import type { ListItemData } from './types.ts';
 
 function buildItems(count: number): ListItemData[] {
   return Array.from({ length: count }, (_, i) => ({
@@ -14,7 +14,10 @@ function buildItems(count: number): ListItemData[] {
   }));
 }
 
-function setupListTest(overrides?: Partial<ListProps>) {
+function setupListTest(overrides?: Partial<ListProps>): {
+  instance: ReturnType<typeof render>;
+  props: ListProps;
+} {
   const props: ListProps = {
     label: 'Issues',
     items: buildItems(3),
@@ -23,9 +26,13 @@ function setupListTest(overrides?: Partial<ListProps>) {
     paneWidth: 40,
     paneHeight: 10,
     viewportOffset: 0,
-    onViewportOffsetChange: () => {},
+    onViewportOffsetChange: () => {
+      /* noop stub */
+    },
     mouseScrolled: false,
-    onMouseScrolledChange: () => {},
+    onMouseScrolledChange: () => {
+      /* noop stub */
+    },
     ...overrides,
   };
 
@@ -38,7 +45,10 @@ function setupListTest(overrides?: Partial<ListProps>) {
   return { instance, props };
 }
 
-function setupListItemTest(overrides?: Partial<ListItemProps>) {
+function setupListItemTest(overrides?: Partial<ListItemProps>): {
+  instance: ReturnType<typeof render>;
+  props: ListItemProps;
+} {
   const props: ListItemProps = {
     content: 'Test item content',
     selected: false,

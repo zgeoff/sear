@@ -1,11 +1,11 @@
-import type { EngineConfig } from '../../types';
+import type { EngineConfig } from '../../types.ts';
 
-const VALID_LOG_LEVELS = new Set(['debug', 'info', 'error']);
+const VALID_LOG_LEVELS: Set<string> = new Set(['debug', 'info', 'error']);
 
-type RequiredField = {
+interface RequiredField {
   key: string;
   label: string;
-};
+}
 
 const REQUIRED_FIELDS: RequiredField[] = [
   { key: 'repository', label: 'repository' },
@@ -25,12 +25,13 @@ export function validateConfig(config: unknown): asserts config is EngineConfig 
     }
   }
 
-  if (config.logLevel !== undefined) {
-    if (typeof config.logLevel !== 'string' || !VALID_LOG_LEVELS.has(config.logLevel)) {
-      throw new Error(
-        `Invalid logLevel: '${String(config.logLevel)}'. Must be one of: debug, info, error`,
-      );
-    }
+  if (
+    config.logLevel !== undefined &&
+    (typeof config.logLevel !== 'string' || !VALID_LOG_LEVELS.has(config.logLevel))
+  ) {
+    throw new Error(
+      `Invalid logLevel: '${String(config.logLevel)}'. Must be one of: debug, info, error`,
+    );
   }
 }
 

@@ -1,9 +1,10 @@
 import { match } from 'ts-pattern';
-import type { CommandDispatcher, CommandHandlers } from './types';
+import type { EngineCommand } from '../../types.ts';
+import type { CommandDispatcher, CommandHandlers } from './types.ts';
 
 export function createCommandDispatcher(handlers: CommandHandlers): CommandDispatcher {
   return {
-    dispatch(command) {
+    dispatch(command: EngineCommand): void {
       match(command)
         .with({ command: 'dispatchImplementor' }, (c) => handlers.dispatchImplementor(c))
         .with({ command: 'dispatchReviewer' }, (c) => handlers.dispatchReviewer(c))
