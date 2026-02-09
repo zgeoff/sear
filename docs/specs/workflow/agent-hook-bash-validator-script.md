@@ -11,7 +11,7 @@ status: approved
 
 Shell script implementation of the Bash Validator hook. This script is consumed by workflow agents via their agent definition frontmatter for interactive use (agents launched by a human outside the control plane). The validation rules (blocklist patterns, allowlist prefixes, command segmentation, evaluation order) are defined in `agent-hook-bash-validator.md` — this spec covers only the shell-specific implementation details.
 
-For control plane agent sessions, the engine provides a TypeScript implementation of the same rules via the SDK's `hooks` option. See `control-plane-engine.md` § Programmatic Hooks.
+For control plane agent sessions, the engine provides a TypeScript implementation of the same rules via the SDK's `hooks` option. See `control-plane-engine-agent-manager.md` § Programmatic Hooks.
 
 ## Constraints
 

@@ -183,5 +183,5 @@ The following are known limitations of the validation approach. All represent sa
 ## References
 
 - `agent-hook-bash-validator-script.md` — Shell script implementation (for interactive agent use)
-- `control-plane-engine.md` § Programmatic Hooks — TypeScript implementation (for control plane agent sessions)
+- `control-plane-engine-agent-manager.md` § Programmatic Hooks — TypeScript implementation (for control plane agent sessions)
 - Agent definitions: `.claude/agents/implementor.md`, `.claude/agents/planner.md`, `.claude/agents/reviewer.md`
