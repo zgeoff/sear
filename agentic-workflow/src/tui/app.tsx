@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { Engine, StartupResult } from '../types';
+import { ConfirmationPrompt } from './components/confirmation-prompt';
 import { DetailPane } from './components/detail-pane';
 import { IssueList } from './components/issue-list';
 import { handleNotificationsInput, NotificationsPane } from './components/notifications';
@@ -17,11 +18,12 @@ export type AppProps = {
 
 type PromptState = { type: 'none' } | { type: 'quit'; previousPane: FocusedPane };
 
-export function App({ engine, repository }: AppProps) {
-  const engineStore = useEngine({ engine, repository });
+export function App(props: AppProps) {
+  const engineStore = useEngine({ engine: props.engine, repository: props.repository });
   const [startupResult, setStartupResult] = useState<StartupResult | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
+  const [issueListPromptMessage, setIssueListPromptMessage] = useState<string | null>(null);
   const [selectedNotificationIndex, setSelectedNotificationIndex] = useState(0);
 
   const focusedPane = useStore(engineStore, (s) => s.focusedPane);
@@ -35,14 +37,29 @@ export function App({ engine, repository }: AppProps) {
   const { exit } = useApp();
   const { stdout } = useStdout();
 
+  const terminalWidth = stdout?.columns ?? 80;
+  const terminalHeight = stdout?.rows ?? 24;
+  const paneWidth = Math.floor(terminalWidth / 3);
+
+  const anyPromptActive = prompt.type !== 'none' || issueListPromptMessage !== null;
+  const activePromptMessage =
+    prompt.type === 'quit' ? buildQuitMessage(runningAgentCount) : issueListPromptMessage;
+
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
+
+  const issueListPromptMessageRef = useRef(issueListPromptMessage);
+  issueListPromptMessageRef.current = issueListPromptMessage;
 
   const focusedPaneRef = useRef(focusedPane);
   focusedPaneRef.current = focusedPane;
 
+  const handleIssueListPromptChange = useCallback((message: string | null) => {
+    setIssueListPromptMessage(message);
+  }, []);
+
   useEffect(() => {
-    engine
+    props.engine
       .start()
       .then((result) => {
         setStartupResult(result);
@@ -50,7 +67,7 @@ export function App({ engine, repository }: AppProps) {
       .catch((error) => {
         setStartupError(error instanceof Error ? error.message : String(error));
       });
-  }, [engine]);
+  }, [props.engine]);
 
   useEffect(() => {
     if (!shuttingDown) return;
@@ -83,6 +100,8 @@ export function App({ engine, repository }: AppProps) {
       return;
     }
 
+    if (issueListPromptMessageRef.current !== null) return;
+
     if (key.tab && key.shift) {
       cycleFocus('backward');
       return;
@@ -99,7 +118,7 @@ export function App({ engine, repository }: AppProps) {
 
   useInput(
     (input, key) => {
-      if (promptRef.current.type !== 'none') return;
+      if (promptRef.current.type !== 'none' || issueListPromptMessageRef.current !== null) return;
       handleNotificationsInput(
         input,
         key,
@@ -115,7 +134,13 @@ export function App({ engine, repository }: AppProps) {
 
   if (startupError) {
     return (
-      <Box flexDirection="column">
+      <Box
+        width={terminalWidth}
+        height={terminalHeight}
+        alignItems="center"
+        justifyContent="center"
+        flexDirection="column"
+      >
         <Text color="red">Startup failed: {startupError}</Text>
         <Text dimColor>Press any key to exit.</Text>
       </Box>
@@ -124,7 +149,12 @@ export function App({ engine, repository }: AppProps) {
 
   if (shuttingDown) {
     return (
-      <Box flexDirection="column">
+      <Box
+        width={terminalWidth}
+        height={terminalHeight}
+        alignItems="center"
+        justifyContent="center"
+      >
         <Text>Shutting down... waiting for {runningAgentCount} agent(s)</Text>
       </Box>
     );
@@ -132,70 +162,51 @@ export function App({ engine, repository }: AppProps) {
 
   if (!startupResult) {
     return (
-      <Box flexDirection="column">
+      <Box
+        width={terminalWidth}
+        height={terminalHeight}
+        alignItems="center"
+        justifyContent="center"
+      >
         <Text>Starting engine...</Text>
       </Box>
     );
   }
 
   const startupNotification = buildStartupNotification(startupResult);
-  const issueListHeight = (stdout?.rows ?? 24) - 4;
 
   return (
-    <Box flexDirection="column" width="100%">
-      {prompt.type === 'quit' && (
-        <Box>
-          <Text>
-            {runningAgentCount > 0
-              ? `Quit? ${runningAgentCount} agent(s) running. [y/n]`
-              : 'Quit? [y/n]'}
-          </Text>
-        </Box>
-      )}
-      <Box flexDirection="row" width="100%">
-        <Box
-          flexGrow={1}
-          flexBasis={0}
-          borderStyle="single"
-          borderColor={focusedPane === 'notifications' ? 'blue' : undefined}
-          flexDirection="column"
-        >
-          <Text bold>Notifications</Text>
-          {startupNotification && <Text>{startupNotification}</Text>}
-          <NotificationsPane
-            notifications={notifications}
-            focused={focusedPane === 'notifications'}
-            selectedIndex={selectedNotificationIndex}
-            repository={storeRepository}
-          />
-        </Box>
-        <Box
-          flexGrow={1}
-          flexBasis={0}
-          borderStyle="single"
-          borderColor={focusedPane === 'issueList' ? 'blue' : undefined}
-          flexDirection="column"
-        >
-          <Text bold>Issue List</Text>
-          <IssueList
-            store={engineStore}
-            focused={focusedPane === 'issueList'}
-            onOpenURL={openURL}
-            repository={repository}
-            height={issueListHeight}
-          />
-        </Box>
-        <Box
-          flexGrow={1}
-          flexBasis={0}
-          borderStyle="single"
-          borderColor={focusedPane === 'detailPane' ? 'blue' : undefined}
-          flexDirection="column"
-        >
-          <Text bold>Detail Pane</Text>
-          <DetailPane store={engineStore} />
-        </Box>
+    <Box width={terminalWidth} height={terminalHeight} flexDirection="row">
+      <Box width={paneWidth} height={terminalHeight} flexDirection="column">
+        <NotificationsPane
+          notifications={notifications}
+          focused={focusedPane === 'notifications'}
+          selectedIndex={selectedNotificationIndex}
+          repository={storeRepository}
+        />
+        {startupNotification && <Text>{startupNotification}</Text>}
       </Box>
+      <Box width={paneWidth} height={terminalHeight} flexDirection="column">
+        <IssueList
+          store={engineStore}
+          focused={focusedPane === 'issueList'}
+          onOpenURL={openURL}
+          repository={props.repository}
+          height={terminalHeight}
+          promptActive={prompt.type !== 'none'}
+          onPromptChange={handleIssueListPromptChange}
+        />
+      </Box>
+      <Box width={paneWidth} height={terminalHeight} flexDirection="column">
+        <DetailPane store={engineStore} />
+      </Box>
+      {anyPromptActive && activePromptMessage && (
+        <ConfirmationPrompt
+          message={activePromptMessage}
+          terminalWidth={terminalWidth}
+          terminalHeight={terminalHeight}
+        />
+      )}
     </Box>
   );
 }
@@ -206,6 +217,13 @@ function buildStartupNotification(result: StartupResult): string {
     parts.push(`${result.recoveriesPerformed} recoveries performed`);
   }
   return parts.join(', ');
+}
+
+function buildQuitMessage(runningAgentCount: number): string {
+  if (runningAgentCount > 0) {
+    return `Quit? ${runningAgentCount} agent(s) running.`;
+  }
+  return 'Quit?';
 }
 
 function openURL(url: string) {

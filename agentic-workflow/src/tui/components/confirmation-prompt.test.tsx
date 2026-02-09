@@ -1,15 +1,35 @@
+import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { expect, test } from 'vitest';
 import { ConfirmationPrompt } from './confirmation-prompt';
 
-test('it renders the confirmation message', () => {
-  const { lastFrame } = render(<ConfirmationPrompt message="Dispatch Implementor for #5? [y/n]" />);
+function renderPrompt(message: string) {
+  return render(
+    <Box width={80} height={24}>
+      <ConfirmationPrompt message={message} terminalWidth={80} terminalHeight={24} />
+    </Box>,
+  );
+}
 
-  expect(lastFrame()).toContain('Dispatch Implementor for #5? [y/n]');
+test('it renders the confirmation message text', () => {
+  const { lastFrame } = renderPrompt('Dispatch Implementor for #5?');
+
+  expect(lastFrame()).toContain('Dispatch Implementor for #5?');
 });
 
-test('it renders a different confirmation message', () => {
-  const { lastFrame } = render(<ConfirmationPrompt message="Cancel agent for #3? [y/n]" />);
+test('it renders the y/n response hint', () => {
+  const { lastFrame } = renderPrompt('Cancel agent for #3?');
 
-  expect(lastFrame()).toContain('Cancel agent for #3? [y/n]');
+  expect(lastFrame()).toContain('[y/n]');
+});
+
+test('it renders a bordered overlay', () => {
+  const { lastFrame } = renderPrompt('Quit?');
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('Quit?');
+  expect(frame).toContain('[y/n]');
+  // Ink border characters should be present
+  expect(frame).toContain('─');
+  expect(frame).toContain('│');
 });

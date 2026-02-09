@@ -1,10 +1,11 @@
 import { Box, Text, useInput } from 'ink';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
 import type { CachedPRDetails, EngineStore, TrackedIssue } from '../types';
-import { ConfirmationPrompt } from './confirmation-prompt';
+
+export type IssueListPromptChangeHandler = (message: string | null) => void;
 
 export type IssueListProps = {
   store: StoreApi<EngineStore>;
@@ -12,6 +13,8 @@ export type IssueListProps = {
   onOpenURL: (url: string) => void;
   repository: string;
   height: number;
+  promptActive: boolean;
+  onPromptChange: IssueListPromptChangeHandler;
 };
 
 type PromptState =
@@ -38,6 +41,12 @@ export function IssueList(props: IssueListProps) {
 
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
+
+  const onPromptChange = props.onPromptChange;
+  useEffect(() => {
+    const message = prompt.type !== 'none' ? buildPromptMessage(prompt) : null;
+    onPromptChange(message);
+  }, [prompt, onPromptChange]);
 
   const sortedIssues = sortIssues(issues);
 
@@ -82,7 +91,7 @@ export function IssueList(props: IssueListProps) {
         return;
       }
 
-      if (key.return) {
+      if (key.return && !props.promptActive) {
         const selected = sortedIssues.find((i) => i.number === selectedIssue);
         if (!selected) return;
         handleEnter(selected);
@@ -144,7 +153,6 @@ export function IssueList(props: IssueListProps) {
 
   return (
     <Box flexDirection="column">
-      {prompt.type !== 'none' && <ConfirmationPrompt message={buildPromptMessage(prompt)} />}
       {visibleIssues.map((issue) => (
         <Text key={issue.number}>
           {issue.number === selectedIssue ? '> ' : '  '}
@@ -240,11 +248,11 @@ function getEnterAction(
 
 function buildPromptMessage(prompt: PromptState): string {
   return match(prompt)
-    .with({ type: 'dispatch' }, (p) => `Dispatch Implementor for #${p.issueNumber}? [y/n]`)
-    .with({ type: 'cancel' }, (p) => `Cancel agent for #${p.issueNumber}? [y/n]`)
+    .with({ type: 'dispatch' }, (p) => `Dispatch Implementor for #${p.issueNumber}?`)
+    .with({ type: 'cancel' }, (p) => `Cancel agent for #${p.issueNumber}?`)
     .with({ type: 'retry' }, (p) => {
       const label = p.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-      return `Retry ${label} for #${p.issueNumber}? [y/n]`;
+      return `Retry ${label} for #${p.issueNumber}?`;
     })
     .with({ type: 'none' }, () => '')
     .exhaustive();
