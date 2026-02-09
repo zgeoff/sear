@@ -1,7 +1,7 @@
 ---
 title: Agentic Workflow Control Plane
-version: 0.1.0
-last_updated: 2026-02-08
+version: 0.2.0
+last_updated: 2026-02-09
 status: approved
 ---
 
@@ -41,7 +41,7 @@ The engine exposes four interfaces:
 1. **Event emitter** — The engine emits typed events when state changes occur (issue status changed, agent started, agent completed, change detected, etc.). The TUI subscribes to these events for reactive state updates.
 2. **Command interface** — The engine accepts commands (dispatch implementor for issue N, cancel agent for issue N, shutdown, etc.). The TUI invokes these in response to user input.
 3. **Query interface** — The engine provides on-demand data fetching (issue details, PR summaries). The TUI calls these when the user selects an issue that needs additional data not tracked by pollers.
-4. **Stream accessor** — The engine exposes live agent output streams. The TUI subscribes to these directly for streaming agent output in the detail pane, separate from the event emitter.
+4. **Stream accessor** — The engine exposes live agent output streams, keyed by issue number. Planner sessions are not exposed through this interface (the Planner operates on specs, not task issues; its activity is visible only through notification events). The TUI subscribes to these directly for streaming agent output in the detail pane, separate from the event emitter.
 
 The TUI bridges these interfaces to React via a Zustand store initialized by a `useEngine()` hook:
 
@@ -102,7 +102,9 @@ The Planner receives all changed spec paths from the poll cycle in a single invo
 The engine performs status recovery in two cases:
 
 1. **Startup recovery** — On initialization, any issue with `status:in-progress` and no running agent is reset to `status:pending`.
-2. **Agent failure recovery** — If an agent session completes (success or failure) and the issue is still `status:in-progress`, the engine resets it to `status:pending`.
+2. **Crash recovery** — If an agent session completes (success or failure) and the issue is still `status:in-progress`, the engine resets it to `status:pending`.
+
+Reviewers do not change issue status to `in-progress`, so crash recovery does not apply to Reviewer failures. A failed Reviewer leaves the issue in `status:review` — the user can retry via the TUI.
 
 Recovery is the only case where the engine writes to GitHub Issues. All other GitHub writes are performed by the agents themselves.
 
