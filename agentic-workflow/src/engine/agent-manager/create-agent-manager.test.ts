@@ -4,17 +4,13 @@ import type { AgentCompletedEvent, AgentFailedEvent, EngineEvent } from '../../t
 import { createEventEmitter } from '../event-emitter/create-event-emitter';
 import type { WorktreeManager } from '../worktree-manager/types';
 import { createAgentManager } from './create-agent-manager';
-import type { AgentManager, QueryFactory, QueryFactoryParams } from './types';
+import type { AgentManager, AgentQuery, QueryFactoryParams } from './types';
 
-type MockQuery = {
-  pushMessage(msg: unknown): void;
-  end(): void;
-  interrupt: ReturnType<typeof vi.fn>;
-  next(): Promise<IteratorResult<unknown>>;
-  return(): Promise<IteratorResult<unknown>>;
-  throw(): Promise<IteratorResult<unknown>>;
-  [Symbol.asyncIterator](): MockQuery;
-};
+type MockQuery = AgentQuery &
+  AsyncIterator<unknown> & {
+    pushMessage(msg: unknown): void;
+    end(): void;
+  };
 
 function createMockQuery(): MockQuery {
   const pendingReads: Array<{
@@ -119,15 +115,11 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
 
   emitter.on((event) => events.push(event));
 
-  // MockQuery implements the subset of Query that the agent manager uses
-  // (async iteration + interrupt). The full Query interface includes SDK control
-  // methods (setModel, supportedCommands, etc.) that are never called by the
-  // agent manager, so a type assertion is necessary here.
-  const queryFactory: QueryFactory = async (params) => {
+  const queryFactory = async (params: QueryFactoryParams) => {
     queryParams.push(params);
     const mockQuery = createMockQuery();
     mockQueries.push(mockQuery);
-    return mockQuery as unknown as Awaited<ReturnType<QueryFactory>>;
+    return mockQuery;
   };
 
   const manager = createAgentManager({

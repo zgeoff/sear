@@ -1,5 +1,4 @@
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { match, P } from 'ts-pattern';
 import type {
   AgentCompletedEvent,
@@ -217,9 +216,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     await finishSession(tracker, sessionSucceeded, errorMessage, onCleanup);
   }
 
-  async function processMessage(tracker: AgentSessionTracker, message: SDKMessage): Promise<void> {
+  async function processMessage(tracker: AgentSessionTracker, message: unknown): Promise<void> {
     await match(message)
-      .with({ type: 'system', subtype: 'init' }, async (msg) => {
+      .with({ type: 'system', subtype: 'init', session_id: P.string }, async (msg) => {
         tracker.sessionID = msg.session_id;
 
         if (loggingEnabled) {
@@ -228,7 +227,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
         emitter.emit(buildStartedEvent(tracker));
       })
-      .with({ type: 'assistant' }, async (msg) => {
+      .with({ type: 'assistant', message: { content: P.any } }, async (msg) => {
         const text = extractTextFromAssistantMessage(msg.message);
         if (text) {
           tracker.outputChunks.push(text);

@@ -28,9 +28,14 @@ export function buildQueryFactory(config: QueryFactoryConfig): QueryFactory {
   };
 }
 
-const VALID_MODELS = new Set(['sonnet', 'opus', 'haiku', 'inherit']);
-
 type AgentModel = 'sonnet' | 'opus' | 'haiku' | 'inherit';
+
+const VALID_MODELS: Record<string, AgentModel> = {
+  sonnet: 'sonnet',
+  opus: 'opus',
+  haiku: 'haiku',
+  inherit: 'inherit',
+};
 
 async function loadAgentDefinition(repoRoot: string, agentName: string): Promise<AgentDefinition> {
   const filePath = join(repoRoot, '.claude', 'agents', `${agentName}.md`);
@@ -57,9 +62,7 @@ async function loadAgentDefinition(repoRoot: string, agentName: string): Promise
 
 function parseModel(raw: unknown): AgentModel {
   if (raw == null) return 'inherit';
-  const value = String(raw);
-  if (VALID_MODELS.has(value)) return value as AgentModel;
-  return 'inherit';
+  return VALID_MODELS[String(raw)] ?? 'inherit';
 }
 
 function parseTools(raw: unknown): string[] | undefined {

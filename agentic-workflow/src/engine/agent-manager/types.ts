@@ -1,4 +1,4 @@
-import type { HookCallback, Query } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentStream, AgentType } from '../../types';
 import type { EventEmitter } from '../event-emitter/types';
 import type { WorktreeManager } from '../worktree-manager/types';
@@ -8,10 +8,14 @@ export type QueryFactoryConfig = {
   bashValidatorHook: HookCallback;
 };
 
+export type AgentQuery = AsyncIterable<unknown> & {
+  interrupt(): Promise<void>;
+};
+
 export type AgentSessionTracker = {
   agentType: AgentType;
   sessionID: string;
-  query: Query;
+  query: AgentQuery;
   abortController: AbortController;
   timer: ReturnType<typeof setTimeout>;
   worktreePath?: string;
@@ -24,7 +28,7 @@ export type AgentSessionTracker = {
 
 export type OutputListener = (chunk: string) => void;
 
-export type QueryFactory = (params: QueryFactoryParams) => Promise<Query>;
+export type QueryFactory = (params: QueryFactoryParams) => Promise<AgentQuery>;
 
 export type QueryFactoryParams = {
   prompt: string;
