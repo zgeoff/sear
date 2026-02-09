@@ -9,6 +9,10 @@ const config: EngineConfig = {
   githubAppPrivateKeyPath: './private-key.pem',
   githubAppInstallationID: 108185071,
 
+  logging: {
+    agentSessions: true,
+  },
+
   // Optional: Logging verbosity (default: 'info')
   // logLevel: 'debug',
 
@@ -28,12 +32,12 @@ const config: EngineConfig = {
   // },
 
   // Optional: Agent settings
-  // agents: {
-  //   agentPlanner: 'planner',
-  //   agentImplementor: 'implementor',
-  //   agentReviewer: 'reviewer',
-  //   maxAgentDuration: 1800, // seconds before agent is cancelled
-  // },
+  agents: {
+    agentPlanner: 'planner',
+    agentImplementor: 'implementor',
+    agentReviewer: 'reviewer',
+    maxAgentDuration: 1800, // seconds before agent is cancelled
+  },
 };
 
 export default config;
