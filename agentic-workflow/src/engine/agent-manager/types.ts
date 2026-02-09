@@ -1,12 +1,21 @@
-import type { Query } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import type { AgentStream, AgentType } from '../../types';
 import type { EventEmitter } from '../event-emitter/types';
 import type { WorktreeManager } from '../worktree-manager/types';
 
+export type QueryFactoryConfig = {
+  repoRoot: string;
+  bashValidatorHook: HookCallback;
+};
+
+export type AgentQuery = AsyncIterable<unknown> & {
+  interrupt(): Promise<void>;
+};
+
 export type AgentSessionTracker = {
   agentType: AgentType;
   sessionID: string;
-  query: Query;
+  query: AgentQuery;
   abortController: AbortController;
   timer: ReturnType<typeof setTimeout>;
   worktreePath?: string;
@@ -19,7 +28,7 @@ export type AgentSessionTracker = {
 
 export type OutputListener = (chunk: string) => void;
 
-export type QueryFactory = (params: QueryFactoryParams) => Query;
+export type QueryFactory = (params: QueryFactoryParams) => Promise<AgentQuery>;
 
 export type QueryFactoryParams = {
   prompt: string;
@@ -58,8 +67,8 @@ export type DispatchPlannerParams = {
 
 export type AgentManager = {
   dispatchImplementor(params: DispatchImplementorParams): Promise<void>;
-  dispatchReviewer(params: DispatchReviewerParams): void;
-  dispatchPlanner(params: DispatchPlannerParams): void;
+  dispatchReviewer(params: DispatchReviewerParams): Promise<void>;
+  dispatchPlanner(params: DispatchPlannerParams): Promise<void>;
   cancelAgent(issueNumber: number): void;
   cancelPlanner(): void;
   getAgentStream(issueNumber: number): AgentStream;

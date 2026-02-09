@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { Engine, EngineConfig, EngineEvent } from '../types';
+import { createBashValidatorHook } from './agent-manager/bash-validator/create-bash-validator-hook';
 import { buildQueryFactory } from './agent-manager/build-query-factory';
 import { createAgentManager } from './agent-manager/create-agent-manager';
 import type { AgentManager, QueryFactory } from './agent-manager/types';
@@ -73,7 +74,9 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     agentImplementor: resolved.agents.agentImplementor,
     agentReviewer: resolved.agents.agentReviewer,
     maxAgentDuration: resolved.agents.maxAgentDuration,
-    queryFactory: deps?.queryFactory ?? buildQueryFactory(),
+    queryFactory:
+      deps?.queryFactory ??
+      buildQueryFactory({ repoRoot, bashValidatorHook: createBashValidatorHook() }),
     loggingEnabled: resolved.logging.agentSessions,
     logsDir: resolved.logging.logsDir,
     logError: (message, error) => logger.error(message, { error: String(error) }),
@@ -101,7 +104,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       handleDispatchImplementor(command.issueNumber, issuePoller, agentManager, logger);
     },
     dispatchReviewer(command) {
-      handleDispatchReviewer(command.issueNumber, issuePoller, agentManager);
+      handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
     },
     cancelAgent(command) {
       agentManager.cancelAgent(command.issueNumber);
@@ -276,13 +279,19 @@ function handleDispatchReviewer(
   issueNumber: number,
   issuePoller: IssuePoller,
   agentManager: AgentManager,
+  logger: Logger,
 ): void {
   const issue = issuePoller.getSnapshot().get(issueNumber);
 
   if (!issue) return;
   if (issue.statusLabel !== 'review') return;
 
-  agentManager.dispatchReviewer({ issueNumber });
+  agentManager.dispatchReviewer({ issueNumber }).catch((error) => {
+    logger.error('Failed to dispatch reviewer', {
+      issueNumber,
+      error: String(error),
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

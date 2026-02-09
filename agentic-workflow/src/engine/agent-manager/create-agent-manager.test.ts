@@ -4,17 +4,13 @@ import type { AgentCompletedEvent, AgentFailedEvent, EngineEvent } from '../../t
 import { createEventEmitter } from '../event-emitter/create-event-emitter';
 import type { WorktreeManager } from '../worktree-manager/types';
 import { createAgentManager } from './create-agent-manager';
-import type { AgentManager, QueryFactory, QueryFactoryParams } from './types';
+import type { AgentManager, AgentQuery, QueryFactoryParams } from './types';
 
-type MockQuery = {
-  pushMessage(msg: unknown): void;
-  end(): void;
-  interrupt: ReturnType<typeof vi.fn>;
-  next(): Promise<IteratorResult<unknown>>;
-  return(): Promise<IteratorResult<unknown>>;
-  throw(): Promise<IteratorResult<unknown>>;
-  [Symbol.asyncIterator](): MockQuery;
-};
+type MockQuery = AgentQuery &
+  AsyncIterator<unknown> & {
+    pushMessage(msg: unknown): void;
+    end(): void;
+  };
 
 function createMockQuery(): MockQuery {
   const pendingReads: Array<{
@@ -26,8 +22,10 @@ function createMockQuery(): MockQuery {
   const mockQuery: MockQuery = {
     pushMessage(msg: unknown) {
       if (pendingReads.length > 0) {
-        const pending = pendingReads.shift()!;
-        pending.resolve({ value: msg, done: false });
+        const pending = pendingReads.shift();
+        if (pending) {
+          pending.resolve({ value: msg, done: false });
+        }
         return;
       }
       bufferedMessages.push(msg);
@@ -45,7 +43,7 @@ function createMockQuery(): MockQuery {
 
     next() {
       if (bufferedMessages.length > 0) {
-        const msg = bufferedMessages.shift()!;
+        const msg = bufferedMessages.shift();
         return Promise.resolve({ value: msg, done: false });
       }
       if (ended) {
@@ -117,11 +115,11 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
 
   emitter.on((event) => events.push(event));
 
-  const queryFactory: QueryFactory = (params) => {
+  const queryFactory = async (params: QueryFactoryParams) => {
     queryParams.push(params);
     const mockQuery = createMockQuery();
     mockQueries.push(mockQuery);
-    return mockQuery as unknown as ReturnType<QueryFactory>;
+    return mockQuery;
   };
 
   const manager = createAgentManager({
@@ -334,10 +332,10 @@ test('it emits agentFailed with worktree path and preserves worktree when an imp
 // Reviewer dispatch
 // ---------------------------------------------------------------------------
 
-test('it sets the working directory to the repo root for reviewers', () => {
+test('it sets the working directory to the repo root for reviewers', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
 
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '10',
@@ -353,7 +351,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
@@ -364,10 +362,10 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
   });
 });
 
-test('it passes the issue number as the initial prompt for reviewers', () => {
+test('it passes the issue number as the initial prompt for reviewers', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 7 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 7 });
 
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '7',
@@ -377,7 +375,7 @@ test('it passes the issue number as the initial prompt for reviewers', () => {
 test('it emits agentCompleted and does not remove worktree for reviewer sessions', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-r'));
   await drain();
 
@@ -399,10 +397,10 @@ test('it emits agentCompleted and does not remove worktree for reviewer sessions
 // Planner dispatch
 // ---------------------------------------------------------------------------
 
-test('it sets the working directory to the repo root for planners', () => {
+test('it sets the working directory to the repo root for planners', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
 
   expect(ctx.queryParams[0]).toMatchObject({
     agent: 'planner',
@@ -410,10 +408,10 @@ test('it sets the working directory to the repo root for planners', () => {
   });
 });
 
-test('it passes spec paths space-separated as the initial prompt for planners', () => {
+test('it passes spec paths space-separated as the initial prompt for planners', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md', 'docs/specs/b.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md', 'docs/specs/b.md'] });
 
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: 'docs/specs/a.md docs/specs/b.md',
@@ -423,11 +421,11 @@ test('it passes spec paths space-separated as the initial prompt for planners', 
 test('it emits agentSkipped with deferred paths when a planner is already running', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
   await drain();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/b.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/b.md'] });
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
@@ -441,7 +439,7 @@ test('it emits agentSkipped with deferred paths when a planner is already runnin
 test('it emits agentCompleted for planner sessions', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
   await drain();
 
@@ -463,10 +461,10 @@ test('it emits agentCompleted for planner sessions', async () => {
 // Planner streams are not exposed
 // ---------------------------------------------------------------------------
 
-test('it returns null from getAgentStream for planner sessions since they have no issue number', () => {
+test('it returns null from getAgentStream for planner sessions since they have no issue number', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
 
   expect(ctx.manager.getAgentStream(0)).toBeNull();
 });
@@ -508,7 +506,7 @@ test('it is a no-op when cancelling an agent for an issue with no running sessio
 test('it cancels a running planner session and emits agentFailed', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
   await drain();
 
@@ -678,7 +676,7 @@ test('it tracks whether a planner is running', async () => {
 
   expect(ctx.manager.isPlannerRunning()).toBe(false);
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
 
   expect(ctx.manager.isPlannerRunning()).toBe(true);
 
@@ -699,11 +697,11 @@ test('it returns all running session IDs', async () => {
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-impl'));
   await drain();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 2 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 2 });
   ctx.mockQueries[1]!.pushMessage(buildInitMessage('session-rev'));
   await drain();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
   ctx.mockQueries[2]!.pushMessage(buildInitMessage('session-plan'));
   await drain();
 
@@ -725,11 +723,11 @@ test('it cancels all running sessions when cancelAll is called', async () => {
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 2 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 2 });
   ctx.mockQueries[1]!.pushMessage(buildInitMessage('session-2'));
   await drain();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
   ctx.mockQueries[2]!.pushMessage(buildInitMessage('session-3'));
   await drain();
 
@@ -771,7 +769,7 @@ test('it includes the session ID in the agentFailed event for implementor failur
 test('it does not include worktreePath in agentFailed events for reviewers', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-r'));
   await drain();
 
@@ -786,7 +784,7 @@ test('it does not include worktreePath in agentFailed events for reviewers', asy
 test('it does not include worktreePath in agentFailed events for planners', async () => {
   const ctx = setupTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
   await drain();
 
@@ -809,7 +807,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-impl'));
   await drain();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 5 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 5 });
 
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
   expect(skipped).toEqual({
@@ -944,7 +942,7 @@ test('it creates a log file with session header when logging is enabled and an i
 test('it names planner log files without a context suffix', async () => {
   const ctx = setupLoggingTest();
 
-  ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-p'));
   await drain();
 
@@ -1155,7 +1153,7 @@ test('it writes to independent log files when two agents run concurrently', asyn
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-a'));
   await drain();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 2 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 2 });
   ctx.mockQueries[1]!.pushMessage(buildInitMessage('session-b'));
   await drain();
 
@@ -1245,7 +1243,7 @@ test('it includes logFilePath pointing to the partial file when a write fails mi
 test('it names reviewer log files with the issue number as context', async () => {
   const ctx = setupLoggingTest();
 
-  ctx.manager.dispatchReviewer({ issueNumber: 7 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 7 });
   ctx.mockQueries[0]!.pushMessage(buildInitMessage('session-r'));
   await drain();
 

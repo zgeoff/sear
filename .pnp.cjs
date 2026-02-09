@@ -1830,6 +1830,7 @@ const RAW_RUNTIME_STATE =
           ["@sear/agentic-workflow", "workspace:agentic-workflow"],\
           ["@types/node", "npm:25.2.2"],\
           ["@types/react", "npm:19.2.13"],\
+          ["gray-matter", "npm:4.0.3"],\
           ["ink", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.2.0"],\
           ["ink-link", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:5.0.0"],\
           ["ink-testing-library", "virtual:713f1ee3414d4f6a23e533c374addce42aac0fed187707d5b998670e110dfb5531fc14b47f3e86f63705de8b0cd845065df15a9acd572562779469534c927069#npm:4.0.0"],\
@@ -2057,6 +2058,16 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/ansi-styles-npm-6.2.3-6fc7ca2bf5-23b8a4ce14.zip/node_modules/ansi-styles/",\
         "packageDependencies": [\
           ["ansi-styles", "npm:6.2.3"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["argparse", [\
+      ["npm:1.0.10", {\
+        "packageLocation": "./.yarn/cache/argparse-npm-1.0.10-528934e59d-b2972c5c23.zip/node_modules/argparse/",\
+        "packageDependencies": [\
+          ["argparse", "npm:1.0.10"],\
+          ["sprintf-js", "npm:1.0.3"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -2366,6 +2377,15 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["esprima", [\
+      ["npm:4.0.1", {\
+        "packageLocation": "./.yarn/cache/esprima-npm-4.0.1-1084e98778-ad4bab9ead.zip/node_modules/esprima/",\
+        "packageDependencies": [\
+          ["esprima", "npm:4.0.1"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["estree-walker", [\
       ["npm:3.0.3", {\
         "packageLocation": "./.yarn/cache/estree-walker-npm-3.0.3-0372979673-c12e3c2b26.zip/node_modules/estree-walker/",\
@@ -2390,6 +2410,16 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/exponential-backoff-npm-3.1.3-28be78d98e-77e3ae682b.zip/node_modules/exponential-backoff/",\
         "packageDependencies": [\
           ["exponential-backoff", "npm:3.1.3"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["extend-shallow", [\
+      ["npm:2.0.1", {\
+        "packageLocation": "./.yarn/cache/extend-shallow-npm-2.0.1-e6ef52b29c-ee1cb0a18c.zip/node_modules/extend-shallow/",\
+        "packageDependencies": [\
+          ["extend-shallow", "npm:2.0.1"],\
+          ["is-extendable", "npm:0.1.1"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -2510,6 +2540,19 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/graceful-fs-npm-4.2.11-24bb648a68-386d011a55.zip/node_modules/graceful-fs/",\
         "packageDependencies": [\
           ["graceful-fs", "npm:4.2.11"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["gray-matter", [\
+      ["npm:4.0.3", {\
+        "packageLocation": "./.yarn/cache/gray-matter-npm-4.0.3-852ae4f34c-e38489906d.zip/node_modules/gray-matter/",\
+        "packageDependencies": [\
+          ["gray-matter", "npm:4.0.3"],\
+          ["js-yaml", "npm:3.14.2"],\
+          ["kind-of", "npm:6.0.3"],\
+          ["section-matter", "npm:1.0.0"],\
+          ["strip-bom-string", "npm:1.0.0"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -2703,6 +2746,15 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["is-extendable", [\
+      ["npm:0.1.1", {\
+        "packageLocation": "./.yarn/cache/is-extendable-npm-0.1.1-322b4649ec-dd5ca3994a.zip/node_modules/is-extendable/",\
+        "packageDependencies": [\
+          ["is-extendable", "npm:0.1.1"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["is-fullwidth-code-point", [\
       ["npm:4.0.0", {\
         "packageLocation": "./.yarn/cache/is-fullwidth-code-point-npm-4.0.0-848488b60d-df2a717e81.zip/node_modules/is-fullwidth-code-point/",\
@@ -2743,6 +2795,26 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./.yarn/cache/js-tokens-npm-4.0.0-0ac852e9e2-e248708d37.zip/node_modules/js-tokens/",\
         "packageDependencies": [\
           ["js-tokens", "npm:4.0.0"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["js-yaml", [\
+      ["npm:3.14.2", {\
+        "packageLocation": "./.yarn/cache/js-yaml-npm-3.14.2-debd9d20c3-3261f25912.zip/node_modules/js-yaml/",\
+        "packageDependencies": [\
+          ["argparse", "npm:1.0.10"],\
+          ["esprima", "npm:4.0.1"],\
+          ["js-yaml", "npm:3.14.2"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["kind-of", [\
+      ["npm:6.0.3", {\
+        "packageLocation": "./.yarn/cache/kind-of-npm-6.0.3-ab15f36220-61cdff9623.zip/node_modules/kind-of/",\
+        "packageDependencies": [\
+          ["kind-of", "npm:6.0.3"]\
         ],\
         "linkType": "HARD"\
       }]\
@@ -3328,6 +3400,17 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["section-matter", [\
+      ["npm:1.0.0", {\
+        "packageLocation": "./.yarn/cache/section-matter-npm-1.0.0-2f79fd59d6-8007f91780.zip/node_modules/section-matter/",\
+        "packageDependencies": [\
+          ["extend-shallow", "npm:2.0.1"],\
+          ["kind-of", "npm:6.0.3"],\
+          ["section-matter", "npm:1.0.0"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["semver", [\
       ["npm:7.7.3", {\
         "packageLocation": "./.yarn/cache/semver-npm-7.7.3-9cf7b3b46c-4afe5c9865.zip/node_modules/semver/",\
@@ -3416,6 +3499,15 @@ const RAW_RUNTIME_STATE =
         "linkType": "HARD"\
       }]\
     ]],\
+    ["sprintf-js", [\
+      ["npm:1.0.3", {\
+        "packageLocation": "./.yarn/cache/sprintf-js-npm-1.0.3-73f0a322fa-ecadcfe4c7.zip/node_modules/sprintf-js/",\
+        "packageDependencies": [\
+          ["sprintf-js", "npm:1.0.3"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["ssri", [\
       ["npm:13.0.0", {\
         "packageLocation": "./.yarn/cache/ssri-npm-13.0.0-f5fa93375d-405f3a531c.zip/node_modules/ssri/",\
@@ -3472,6 +3564,15 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["ansi-regex", "npm:6.2.2"],\
           ["strip-ansi", "npm:7.1.2"]\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
+    ["strip-bom-string", [\
+      ["npm:1.0.0", {\
+        "packageLocation": "./.yarn/cache/strip-bom-string-npm-1.0.0-aa6cb548d1-5c5717e264.zip/node_modules/strip-bom-string/",\
+        "packageDependencies": [\
+          ["strip-bom-string", "npm:1.0.0"]\
         ],\
         "linkType": "HARD"\
       }]\
