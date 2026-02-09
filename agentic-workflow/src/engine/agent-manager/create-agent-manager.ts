@@ -1,5 +1,4 @@
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import { match, P } from 'ts-pattern';
 import type {
   AgentCompletedEvent,
@@ -47,7 +46,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
       const worktreeResult = await worktreeManager.createOrReuse(issueNumber);
 
-      const tracker = startSession({
+      const tracker = await startSession({
         agentType: 'implementor',
         prompt: String(issueNumber),
         cwd: worktreeResult.worktreePath,
@@ -63,7 +62,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    dispatchReviewer(params) {
+    async dispatchReviewer(params) {
       const { issueNumber } = params;
 
       if (issueAgents.has(issueNumber)) {
@@ -71,7 +70,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         return;
       }
 
-      const tracker = startSession({
+      const tracker = await startSession({
         agentType: 'reviewer',
         prompt: String(issueNumber),
         cwd: repoRoot,
@@ -86,7 +85,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    dispatchPlanner(params) {
+    async dispatchPlanner(params) {
       const { specPaths } = params;
 
       if (plannerSession) {
@@ -94,7 +93,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         return;
       }
 
-      const tracker = startSession({
+      const tracker = await startSession({
         agentType: 'planner',
         prompt: specPaths.join(' '),
         cwd: repoRoot,
@@ -158,10 +157,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     },
   };
 
-  function startSession(params: StartSessionParams): AgentSessionTracker {
+  async function startSession(params: StartSessionParams): Promise<AgentSessionTracker> {
     const abortController = new AbortController();
 
-    const queryHandle = queryFactory({
+    const queryHandle = await queryFactory({
       prompt: params.prompt,
       agent: params.agent,
       cwd: params.cwd,
@@ -217,9 +216,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     await finishSession(tracker, sessionSucceeded, errorMessage, onCleanup);
   }
 
-  async function processMessage(tracker: AgentSessionTracker, message: SDKMessage): Promise<void> {
+  async function processMessage(tracker: AgentSessionTracker, message: unknown): Promise<void> {
     await match(message)
-      .with({ type: 'system', subtype: 'init' }, async (msg) => {
+      .with({ type: 'system', subtype: 'init', session_id: P.string }, async (msg) => {
         tracker.sessionID = msg.session_id;
 
         if (loggingEnabled) {
@@ -228,7 +227,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
         emitter.emit(buildStartedEvent(tracker));
       })
-      .with({ type: 'assistant' }, async (msg) => {
+      .with({ type: 'assistant', message: { content: P.any } }, async (msg) => {
         const text = extractTextFromAssistantMessage(msg.message);
         if (text) {
           tracker.outputChunks.push(text);
