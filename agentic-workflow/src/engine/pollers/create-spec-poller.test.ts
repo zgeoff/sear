@@ -2,7 +2,7 @@ import { expect, test, vi } from 'vitest';
 import { createMockGitHubClient } from '../../test-utils/create-mock-github-client';
 import type { GitHubClient } from '../github-client/types';
 import { createSpecPoller } from './create-spec-poller';
-import type { LogError } from './types';
+import type { LogError, SpecPollerSnapshot } from './types';
 
 // ---------------------------------------------------------------------------
 // Mock GitHub client factory (builds on shared createMockGitHubClient)
@@ -88,6 +88,7 @@ type SetupOptions = {
   specsDir?: string;
   defaultBranch?: string;
   logError?: LogError;
+  initialSnapshot?: SpecPollerSnapshot;
 };
 
 function setupTest(options: SetupOptions = {}) {
@@ -100,6 +101,7 @@ function setupTest(options: SetupOptions = {}) {
     specsDir: options.specsDir ?? 'docs/specs/',
     defaultBranch: options.defaultBranch ?? 'main',
     logError,
+    ...(options.initialSnapshot ? { initialSnapshot: options.initialSnapshot } : {}),
   });
   return { octokit, poller };
 }
@@ -549,4 +551,188 @@ test('it ignores tree entries that are not blobs', async () => {
 
   expect(result.changes).toHaveLength(1);
   expect(result.changes[0]?.filePath).toBe('docs/specs/workflow/engine.md');
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — getSnapshot() returns empty snapshot initially
+// ---------------------------------------------------------------------------
+
+test('it returns an empty snapshot when no seed is provided and no polls have run', () => {
+  const { poller } = setupTest();
+  const snap = poller.getSnapshot();
+
+  expect(snap).toStrictEqual({
+    specsDirTreeSHA: null,
+    files: {},
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — getSnapshot() returns seeded snapshot
+// ---------------------------------------------------------------------------
+
+test('it returns the seeded snapshot when an initial snapshot is provided', () => {
+  const initialSnapshot: SpecPollerSnapshot = {
+    specsDirTreeSHA: 'seeded-tree-sha',
+    files: {
+      'docs/specs/engine.md': { blobSHA: 'blob-1', frontmatterStatus: 'approved' },
+      'docs/specs/tui.md': { blobSHA: 'blob-2', frontmatterStatus: 'draft' },
+    },
+  };
+
+  const { poller } = setupTest({ initialSnapshot });
+  const snap = poller.getSnapshot();
+
+  expect(snap).toStrictEqual(initialSnapshot);
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — seeded tree SHA matches current yields empty batch
+// ---------------------------------------------------------------------------
+
+test('it returns an empty batch on first poll when the seeded tree SHA matches the current one', async () => {
+  const specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
+
+  const handlers = {
+    ...buildTreeHandlers('seeded-tree-sha', specFiles),
+    getContent: () => ({
+      data: { content: toBase64(buildSpecContent('approved')) },
+    }),
+    getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
+  };
+
+  const initialSnapshot: SpecPollerSnapshot = {
+    specsDirTreeSHA: 'seeded-tree-sha',
+    files: {
+      'docs/specs/engine.md': { blobSHA: 'blob-sha-1', frontmatterStatus: 'approved' },
+    },
+  };
+
+  const { octokit, poller } = setupTest({ handlers, initialSnapshot });
+  const result = await poller.poll();
+
+  expect(result.changes).toHaveLength(0);
+  expect(result.commitSHA).toBe('');
+  // Only the root tree call to check tree SHA -- no subtree or content calls needed
+  expect(octokit.git.getTree).toHaveBeenCalledTimes(1);
+  expect(octokit.repos.getContent).not.toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — seeded tree SHA differs, only changed files reported
+// ---------------------------------------------------------------------------
+
+test('it reports only files with changed blob SHAs when the seeded tree SHA differs', async () => {
+  const specFiles = [
+    { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
+    { path: 'tui.md', sha: 'blob-sha-new', type: 'blob' as const },
+  ];
+
+  const contentMap: Record<string, string> = {
+    'docs/specs/engine.md': buildSpecContent('approved'),
+    'docs/specs/tui.md': buildSpecContent('draft'),
+  };
+
+  const handlers = {
+    ...buildTreeHandlers('current-tree-sha', specFiles),
+    getContent: (params: { path: string }) => ({
+      data: { content: toBase64(contentMap[params.path] ?? '') },
+    }),
+    getRef: () => ({ data: { object: { sha: 'head-sha' } } }),
+  };
+
+  const initialSnapshot: SpecPollerSnapshot = {
+    specsDirTreeSHA: 'old-tree-sha',
+    files: {
+      'docs/specs/engine.md': { blobSHA: 'blob-sha-1', frontmatterStatus: 'approved' },
+      'docs/specs/tui.md': { blobSHA: 'blob-sha-old', frontmatterStatus: 'draft' },
+    },
+  };
+
+  const { octokit, poller } = setupTest({ handlers, initialSnapshot });
+  const result = await poller.poll();
+
+  // Only tui.md changed (blob SHA differs), engine.md unchanged
+  expect(result.changes).toHaveLength(1);
+  expect(result.changes[0]).toStrictEqual({
+    filePath: 'docs/specs/tui.md',
+    frontmatterStatus: 'draft',
+  });
+  expect(result.commitSHA).toBe('head-sha');
+
+  // Content should only be fetched for the changed file
+  expect(octokit.repos.getContent).toHaveBeenCalledTimes(1);
+  expect(octokit.repos.getContent).toHaveBeenCalledWith(
+    expect.objectContaining({ path: 'docs/specs/tui.md' }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — getSnapshot() reflects state after a poll cycle
+// ---------------------------------------------------------------------------
+
+test('it returns an updated snapshot after a poll cycle completes', async () => {
+  const specFiles = [
+    { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
+    { path: 'tui.md', sha: 'blob-sha-2', type: 'blob' as const },
+  ];
+
+  const contentMap: Record<string, string> = {
+    'docs/specs/engine.md': buildSpecContent('approved'),
+    'docs/specs/tui.md': buildSpecContent('draft'),
+  };
+
+  const handlers = {
+    ...buildTreeHandlers('specs-tree-sha-1', specFiles),
+    getContent: (params: { path: string }) => ({
+      data: { content: toBase64(contentMap[params.path] ?? '') },
+    }),
+    getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
+  };
+
+  const { poller } = setupTest({ handlers });
+  await poller.poll();
+
+  const snap = poller.getSnapshot();
+  expect(snap).toStrictEqual({
+    specsDirTreeSHA: 'specs-tree-sha-1',
+    files: {
+      'docs/specs/engine.md': { blobSHA: 'blob-sha-1', frontmatterStatus: 'approved' },
+      'docs/specs/tui.md': { blobSHA: 'blob-sha-2', frontmatterStatus: 'draft' },
+    },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — getSnapshot() returns a fresh copy
+// ---------------------------------------------------------------------------
+
+test('it returns a fresh copy of the snapshot that does not affect internal state when mutated', async () => {
+  const specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
+
+  const handlers = {
+    ...buildTreeHandlers('specs-tree-sha-1', specFiles),
+    getContent: () => ({
+      data: { content: toBase64(buildSpecContent('approved')) },
+    }),
+    getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
+  };
+
+  const { poller } = setupTest({ handlers });
+  await poller.poll();
+
+  // Get snapshot and mutate it
+  const snap1 = poller.getSnapshot();
+  snap1.specsDirTreeSHA = 'mutated';
+  snap1.files['docs/specs/engine.md'] = { blobSHA: 'mutated', frontmatterStatus: 'mutated' };
+  snap1.files['docs/specs/new-file.md'] = { blobSHA: 'injected', frontmatterStatus: 'injected' };
+
+  // Get a second snapshot -- should be unaffected by mutations
+  const snap2 = poller.getSnapshot();
+  expect(snap2).toStrictEqual({
+    specsDirTreeSHA: 'specs-tree-sha-1',
+    files: {
+      'docs/specs/engine.md': { blobSHA: 'blob-sha-1', frontmatterStatus: 'approved' },
+    },
+  });
 });

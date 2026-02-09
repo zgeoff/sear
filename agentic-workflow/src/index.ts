@@ -32,6 +32,9 @@ export type {
   SpecChange,
   SpecChangedEvent,
   SpecPollerBatchResult,
+  // SpecPoller Snapshot
+  SpecPollerFileEntry,
+  SpecPollerSnapshot,
   // Engine Interface
   StartupResult,
 } from './types';
