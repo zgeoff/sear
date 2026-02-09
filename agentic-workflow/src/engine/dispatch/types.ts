@@ -13,4 +13,5 @@ export interface DispatchConfig {
 export interface Dispatch {
   handleSpecPollerResult: (result: SpecPollerBatchResult) => void;
   handleIssueStatusChanged: (event: IssueStatusChangedEvent) => void;
+  handlePlannerFailed: (specPaths: string[]) => void;
 }

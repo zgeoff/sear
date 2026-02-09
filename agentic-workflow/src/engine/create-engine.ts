@@ -243,6 +243,14 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
     }
 
     if (
+      event.type === 'agentFailed' &&
+      event.agentType === 'planner' &&
+      event.specPaths !== undefined
+    ) {
+      dispatch.handlePlannerFailed(event.specPaths);
+    }
+
+    if (
       (event.type === 'agentCompleted' || event.type === 'agentFailed') &&
       event.issueNumber !== undefined
     ) {
