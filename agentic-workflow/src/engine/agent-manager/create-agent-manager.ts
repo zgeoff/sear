@@ -280,7 +280,6 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
   }
 
-  // biome-ignore lint/suspicious/useAwait: callers await this function; async is retained for future internal awaits
   async function finishSession(
     tracker: AgentSessionTracker,
     succeeded: boolean,
@@ -559,18 +558,18 @@ function buildAsyncIterable(tracker: AgentSessionTracker): AsyncIterable<string>
       let chunkIndex = 0;
 
       return {
-        next(): Promise<IteratorResult<string>> {
+        async next(): Promise<IteratorResult<string>> {
           // Yield any buffered chunks first
           if (chunkIndex < tracker.outputChunks.length) {
             const value = tracker.outputChunks[chunkIndex];
             invariant(value !== undefined, 'chunk must exist at index within bounds');
             chunkIndex += 1;
-            return Promise.resolve({ value, done: false });
+            return { value, done: false };
           }
 
           // If the session is done, we're done
           if (tracker.done) {
-            return Promise.resolve({ value: undefined, done: true as const });
+            return { value: undefined, done: true as const };
           }
 
           // Wait for the next chunk

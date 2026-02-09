@@ -2,7 +2,6 @@ import type { HookCallback, HookInput, HookJSONOutput } from '@anthropic-ai/clau
 import { validateBashCommand } from './validate-bash-command.ts';
 
 export function createBashValidatorHook(): HookCallback {
-  // biome-ignore lint/suspicious/useAwait: HookCallback contract requires async but validation is synchronous
   return async (
     input: HookInput,
     _toolUseID: string | undefined,

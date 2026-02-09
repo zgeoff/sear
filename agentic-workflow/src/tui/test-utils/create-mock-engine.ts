@@ -21,8 +21,7 @@ export function createMockEngine(overrides?: MockEngineOverrides): MockEngineRes
   const sentCommands: EngineCommand[] = [];
 
   const engine: Engine = {
-    start:
-      overrides?.start ?? vi.fn(() => Promise.resolve({ issueCount: 0, recoveriesPerformed: 0 })),
+    start: overrides?.start ?? vi.fn(async () => ({ issueCount: 0, recoveriesPerformed: 0 })),
     on(handler: EventHandler): () => void {
       handlers.push(handler);
       return () => {
@@ -37,26 +36,22 @@ export function createMockEngine(overrides?: MockEngineOverrides): MockEngineRes
     },
     getIssueDetails:
       overrides?.getIssueDetails ??
-      vi.fn(() =>
-        Promise.resolve({
-          number: 1,
-          title: 'Test',
-          body: 'body',
-          labels: ['task:implement'],
-          createdAt: '2026-01-01T00:00:00Z',
-        }),
-      ),
+      vi.fn(async () => ({
+        number: 1,
+        title: 'Test',
+        body: 'body',
+        labels: ['task:implement'],
+        createdAt: '2026-01-01T00:00:00Z',
+      })),
     getPRForIssue:
       overrides?.getPRForIssue ??
-      vi.fn(() =>
-        Promise.resolve({
-          number: 10,
-          title: 'PR Title',
-          changedFilesCount: 3,
-          ciStatus: 'success' as const,
-          url: 'https://github.com/owner/repo/pull/10',
-        }),
-      ),
+      vi.fn(async () => ({
+        number: 10,
+        title: 'PR Title',
+        changedFilesCount: 3,
+        ciStatus: 'success' as const,
+        url: 'https://github.com/owner/repo/pull/10',
+      })),
     getAgentStream: overrides?.getAgentStream ?? vi.fn(() => null),
   };
 

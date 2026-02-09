@@ -46,6 +46,7 @@ function splitSegments(command: string): string[] {
 
   while (i < command.length) {
     const c = command[i];
+    invariant(c !== undefined, 'index within bounds of command string');
 
     // Inside a quoted context
     if (quote !== '') {

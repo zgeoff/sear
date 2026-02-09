@@ -8,9 +8,11 @@ import type { QueryFactoryConfig, QueryFactoryParams } from './types.ts';
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(() => ({
     [Symbol.asyncIterator]: () => ({
-      next: () => Promise.resolve({ done: true, value: undefined }),
+      next: async () => ({ done: true, value: undefined }),
     }),
-    interrupt: () => Promise.resolve(),
+    interrupt: async () => {
+      /* no-op */
+    },
   })),
 }));
 

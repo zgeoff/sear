@@ -830,7 +830,6 @@ test('it drops the oldest output when the stream buffer is full', async () => {
     resolveStream = resolve;
   });
 
-  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generateChunks(): AsyncGenerator<string> {
     for (const chunk of chunks) {
       yield chunk;
@@ -1209,7 +1208,6 @@ test('it splits a stream chunk with newlines into individual buffer lines', asyn
     resolveStream = resolve;
   });
 
-  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'line1\nline2\nline3\n';
     resolveStream();
@@ -1240,7 +1238,6 @@ test('it appends a chunk without newlines as a single buffer line', async () => 
     resolveStream = resolve;
   });
 
-  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'partial output';
     resolveStream();
@@ -1271,7 +1268,6 @@ test('it discards the trailing empty string when a chunk ends with a newline', a
     resolveStream = resolve;
   });
 
-  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'hello\n';
     resolveStream();
@@ -1302,7 +1298,6 @@ test('it accumulates lines from multiple chunks in order', async () => {
     resolveStream = resolve;
   });
 
-  // biome-ignore lint/suspicious/useAwait: async required for AsyncGenerator return type
   async function* generate(): AsyncGenerator<string> {
     yield 'first\nsecond\n';
     yield 'third';

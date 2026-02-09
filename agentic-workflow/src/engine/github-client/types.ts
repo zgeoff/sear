@@ -2,12 +2,16 @@
 // response shapes actually used by production code are declared here, which
 // keeps tests type-safe without casts — mocks satisfy this interface naturally
 // while Octokit's deeply generic types would require `as never` everywhere.
+//
+// Param interfaces include `[key: string]: unknown` so they satisfy Octokit's
+// `RequestParameters` index signature without casts at the call site.
 
 // ---------------------------------------------------------------------------
 // Issues
 // ---------------------------------------------------------------------------
 
 export interface IssuesGetParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   issue_number: number;
@@ -26,6 +30,7 @@ export interface IssuesGetResult {
 }
 
 export interface IssuesListForRepoParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   labels: string;
@@ -38,6 +43,7 @@ export interface IssuesListForRepoResult {
 }
 
 export interface IssuesAddLabelsParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   issue_number: number;
@@ -49,6 +55,7 @@ export interface IssuesAddLabelsResult {
 }
 
 export interface IssuesRemoveLabelParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   issue_number: number;
@@ -64,6 +71,7 @@ export interface IssuesRemoveLabelResult {
 // ---------------------------------------------------------------------------
 
 export interface PullsListParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   state: 'open' | 'closed' | 'all';
@@ -80,6 +88,7 @@ export interface PullsListResult {
 }
 
 export interface PullsGetParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   pull_number: number;
@@ -106,6 +115,7 @@ export interface PullsGetResult {
 // ---------------------------------------------------------------------------
 
 export interface ReposGetCombinedStatusParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   ref: string;
@@ -121,6 +131,7 @@ export interface ReposGetCombinedStatusResult {
 }
 
 export interface ReposGetContentParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   path: string;
@@ -140,6 +151,7 @@ export interface ReposGetContentResult {
 // ---------------------------------------------------------------------------
 
 export interface ChecksListForRefParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   ref: string;
@@ -164,6 +176,7 @@ export interface ChecksListForRefResult {
 // ---------------------------------------------------------------------------
 
 export interface GitGetTreeParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   tree_sha: string;
@@ -186,6 +199,7 @@ export interface GitGetTreeResult {
 }
 
 export interface GitGetRefParams {
+  [key: string]: unknown;
   owner: string;
   repo: string;
   ref: string;

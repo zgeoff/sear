@@ -52,35 +52,35 @@ function createMockQuery(): MockQuery {
 
     interrupt: vi.fn().mockResolvedValue(undefined),
 
-    next(): Promise<IteratorResult<unknown>> {
+    async next(): Promise<IteratorResult<unknown>> {
       if (bufferedMessages.length > 0) {
         const msg = bufferedMessages.shift();
-        return Promise.resolve({ value: msg, done: false });
+        return { value: msg, done: false };
       }
       if (ended) {
-        return Promise.resolve({ value: undefined, done: true });
+        return { value: undefined, done: true };
       }
       return new Promise((resolve) => {
         pendingReads.push({ resolve });
       });
     },
 
-    return(): Promise<IteratorResult<unknown>> {
+    async return(): Promise<IteratorResult<unknown>> {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
       }
       pendingReads.length = 0;
-      return Promise.resolve({ value: undefined, done: true as const });
+      return { value: undefined, done: true as const };
     },
 
-    throw(): Promise<IteratorResult<unknown>> {
+    async throw(): Promise<IteratorResult<unknown>> {
       ended = true;
       for (const pending of pendingReads) {
         pending.resolve({ value: undefined, done: true });
       }
       pendingReads.length = 0;
-      return Promise.resolve({ value: undefined, done: true as const });
+      return { value: undefined, done: true as const };
     },
 
     [Symbol.asyncIterator](): MockQuery {
@@ -126,13 +126,13 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
 
   emitter.on((event) => events.push(event));
 
-  const queryFactory: (params: QueryFactoryParams) => Promise<MockQuery> = (
+  const queryFactory: (params: QueryFactoryParams) => Promise<MockQuery> = async (
     params: QueryFactoryParams,
   ) => {
     queryParams.push(params);
     const mockQuery = createMockQuery();
     mockQueries.push(mockQuery);
-    return Promise.resolve(mockQuery);
+    return mockQuery;
   };
 
   const manager = createAgentManager({

@@ -49,25 +49,25 @@ interface MockHandlers {
 function buildMockClient(handlers: Partial<MockHandlers> = {}): GitHubClient {
   const client = createMockGitHubClient();
 
-  vi.mocked(client.git.getTree).mockImplementation((params) => {
+  vi.mocked(client.git.getTree).mockImplementation(async (params) => {
     if (handlers.getTree && params) {
-      return Promise.resolve(handlers.getTree(params));
+      return handlers.getTree(params);
     }
-    return Promise.resolve({ data: { sha: '', tree: [] } });
+    return { data: { sha: '', tree: [] } };
   });
 
-  vi.mocked(client.git.getRef).mockImplementation((params) => {
+  vi.mocked(client.git.getRef).mockImplementation(async (params) => {
     if (handlers.getRef && params) {
-      return Promise.resolve(handlers.getRef(params));
+      return handlers.getRef(params);
     }
-    return Promise.resolve({ data: { object: { sha: 'head-commit-sha' } } });
+    return { data: { object: { sha: 'head-commit-sha' } } };
   });
 
-  vi.mocked(client.repos.getContent).mockImplementation((params) => {
+  vi.mocked(client.repos.getContent).mockImplementation(async (params) => {
     if (handlers.getContent && params) {
-      return Promise.resolve().then(() => handlers.getContent(params));
+      return handlers.getContent(params);
     }
-    return Promise.resolve({ data: {} });
+    return { data: {} };
   });
 
   return client;

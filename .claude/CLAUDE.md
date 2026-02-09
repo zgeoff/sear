@@ -497,6 +497,30 @@ function processItem(item: Item): Result {
 }
 ```
 
+### Prefer `async`/`await` over raw `Promise` chains
+
+Always use `async`/`await` instead of `Promise.resolve()`, `Promise.reject()`, or `.then()` chains. This applies to both production code and tests (including mock implementations).
+
+```ts
+// Wrong — raw Promise construction
+function fetchData(): Promise<Data> {
+  return Promise.resolve({ id: 1 });
+}
+
+mockFn.mockImplementation((params) => {
+  return Promise.resolve({ data: [] });
+});
+
+// Correct — async/await
+async function fetchData(): Promise<Data> {
+  return { id: 1 };
+}
+
+mockFn.mockImplementation(async (params) => {
+  return { data: [] };
+});
+```
+
 ## Testing
 
 ### Test orchestration

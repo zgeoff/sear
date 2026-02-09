@@ -16,7 +16,7 @@ function createMockEngine(): {
   const sentCommands: EngineCommand[] = [];
 
   const engine: Engine = {
-    start: vi.fn(() => Promise.resolve({ issueCount: 0, recoveriesPerformed: 0 })),
+    start: vi.fn(async () => ({ issueCount: 0, recoveriesPerformed: 0 })),
     on(handler: EventHandler): () => void {
       handlers.push(handler);
       return () => {
@@ -29,24 +29,20 @@ function createMockEngine(): {
     send(command: EngineCommand): void {
       sentCommands.push(command);
     },
-    getIssueDetails: vi.fn(() =>
-      Promise.resolve({
-        number: 1,
-        title: 'Test',
-        body: 'body',
-        labels: ['task:implement'],
-        createdAt: '2026-01-01T00:00:00Z',
-      }),
-    ),
-    getPRForIssue: vi.fn(() =>
-      Promise.resolve({
-        number: 10,
-        title: 'PR Title',
-        changedFilesCount: 3,
-        ciStatus: 'success' as const,
-        url: 'https://github.com/owner/repo/pull/10',
-      }),
-    ),
+    getIssueDetails: vi.fn(async () => ({
+      number: 1,
+      title: 'Test',
+      body: 'body',
+      labels: ['task:implement'],
+      createdAt: '2026-01-01T00:00:00Z',
+    })),
+    getPRForIssue: vi.fn(async () => ({
+      number: 10,
+      title: 'PR Title',
+      changedFilesCount: 3,
+      ciStatus: 'success' as const,
+      url: 'https://github.com/owner/repo/pull/10',
+    })),
     getAgentStream: vi.fn(() => null),
   };
 

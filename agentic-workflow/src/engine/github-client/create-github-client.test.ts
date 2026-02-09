@@ -12,14 +12,24 @@ vi.mock('@octokit/auth-app', () => ({
   createAppAuth: vi.fn(),
 }));
 
+type MockFn = ReturnType<typeof vi.fn>;
+
+interface MockOctokitShape {
+  issues: { get: MockFn; listForRepo: MockFn; addLabels: MockFn; removeLabel: MockFn };
+  pulls: { list: MockFn; get: MockFn };
+  repos: { getCombinedStatusForRef: MockFn; getContent: MockFn };
+  checks: { listForRef: MockFn };
+  git: { getTree: MockFn; getRef: MockFn };
+}
+
 const mockedOctokit: ReturnType<typeof vi.mocked<typeof Octokit>> = vi.mocked(Octokit);
 
 function setupTest(): {
   client: ReturnType<typeof createGitHubClient>;
-  mockOctokit: Record<string, Record<string, ReturnType<typeof vi.fn>>>;
+  mockOctokit: MockOctokitShape;
   config: GitHubClientConfig;
 } {
-  const mockOctokit = {
+  const mockOctokit: MockOctokitShape = {
     issues: {
       get: vi.fn(),
       listForRepo: vi.fn(),

@@ -24,20 +24,20 @@ function setupTest(): {
   const responses = new Map<string, { stdout: string; stderr: string }>();
   const failures = new Set<string>();
 
-  const execGit: ExecGit = vi.fn((args: string[]) => {
+  const execGit: ExecGit = vi.fn(async (args: string[]) => {
     const key = args.join(' ');
     calls.push({ args });
 
     if (failures.has(key)) {
-      return Promise.reject(new Error(`git ${key} failed`));
+      throw new Error(`git ${key} failed`);
     }
 
     const response = responses.get(key);
     if (response) {
-      return Promise.resolve(response);
+      return response;
     }
 
-    return Promise.resolve({ stdout: '', stderr: '' });
+    return { stdout: '', stderr: '' };
   });
 
   const manager = createWorktreeManager({ repoRoot, execGit });
