@@ -39,6 +39,42 @@ function buildIssueStatusChanged(
   };
 }
 
+type StreamController = {
+  stream: AsyncGenerator<string>;
+  push: (value: string) => void;
+};
+
+function buildStreamController(): StreamController {
+  const pending: Array<(value: string) => void> = [];
+  const queued: string[] = [];
+
+  async function* generate(): AsyncGenerator<string> {
+    while (true) {
+      if (queued.length > 0) {
+        const value = queued.shift();
+        if (value !== undefined) {
+          yield value;
+          continue;
+        }
+      }
+      yield await new Promise<string>((resolve) => {
+        pending.push(resolve);
+      });
+    }
+  }
+
+  function push(value: string) {
+    const waiter = pending.shift();
+    if (waiter) {
+      waiter(value);
+    } else {
+      queued.push(value);
+    }
+  }
+
+  return { stream: generate(), push };
+}
+
 // ---------------------------------------------------------------------------
 // Repository parsing
 // ---------------------------------------------------------------------------
@@ -294,10 +330,12 @@ test('it flags the agent as stopped and notifies when an implementor completes',
   expect(store.getState().issues.get(1)?.agentRunning).toBe(false);
 
   const notifications = store.getState().notifications;
-  const lastNotif = notifications[notifications.length - 1] as AgentCompletedNotification;
-  expect(lastNotif.summary).toBe('Implementor completed for #1');
-  expect(lastNotif.agentType).toBe('implementor');
-  expect(lastNotif.issueNumber).toBe(1);
+  expect(notifications[0]).toMatchObject({
+    eventType: 'agentCompleted',
+    summary: 'Implementor completed for #1',
+    agentType: 'implementor',
+    issueNumber: 1,
+  });
 });
 
 test('it resolves the PR link on the notification when an implementor completes', async () => {
@@ -1133,4 +1171,254 @@ test('it produces a notification for every type of engine event', () => {
   expect(eventTypes).toContain('issueRemoved');
   expect(eventTypes).toContain('recoveryPerformed');
   expect(eventTypes).toContain('specChanged');
+});
+
+// ---------------------------------------------------------------------------
+// Notification prepend order
+// ---------------------------------------------------------------------------
+
+test('it places newer notifications before older ones', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
+  emit(buildIssueStatusChanged({ issueNumber: 2, newStatus: 'review' }));
+
+  const notifications = store.getState().notifications;
+  expect(notifications).toHaveLength(2);
+  expect(notifications[0]).toMatchObject({ issueNumber: 2, newStatus: 'review' });
+  expect(notifications[1]).toMatchObject({ issueNumber: 1, newStatus: 'pending' });
+});
+
+// ---------------------------------------------------------------------------
+// Stream newline splitting
+// ---------------------------------------------------------------------------
+
+test('it splits a stream chunk with newlines into individual buffer lines', async () => {
+  const { store, emit, engine } = setupTest();
+
+  let resolveStream: () => void;
+  const streamDone = new Promise<void>((resolve) => {
+    resolveStream = resolve;
+  });
+
+  async function* generate(): AsyncGenerator<string> {
+    yield 'line1\nline2\nline3\n';
+    resolveStream();
+  }
+
+  vi.mocked(engine.getAgentStream).mockReturnValue(generate());
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  await streamDone;
+  await new Promise((r) => setTimeout(r, 0));
+
+  const buffer = store.getState().agentStreams.get(1);
+  expect(buffer).toStrictEqual(['line1', 'line2', 'line3']);
+});
+
+test('it appends a chunk without newlines as a single buffer line', async () => {
+  const { store, emit, engine } = setupTest();
+
+  let resolveStream: () => void;
+  const streamDone = new Promise<void>((resolve) => {
+    resolveStream = resolve;
+  });
+
+  async function* generate(): AsyncGenerator<string> {
+    yield 'partial output';
+    resolveStream();
+  }
+
+  vi.mocked(engine.getAgentStream).mockReturnValue(generate());
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  await streamDone;
+  await new Promise((r) => setTimeout(r, 0));
+
+  const buffer = store.getState().agentStreams.get(1);
+  expect(buffer).toStrictEqual(['partial output']);
+});
+
+test('it discards the trailing empty string when a chunk ends with a newline', async () => {
+  const { store, emit, engine } = setupTest();
+
+  let resolveStream: () => void;
+  const streamDone = new Promise<void>((resolve) => {
+    resolveStream = resolve;
+  });
+
+  async function* generate(): AsyncGenerator<string> {
+    yield 'hello\n';
+    resolveStream();
+  }
+
+  vi.mocked(engine.getAgentStream).mockReturnValue(generate());
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  await streamDone;
+  await new Promise((r) => setTimeout(r, 0));
+
+  const buffer = store.getState().agentStreams.get(1);
+  expect(buffer).toStrictEqual(['hello']);
+});
+
+test('it accumulates lines from multiple chunks in order', async () => {
+  const { store, emit, engine } = setupTest();
+
+  let resolveStream: () => void;
+  const streamDone = new Promise<void>((resolve) => {
+    resolveStream = resolve;
+  });
+
+  async function* generate(): AsyncGenerator<string> {
+    yield 'first\nsecond\n';
+    yield 'third';
+    yield 'fourth\n';
+    resolveStream();
+  }
+
+  vi.mocked(engine.getAgentStream).mockReturnValue(generate());
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  await streamDone;
+  await new Promise((r) => setTimeout(r, 0));
+
+  const buffer = store.getState().agentStreams.get(1);
+  expect(buffer).toStrictEqual(['first', 'second', 'third', 'fourth']);
+});
+
+// ---------------------------------------------------------------------------
+// Ring buffer viewport offset tracking
+// ---------------------------------------------------------------------------
+
+test('it decrements the viewport offset when lines are dropped from a full buffer', async () => {
+  const { store, emit, engine } = setupTest();
+
+  const controller = buildStreamController();
+  vi.mocked(engine.getAgentStream).mockReturnValue(controller.stream);
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  // Wait for the generator to start and reach its first await
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Pre-fill buffer with 10,000 lines and set a viewport offset
+  const prefilledBuffer: string[] = [];
+  for (let i = 0; i < 10_000; i++) {
+    prefilledBuffer.push(`line-${i}`);
+  }
+  const agentStreams = new Map(store.getState().agentStreams);
+  agentStreams.set(1, prefilledBuffer);
+  const streamViewportOffsets = new Map(store.getState().streamViewportOffsets);
+  streamViewportOffsets.set(1, 50);
+  store.setState({ agentStreams, streamViewportOffsets });
+
+  // Yield one chunk to trigger the drop
+  controller.push('new-line');
+  await new Promise((r) => setTimeout(r, 0));
+
+  const buffer = store.getState().agentStreams.get(1);
+  expect(buffer).toHaveLength(10_000);
+  expect(store.getState().streamViewportOffsets.get(1)).toBe(49);
+});
+
+test('it does not decrement the viewport offset below zero when lines are dropped', async () => {
+  const { store, emit, engine } = setupTest();
+
+  const controller = buildStreamController();
+  vi.mocked(engine.getAgentStream).mockReturnValue(controller.stream);
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Pre-fill buffer with 10,000 lines and set offset to 0
+  const prefilledBuffer: string[] = [];
+  for (let i = 0; i < 10_000; i++) {
+    prefilledBuffer.push(`line-${i}`);
+  }
+  const agentStreams = new Map(store.getState().agentStreams);
+  agentStreams.set(1, prefilledBuffer);
+  const streamViewportOffsets = new Map(store.getState().streamViewportOffsets);
+  streamViewportOffsets.set(1, 0);
+  store.setState({ agentStreams, streamViewportOffsets });
+
+  controller.push('overflow');
+  await new Promise((r) => setTimeout(r, 0));
+
+  // Offset 0 is not decremented — auto-scroll would resume
+  expect(store.getState().streamViewportOffsets.get(1)).toBe(0);
+});
+
+test('it clears the viewport offset when a new agent starts for the same issue', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+
+  const streamViewportOffsets = new Map(store.getState().streamViewportOffsets);
+  streamViewportOffsets.set(1, 42);
+  store.setState({ streamViewportOffsets });
+
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-2',
+  } satisfies AgentStartedEvent);
+
+  expect(store.getState().streamViewportOffsets.has(1)).toBe(false);
+});
+
+test('it clears the viewport offset when an issue is removed', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
+
+  const streamViewportOffsets = new Map(store.getState().streamViewportOffsets);
+  streamViewportOffsets.set(1, 10);
+  store.setState({ streamViewportOffsets });
+
+  emit({ type: 'issueRemoved', issueNumber: 1 } satisfies IssueRemovedEvent);
+
+  expect(store.getState().streamViewportOffsets.has(1)).toBe(false);
 });

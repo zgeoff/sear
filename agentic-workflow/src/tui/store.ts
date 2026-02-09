@@ -39,6 +39,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
     issues: new Map(),
     notifications: [],
     agentStreams: new Map(),
+    streamViewportOffsets: new Map(),
     plannerRunning: false,
     issueDetails: new Map(),
     prDetails: new Map(),
@@ -137,7 +138,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           issues,
           issueDetails,
           prDetails,
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .with({ type: 'agentStarted' }, (e) => {
@@ -154,7 +155,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           };
           store.setState({
             plannerRunning: true,
-            notifications: [...state.notifications, notification],
+            notifications: [notification, ...state.notifications],
           });
           return;
         }
@@ -174,6 +175,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         const agentStreams = new Map(state.agentStreams);
         agentStreams.set(issueNumber, []);
 
+        const streamViewportOffsets = new Map(state.streamViewportOffsets);
+        streamViewportOffsets.delete(issueNumber);
+
         const agentTypeLabel = formatAgentType(e.agentType);
         const notification: AgentStartedNotification = {
           ...buildBaseNotification(),
@@ -187,7 +191,8 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         store.setState({
           issues,
           agentStreams,
-          notifications: [...state.notifications, notification],
+          streamViewportOffsets,
+          notifications: [notification, ...state.notifications],
         });
 
         subscribeToAgentStream(issueNumber);
@@ -207,7 +212,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           }
           store.setState({
             plannerRunning: false,
-            notifications: [...state.notifications, notification],
+            notifications: [notification, ...state.notifications],
           });
           return;
         }
@@ -238,7 +243,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
 
         const updates: Partial<EngineStoreState> = {
           issues,
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         };
 
         if (e.agentType === 'reviewer') {
@@ -268,7 +273,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           }
           store.setState({
             plannerRunning: false,
-            notifications: [...state.notifications, notification],
+            notifications: [notification, ...state.notifications],
           });
           return;
         }
@@ -309,7 +314,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
 
         store.setState({
           issues,
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .with({ type: 'agentSkipped' }, (e) => {
@@ -334,7 +339,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           notification.contextURL = buildIssueURL(repository, e.issueNumber);
         }
         store.setState({
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .with({ type: 'dispatchReady' }, (e) => {
@@ -347,7 +352,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           contextURL: buildIssueURL(repository, e.issueNumber),
         };
         store.setState({
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .with({ type: 'notification' }, (e) => {
@@ -383,7 +388,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         }
 
         store.setState({
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
 
         if (e.statusLabel === 'approved') {
@@ -400,7 +405,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           contextURL: buildIssueURL(repository, e.issueNumber),
         };
         store.setState({
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .with({ type: 'issueRemoved' }, (e) => {
@@ -410,6 +415,9 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
 
         const agentStreams = new Map(state.agentStreams);
         agentStreams.delete(e.issueNumber);
+
+        const streamViewportOffsets = new Map(state.streamViewportOffsets);
+        streamViewportOffsets.delete(e.issueNumber);
 
         const issueDetails = new Map(state.issueDetails);
         issueDetails.delete(e.issueNumber);
@@ -430,10 +438,11 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
         store.setState({
           issues,
           agentStreams,
+          streamViewportOffsets,
           issueDetails,
           prDetails,
           selectedIssue,
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .with({ type: 'recoveryPerformed' }, (e) => {
@@ -446,7 +455,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           contextURL: buildIssueURL(repository, e.issueNumber),
         };
         store.setState({
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .with({ type: 'specChanged' }, (e) => {
@@ -460,7 +469,7 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
           contextURL: `https://github.com/${config.repository}/commit/${e.commitSHA}`,
         };
         store.setState({
-          notifications: [...state.notifications, notification],
+          notifications: [notification, ...state.notifications],
         });
       })
       .exhaustive();
@@ -481,17 +490,30 @@ export function createEngineStore(config: CreateEngineStoreConfig) {
 
     (async () => {
       for await (const chunk of stream) {
+        const lines = splitChunkIntoLines(chunk);
+        if (lines.length === 0) continue;
+
         const state = store.getState();
         const agentStreams = new Map(state.agentStreams);
-        const buffer = agentStreams.get(issueNumber) ?? [];
-        const updatedBuffer = [...buffer, chunk];
+        const buffer = [...(agentStreams.get(issueNumber) ?? []), ...lines];
 
-        if (updatedBuffer.length > STREAM_BUFFER_LIMIT) {
-          updatedBuffer.splice(0, updatedBuffer.length - STREAM_BUFFER_LIMIT);
+        const overflow = buffer.length - STREAM_BUFFER_LIMIT;
+        const updates: Partial<EngineStoreState> = {};
+
+        if (overflow > 0) {
+          buffer.splice(0, overflow);
+          const currentOffset = state.streamViewportOffsets.get(issueNumber) ?? 0;
+          if (currentOffset > 0) {
+            const streamViewportOffsets = new Map(state.streamViewportOffsets);
+            const newOffset = Math.max(0, currentOffset - overflow);
+            streamViewportOffsets.set(issueNumber, newOffset);
+            updates.streamViewportOffsets = streamViewportOffsets;
+          }
         }
 
-        agentStreams.set(issueNumber, updatedBuffer);
-        store.setState({ agentStreams });
+        agentStreams.set(issueNumber, buffer);
+        updates.agentStreams = agentStreams;
+        store.setState(updates);
       }
     })();
   }
@@ -663,6 +685,14 @@ function formatAgentType(agentType: AgentType): string {
 function extractFileName(filePath: string): string {
   const parts = filePath.split('/');
   return parts[parts.length - 1] ?? filePath;
+}
+
+function splitChunkIntoLines(chunk: string): string[] {
+  const parts = chunk.split('\n');
+  if (parts.length > 0 && parts[parts.length - 1] === '') {
+    parts.pop();
+  }
+  return parts;
 }
 
 export function selectRunningAgentCount(state: EngineStoreState): number {
