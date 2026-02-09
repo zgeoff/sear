@@ -1,7 +1,7 @@
 ---
 title: Reviewer Agent
-version: 0.3.2
-last_updated: 2026-02-08
+version: 0.3.3
+last_updated: 2026-02-09
 status: approved
 ---
 
@@ -197,7 +197,7 @@ Brief description of the review result. For approvals, confirm what was verified
 - `github-workflow` skill -- All GitHub operations (label changes, issue comments, CI status checks, PR reviews).
 - `gh` CLI -- Authenticated via `scripts/workflow/gh.sh` wrapper (see `github-cli.md`).
 - `CLAUDE.md` -- Code style, naming conventions, and patterns that the agent checks against.
-- Agent Bash Tool Validator (`scripts/workflow/validate-bash.sh`) -- PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-tool-bash-validator.md`.
+- Agent Bash Tool Validator (`scripts/workflow/validate-bash.sh`) -- PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
 
 ## References
 

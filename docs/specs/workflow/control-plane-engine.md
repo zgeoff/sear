@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine
-version: 0.5.0
+version: 0.7.0
 last_updated: 2026-02-09
 status: approved
 ---
@@ -217,7 +217,7 @@ The engine emits typed events for discrete state changes. Events drive reactive 
 | Event | Payload | Emitted By |
 |-------|---------|-----------|
 | `issueStatusChanged` | Issue number, title, old status, new status, priority label, creation date, `isRecovery` flag (true for synthetic events from recovery) | IssuePoller (or Engine Core for synthetic recovery events) |
-| `specChanged` | File path, frontmatter status, commit SHA | Engine Core (from SpecPoller results) |
+| `specChanged` | File path, frontmatter status, change type (added/modified), commit SHA | Engine Core (from SpecPoller results) |
 | `agentStarted` | Agent type, issue number or spec paths, session ID | Agent Manager |
 | `agentCompleted` | Agent type, issue number or spec paths, session ID, log file path (when logging enabled) | Agent Manager |
 | `agentFailed` | Agent type, issue number or spec paths, error details, session ID, worktree path (Implementor only), log file path (when logging enabled) | Agent Manager |
@@ -304,9 +304,67 @@ Each agent session receives trigger-specific context as its initial prompt:
 | Implementor | Issue number |
 | Reviewer | Issue number |
 
+### Agent Definition Loading
+
+The engine reads agent definition files from `.claude/agents/<name>.md` at the repository root and passes them inline to the SDK. This is required because the SDK's `settingSources: ['project']` resolution hangs indefinitely when `cwd` is a git worktree — worktrees use a `.git` file (pointer to the main repository's `.git` directory) instead of a `.git` directory, and the SDK's project settings resolution does not handle this case.
+
+**Loading process:**
+
+1. The `QueryFactory` receives `repoRoot` at construction time.
+2. When creating a session, it reads `{repoRoot}/.claude/agents/{agentName}.md` from disk.
+3. It parses the file's YAML frontmatter using `gray-matter`, extracting: `description`, `tools` (comma-separated string → `string[]`), `model`, and any other frontmatter fields.
+4. The markdown body (after frontmatter) becomes the agent's `prompt` (system prompt).
+5. It constructs an `AgentDefinition` object (SDK type) and passes it via the `agents` option in the `query()` call.
+
+**Frontmatter field mapping:**
+
+| Agent file frontmatter | `AgentDefinition` field | Transform |
+|------------------------|------------------------|-----------|
+| `description` | `description` | Direct string copy |
+| `tools` | `tools` | Split comma-separated string, trim whitespace → `string[]`. The agent files use YAML bare string format (`tools: Read, Grep, Glob, Bash`), which `gray-matter` parses as a single string. If the field is already an array (YAML list syntax), use it directly. |
+| `model` | `model` | Direct string copy (e.g., `'opus'`). Defaults to `'inherit'` if absent. |
+| (markdown body) | `prompt` | Direct string copy |
+
+**Fields not mapped to `AgentDefinition`:** The agent file frontmatter includes fields like `name`, `skills`, `hooks`, and `permissionMode` that are not part of the SDK's `AgentDefinition` type. These are handled as follows:
+
+- **`hooks`** — Passed programmatically via the SDK's `hooks` option (session-level, not agent-level). The engine provides a TypeScript implementation of the bash validator hook. See Programmatic Hooks below.
+- **`skills`** — Discovered by `settingSources: ['project']` from `.claude/skills/` in the project tree. No special handling needed.
+- **`permissionMode`** — Overridden by the engine's explicit `permissionMode` option regardless.
+
+**Error handling:** If the agent definition file cannot be read (missing, permissions error) or contains malformed YAML (frontmatter parsing failure), the error propagates to the caller — the session is not created. This is treated as an agent session creation failure (log at `error` level, retry next cycle).
+
+**Module location:** The agent definition loading logic lives in `engine/agent-manager/`. The `buildQueryFactory` function accepts `repoRoot` and performs the file reading and frontmatter parsing internally.
+
+### Programmatic Hooks
+
+The engine passes hooks to the SDK programmatically via the `hooks` option in `query()`, rather than relying on hook definitions in agent files or `.claude/settings.json`. This is necessary because agent-file-level hooks are part of agent definition resolution, which the engine bypasses by providing definitions inline (see Agent Definition Loading).
+
+**Bash validator hook:** All workflow agents run with `permissionMode: 'bypassPermissions'`, which removes all interactive guardrails on the Bash tool. The engine registers a `PreToolUse` hook (matcher: `Bash`) that validates every Bash command against a blocklist/allowlist filter before execution. The validation rules (blocklist patterns, allowlist prefixes, command segmentation, evaluation order) are defined in `agent-hook-bash-validator.md`. The engine provides a TypeScript implementation of those rules; the shell script implementation (`agent-hook-bash-validator-script.md`) serves interactive agent use outside the control plane. Both implementations produce identical accept/reject decisions.
+
+**Hook implementation:**
+
+The `QueryFactory` receives a `PreToolUse` hook callback at construction time and includes it in the `hooks` option of every `query()` call. The callback:
+
+1. Extracts the `command` string from the hook input's `tool_input`.
+2. Runs the command through the blocklist (same ERE patterns as the shell script, evaluated via RegExp).
+3. If no blocklist match, segments the command (quote-aware splitting on `&&`, `||`, `;`, `|`, newlines) and checks each segment's first word against the allowlist.
+4. Returns `{ decision: 'approve' }` to allow, or `{ decision: 'block', reason: '<message>' }` to reject. The `reason` string must use the exact error message format defined in `agent-hook-bash-validator.md` § Error Message Format (`Blocked: matches dangerous pattern '<pattern>'` for blocklist, `Blocked: '<command>' is not in the allowed command list` for allowlist).
+
+The hook callback signature follows the SDK's `HookCallback` type:
+
+```ts
+type HookCallback = (
+  input: HookInput,
+  toolUseID: string | undefined,
+  options: { signal: AbortSignal },
+) => Promise<HookJSONOutput>;
+```
+
+**Module location:** The bash validator TypeScript implementation lives in `engine/agent-manager/`. It implements the validation rules from `agent-hook-bash-validator.md` — blocklist patterns, allowlist prefixes, command segmentation, quote-aware parsing, and evaluation order. See that spec for the normative rule definitions.
+
 ### SDK Session Configuration
 
-The Agent Manager creates agent sessions using the v1 `query()` function from `@anthropic-ai/claude-agent-sdk`. The `agent` option tells the SDK to resolve the named agent definition from `.claude/agents/<name>.md` and apply its frontmatter configuration (system prompt, tools, model, skills, hooks) to the session. The engine controls session-level options (working directory, permissions, cancellation) directly.
+The Agent Manager creates agent sessions using the v1 `query()` function from `@anthropic-ai/claude-agent-sdk`. The engine loads agent definitions inline (see Agent Definition Loading above) and passes them via the `agents` option, while `settingSources: ['project']` loads project-level settings (CLAUDE.md, `.claude/settings.json`, skills, hooks). The engine controls session-level options (working directory, permissions, cancellation) directly.
 
 **Call signature:**
 
@@ -317,8 +375,14 @@ const q = query({
   prompt: triggerContext,     // e.g., 'docs/specs/workflow/control-plane.md' or '42'
   options: {
     agent: agentName,         // e.g., 'planner', 'implementor', 'reviewer'
+    agents: {
+      [agentName]: agentDefinition, // inline AgentDefinition loaded from .claude/agents/<name>.md
+    },
     cwd: workingDirectory,    // worktree path (Implementor) or repo root (Planner, Reviewer)
     settingSources: ['project'],
+    hooks: {
+      PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }],
+    },
     permissionMode: 'bypassPermissions',
     allowDangerouslySkipPermissions: true,
     abortController,
@@ -331,25 +395,29 @@ const q = query({
 | Option | Value | Purpose |
 |--------|-------|---------|
 | `prompt` | Trigger context string | The initial user message. Space-separated spec paths (Planner), or issue number as string (Implementor, Reviewer). |
-| `agent` | Agent name from config | Tells the SDK to resolve `.claude/agents/<name>.md` and apply its frontmatter: `tools` (allowed tool set), `model`, `skills`, `hooks`, and the markdown body as the system prompt. |
+| `agent` | Agent name from config | Selects which agent definition to use from the `agents` map. |
+| `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The SDK uses this map instead of resolving agent files from the filesystem via `settingSources`. |
 | `cwd` | Worktree or repo root | Implementor: `.worktrees/issue-<N>`. Planner, Reviewer: repository root. |
-| `settingSources` | `['project']` | Loads `.claude/agents/` definitions, `.claude/settings.json`, and CLAUDE.md project instructions. Required for the `agent` option to resolve agent files from the project. |
+| `settingSources` | `['project']` | Loads project-level settings: `.claude/settings.json`, CLAUDE.md project instructions, and skills from `.claude/skills/`. Does **not** need to resolve agent definition files because `agents` provides them inline. |
+| `hooks` | `{ PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }] }` | Programmatic hooks. The bash validator hook validates every Bash command against a blocklist/allowlist before execution. See Programmatic Hooks. |
 | `permissionMode` | `'bypassPermissions'` | Agents run non-interactively. All tool invocations are auto-approved. |
 | `allowDangerouslySkipPermissions` | `true` | Required safety acknowledgment when using `bypassPermissions` (SDK ≥0.2.x). |
 | `abortController` | `AbortController` | Cancellation handle. The engine calls `abortController.abort()` for user cancellation, shutdown, and duration timeout. |
 
-**What the SDK resolves from the agent file:**
+**Why inline loading:** The SDK's `settingSources: ['project']` resolution discovers `.claude/agents/` by traversing the filesystem from `cwd` upward looking for a `.git` directory. Git worktrees have a `.git` file (not a directory), causing the resolution to fail silently — the CLI subprocess hangs indefinitely with zero output. By loading agent definitions inline, the engine reads from the repository root (which always has a `.git` directory) and passes the definitions directly to the SDK, bypassing the worktree resolution issue entirely. This applies to all agent types (Implementor, Planner, Reviewer) for consistency, even though only the Implementor currently runs in a worktree.
 
-The agent definition files (`.claude/agents/planner.md`, etc.) contain YAML frontmatter parsed by the SDK. The engine does not read or parse these files — the SDK handles resolution when `settingSources` includes `'project'` and the `agent` option is set.
+**SDK `AgentDefinition` type:**
 
-| Frontmatter field | SDK behavior |
-|-------------------|-------------|
-| `tools` | Sets the allowed tool set for the session (e.g., `Read, Grep, Glob, Bash`) |
-| `model` | Sets the model (e.g., `opus`) |
-| `skills` | Preloads named skills into the agent context (e.g., `github-workflow`) |
-| `hooks` | Registers hook callbacks (e.g., `PreToolUse` bash validator) |
-| `permissionMode` | Overridden by the engine's explicit `permissionMode` option |
-| (markdown body) | Used as the system prompt |
+```ts
+type AgentDefinition = {
+  description: string;
+  tools?: string[];
+  disallowedTools?: string[];
+  prompt: string;
+  model?: 'sonnet' | 'opus' | 'haiku' | 'inherit';
+  mcpServers?: AgentMcpServerSpec[];
+};
+```
 
 **SDK isolation:** No file outside `engine/agent-manager/` may import from `@anthropic-ai/claude-agent-sdk`. The `QueryFactory` dependency injection seam (see below) ensures the SDK is mockable for testing.
 
@@ -462,7 +530,7 @@ This ensures no issue is permanently stuck in `status:in-progress` due to agent 
 
 The engine persists a lightweight cache to prevent redundant Planner runs across restarts. Without this cache, the SpecPoller starts with an empty snapshot on each engine initialization, causing all approved specs to appear as new changes and triggering a full Planner dispatch.
 
-**Cache file:** `.agentic-workflow-cache.json` in the engine's working directory (repository root). This file should be gitignored — it is machine-local ephemeral state, not shared across clones.
+**Cache file:** `.agentic-workflow-cache.json` at `repoRoot` (see Repository Root Resolution). This file should be gitignored — it is machine-local ephemeral state, not shared across clones.
 
 **Format:**
 
@@ -486,7 +554,7 @@ The cache stores the SpecPoller's snapshot at the time the Planner was last succ
 
 **Startup seeding:** On engine initialization, before startup recovery:
 
-1. Attempt to read `.agentic-workflow-cache.json` from the working directory.
+1. Attempt to read `.agentic-workflow-cache.json` from `repoRoot`.
 2. If the file exists and contains valid JSON matching the `SpecPollerSnapshot` schema, pass it to the SpecPoller as the initial snapshot seed.
 3. The SpecPoller uses the seed as its starting snapshot, so the first poll cycle compares the current tree SHA and per-file blob SHAs against the seeded state. Only files that actually changed since the last successful Planner run are reported.
 4. If the file is missing, unreadable, or contains invalid JSON, treat as a cold start — the SpecPoller starts with an empty snapshot (existing behavior). Log at `debug` level (a missing cache is normal on first run).
@@ -509,6 +577,21 @@ The startup sequence becomes: load planner cache → startup recovery → start 
 **Deferred paths interaction:** If the Planner succeeds but changes were deferred during its run, the cached snapshot reflects the state at dispatch time (before the deferred changes were detected). On the next restart, the SpecPoller compares the current tree against the cached snapshot. Files that changed after the cached snapshot (including the deferred changes) have different blob SHAs and are detected and planned.
 
 **Cache write errors:** If the cache file cannot be written (permissions, disk full), log at `error` level and continue. The engine operates correctly without the cache — the next restart will perform a full Planner run. This is non-fatal.
+
+### Repository Root Resolution
+
+The engine must resolve the git repository root at startup. This path is used for:
+
+- Worktree creation (`.worktrees/issue-<N>` is relative to repo root)
+- Agent definition loading (`.claude/agents/<name>.md` is read from repo root)
+- Planner cache file location (`.agentic-workflow-cache.json` at repo root)
+- Relative `logsDir` resolution
+
+**Resolution:** The `createEngine` factory resolves the repository root using `git rev-parse --show-toplevel` (via `execFileSync`). This is a synchronous call that runs once at engine construction time.
+
+**Why not `process.cwd()`:** In a Yarn workspace, `process.cwd()` resolves to the package directory (e.g., `agentic-workflow/`), not the repository root. Using it would create worktrees inside the package directory and fail to find `.claude/agents/` for agent definition loading.
+
+**Override:** The `createEngine` factory accepts an optional `repoRoot` dependency injection for testing. When not provided, it uses `git rev-parse --show-toplevel`.
 
 ### Configuration
 
@@ -545,9 +628,9 @@ At startup, the engine parses `repository` into `owner` and `repo` strings (spli
 
 | Setting | Type | Description | Default |
 |---------|------|-------------|---------|
-| `agentPlanner` | `string` | Agent name for the Planner. Passed as the `agent` option to the SDK, which resolves `.claude/agents/<name>.md`. | `'planner'` |
-| `agentImplementor` | `string` | Agent name for the Implementor. Passed as the `agent` option to the SDK, which resolves `.claude/agents/<name>.md`. | `'implementor'` |
-| `agentReviewer` | `string` | Agent name for the Reviewer. Passed as the `agent` option to the SDK, which resolves `.claude/agents/<name>.md`. | `'reviewer'` |
+| `agentPlanner` | `string` | Agent name for the Planner. The engine reads `.claude/agents/<name>.md` from the repository root, parses it, and passes the definition inline to the SDK. | `'planner'` |
+| `agentImplementor` | `string` | Agent name for the Implementor. The engine reads `.claude/agents/<name>.md` from the repository root, parses it, and passes the definition inline to the SDK. | `'implementor'` |
+| `agentReviewer` | `string` | Agent name for the Reviewer. The engine reads `.claude/agents/<name>.md` from the repository root, parses it, and passes the definition inline to the SDK. | `'reviewer'` |
 | `maxAgentDuration` | `number` | Maximum seconds an agent session can run before being cancelled. Applies to all agent types. When exceeded, the engine cancels the session and performs crash recovery. | `1800` (30 min) |
 
 #### Logging
@@ -555,7 +638,7 @@ At startup, the engine parses `repository` into `owner` and `repo` strings (spli
 | Setting | Type | Description | Default |
 |---------|------|-------------|---------|
 | `agentSessions` | `boolean` | Enable writing agent session transcripts to disk. When enabled, the Agent Manager writes one log file per agent session capturing the full SDK message stream. | `false` |
-| `logsDir` | `string` | Directory for agent session log files. Absolute paths are used as-is. Relative paths are resolved from the engine's working directory (the repository root, i.e., `process.cwd()`). Created automatically if it does not exist. | `logs` |
+| `logsDir` | `string` | Directory for agent session log files. Absolute paths are used as-is. Relative paths are resolved from `repoRoot` (see Repository Root Resolution). Created automatically if it does not exist. | `logs` |
 
 When `agentSessions` is `false` (default), no log files are created and agent events do not include `logFilePath`. The `logsDir` setting is ignored when `agentSessions` is disabled.
 
@@ -591,6 +674,8 @@ The engine must not crash on transient errors. Each error type has a defined rec
 |-------|----------|
 | GitHub API error (in any poller) | Log at `error` level. Skip this cycle for the affected poller only. Other pollers continue unaffected. Retry next cycle. |
 | GitHub API rate limit (HTTP 403/429) | Treated as a GitHub API error — same log-and-skip behavior. The poll interval provides natural backoff. No explicit rate limit tracking or adaptive throttling in v1. GitHub App installation tokens have a 5,000 request/hour limit; with default poll intervals (30s issues, 60s specs), steady-state usage is well within this budget. |
+| Agent definition file missing, unreadable, or malformed YAML | Treated as agent session creation failure — the error propagates before the session is created. Logged at `error` level. Not a transient error (requires fixing the agent file), but the engine continues operating. |
+| Repository root resolution failure (`git rev-parse` fails) | Log at `error` level and exit. The engine cannot operate without a valid repository root. This is a deployment misconfiguration (not running inside a git repository). |
 | Agent session creation failure | Log at `error` level. Do not mark agent as running. Next cycle will re-detect the state and retry dispatch. |
 | Agent session failure | Log at `error` level with error details. Perform crash recovery if applicable. |
 | Config file missing or invalid | Log at `error` level and exit. This is not a transient error. |
@@ -669,6 +754,7 @@ type SpecChangedEvent = {
   type: 'specChanged';
   filePath: string;
   frontmatterStatus: string;
+  changeType: 'added' | 'modified';
   commitSHA: string; // HEAD commit on default branch (for diff URLs)
 };
 
@@ -829,10 +915,22 @@ type QueryFactoryParams = {
 };
 
 // The factory abstracts the SDK's query() call. The default implementation
-// passes settingSources, permissionMode, and allowDangerouslySkipPermissions
-// alongside the caller-provided params. Test doubles return a mock Query
-// without spawning a real agent process.
+// reads agent definition files from {repoRoot}/.claude/agents/{agent}.md,
+// parses YAML frontmatter with gray-matter, and passes the inline AgentDefinition
+// to the SDK via the agents option. It also passes settingSources,
+// permissionMode, and allowDangerouslySkipPermissions. Test doubles return
+// a mock Query without spawning a real agent process.
+//
+// buildQueryFactory(config: QueryFactoryConfig): QueryFactory
 type QueryFactory = (params: QueryFactoryParams) => Query; // Query is from @anthropic-ai/claude-agent-sdk
+
+type QueryFactoryConfig = {
+  repoRoot: string; // absolute path to the git repository root
+  bashValidatorHook: HookCallback; // PreToolUse hook for Bash command validation
+};
+
+// HookCallback is from @anthropic-ai/claude-agent-sdk
+// The engine constructs the bash validator hook and passes it to buildQueryFactory.
 ```
 
 #### SpecPoller
@@ -844,18 +942,19 @@ type SpecPollerFileEntry = {
 };
 
 type SpecPollerSnapshot = {
-  specsDirTreeSHA: string;
+  specsDirTreeSHA: string | null; // null when snapshot is empty (initial state, no seed)
   files: Record<string, SpecPollerFileEntry>;
 };
 
 type SpecChange = {
   filePath: string;
   frontmatterStatus: string;
+  changeType: 'added' | 'modified';
 };
 
 type SpecPollerBatchResult = {
   changes: SpecChange[];
-  commitSHA: string; // HEAD commit on default branch (for diff URLs)
+  commitSHA: string; // HEAD commit on default branch (for diff URLs); empty string when changes is empty (no API call made)
 };
 ```
 
@@ -955,9 +1054,13 @@ type Engine = {
 - [ ] Given an Implementor agent session fails, when the `agentFailed` event is emitted, then it includes the session ID and preserved worktree path.
 - [ ] Given an Implementor agent session succeeds, when cleanup runs, then the worktree is removed.
 - [ ] Given an Implementor agent session fails, when the failure is detected, then the worktree is preserved.
-- [ ] Given the engine dispatches any agent, when `query()` is called, then the options include `agent` (agent name from config), `settingSources: ['project']`, `permissionMode: 'bypassPermissions'`, and `allowDangerouslySkipPermissions: true`.
+- [ ] Given the engine dispatches any agent, when `query()` is called, then the options include `agent` (agent name from config), `agents` (map containing an inline `AgentDefinition` loaded from `.claude/agents/<name>.md`), `settingSources: ['project']`, `permissionMode: 'bypassPermissions'`, and `allowDangerouslySkipPermissions: true`.
+- [ ] Given the engine dispatches any agent, when the `QueryFactory` loads the agent definition file, then it reads `{repoRoot}/.claude/agents/{agentName}.md`, parses YAML frontmatter with `gray-matter`, maps `description`, `tools` (comma-separated → array), `model` (default `'inherit'`), and the markdown body as `prompt` into an `AgentDefinition`.
 - [ ] Given the engine dispatches an Implementor for issue N, when `query()` is called, then `cwd` is set to the worktree path (`.worktrees/issue-<N>`). For Planner and Reviewer, `cwd` is the repository root.
-- [ ] Given the engine codebase, when inspected, then no file outside `engine/agent-manager/` imports from `@anthropic-ai/claude-agent-sdk`.
+- [ ] Given the engine codebase, when inspected, then no file outside `engine/agent-manager/` imports from `@anthropic-ai/claude-agent-sdk` or `gray-matter`.
+- [ ] Given the engine dispatches any agent, when `query()` is called, then the `hooks` option includes a `PreToolUse` hook with matcher `Bash` that implements the bash validator logic from `agent-hook-bash-validator.md`.
+- [ ] Given the bash validator hook receives a Bash command matching a blocklist pattern, when the hook evaluates the command, then it returns a block decision with the matched pattern in the reason.
+- [ ] Given the bash validator hook receives a Bash command with all segments having allowlisted prefixes, when the hook evaluates the command, then it returns an approve decision.
 
 ### Recovery
 
@@ -1022,11 +1125,22 @@ type Engine = {
 - [ ] Given a Planner session fails, when the failure is detected, then the dispatched spec paths are re-added to the deferred buffer for the next dispatch attempt.
 - [ ] Given recovery resets an issue to `status:pending`, when the recovery completes, then both `recoveryPerformed` and a synthetic `issueStatusChanged` are emitted so the TUI updates immediately.
 
+### Repository Root
+
+- [ ] Given `createEngine` is called without an explicit `repoRoot` dependency, when the engine initializes, then it resolves the repository root via `git rev-parse --show-toplevel`.
+- [ ] Given `createEngine` is called with an explicit `repoRoot` dependency, when the engine initializes, then it uses the provided value without running `git rev-parse`.
+- [ ] Given the resolved `repoRoot`, when worktrees are created, then they are located at `{repoRoot}/.worktrees/issue-<N>`.
+- [ ] Given the resolved `repoRoot`, when the `QueryFactory` loads agent definitions, then it reads from `{repoRoot}/.claude/agents/<name>.md`.
+- [ ] Given the agent definition file does not exist at the expected path or contains malformed YAML, when the engine attempts to dispatch the agent, then the dispatch fails with an error (treated as agent session creation failure).
+- [ ] Given `git rev-parse --show-toplevel` fails (not inside a git repository), when the engine initializes, then it logs an error and exits.
+
 ## Dependencies
 
 - `@octokit/rest` — GitHub REST API client. Wrapped by the `GitHubClient` adapter; not imported directly outside `engine/github-client/`.
 - `@octokit/auth-app` — GitHub App authentication strategy for `@octokit/rest`. Handles JWT creation, installation token exchange, and automatic token refresh.
-- `@anthropic-ai/claude-agent-sdk` (≥0.2.x) — The v1 `query()` API is used for all agent invocations. The `agent` option resolves agent definition files from `.claude/agents/`, and `settingSources: ['project']` loads project-level settings. The SDK handles frontmatter parsing, system prompt injection, tool configuration, model selection, skill preloading, and hook registration. See SDK Session Configuration for the full call signature and option details.
+- `@anthropic-ai/claude-agent-sdk` (≥0.2.x) — The v1 `query()` API is used for all agent invocations. Agent definitions are loaded inline by the engine (see Agent Definition Loading) and passed via the `agents` option. The bash validator hook is passed via the `hooks` option (see Programmatic Hooks). `settingSources: ['project']` loads project-level settings (CLAUDE.md, `.claude/settings.json`, skills). See SDK Session Configuration for the full call signature and option details.
+- `gray-matter` — YAML frontmatter parser. Used by the `QueryFactory` to parse agent definition files (`.claude/agents/<name>.md`) into structured frontmatter + markdown body. Imported only in `engine/agent-manager/`.
+- `agent-hook-bash-validator.md` — Normative validation rules for the Bash tool hook (blocklist, allowlist, segmentation). The engine provides a TypeScript implementation; see Programmatic Hooks.
 - `control-plane.md` — Parent architecture spec (dispatch tiers, worktree isolation, recovery policy)
 - `workflow.md` — Status transition table, quality gates, escalation protocol
 - `agent-planner.md` — Planner agent definition (invoked by auto-dispatch)
