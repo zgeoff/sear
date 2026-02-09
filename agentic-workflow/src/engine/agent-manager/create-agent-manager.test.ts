@@ -26,8 +26,10 @@ function createMockQuery(): MockQuery {
   const mockQuery: MockQuery = {
     pushMessage(msg: unknown) {
       if (pendingReads.length > 0) {
-        const pending = pendingReads.shift()!;
-        pending.resolve({ value: msg, done: false });
+        const pending = pendingReads.shift();
+        if (pending) {
+          pending.resolve({ value: msg, done: false });
+        }
         return;
       }
       bufferedMessages.push(msg);
@@ -45,7 +47,7 @@ function createMockQuery(): MockQuery {
 
     next() {
       if (bufferedMessages.length > 0) {
-        const msg = bufferedMessages.shift()!;
+        const msg = bufferedMessages.shift();
         return Promise.resolve({ value: msg, done: false });
       }
       if (ended) {
@@ -117,6 +119,10 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
 
   emitter.on((event) => events.push(event));
 
+  // MockQuery implements the subset of Query that the agent manager uses
+  // (async iteration + interrupt). The full Query interface includes SDK control
+  // methods (setModel, supportedCommands, etc.) that are never called by the
+  // agent manager, so a type assertion is necessary here.
   const queryFactory: QueryFactory = async (params) => {
     queryParams.push(params);
     const mockQuery = createMockQuery();
