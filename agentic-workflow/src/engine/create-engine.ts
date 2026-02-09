@@ -270,7 +270,7 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
       event.agentType === 'planner' &&
       event.specPaths !== undefined
     ) {
-      dispatch.handlePlannerFailed(event.specPaths);
+      deps.dispatch.handlePlannerFailed(event.specPaths);
     }
 
     if (
