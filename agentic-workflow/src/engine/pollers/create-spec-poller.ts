@@ -1,7 +1,7 @@
 import type { SpecChange, SpecPollerBatchResult } from '../../types';
 import type { GitHubClient } from '../github-client/types';
 import { parseFrontmatterStatus } from './parse-frontmatter-status';
-import type { LogError, SpecPoller } from './types';
+import type { LogError, SpecPoller, SpecPollerFileEntry, SpecPollerSnapshot } from './types';
 
 type SpecPollerConfig = {
   octokit: GitHubClient;
@@ -10,6 +10,7 @@ type SpecPollerConfig = {
   specsDir: string;
   defaultBranch: string;
   logError?: LogError;
+  initialSnapshot?: SpecPollerSnapshot;
 };
 
 type SpecSnapshot = {
@@ -23,11 +24,7 @@ const EMPTY_RESULT: SpecPollerBatchResult = { changes: [], commitSHA: '' };
 export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
   const { octokit, owner, repo, specsDir, defaultBranch, logError = console.error } = config;
 
-  const snapshot: SpecSnapshot = {
-    treeSHA: null,
-    fileSHAs: new Map(),
-    fileStatuses: new Map(),
-  };
+  const snapshot: SpecSnapshot = buildInitialSnapshot(config.initialSnapshot);
 
   async function getSpecsDirTreeSHA(): Promise<string | null> {
     // Fetch the tree SHA of the specs directory using a single recursive API call.
@@ -142,5 +139,28 @@ export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
     }
   }
 
-  return { poll };
+  function getSnapshot(): SpecPollerSnapshot {
+    const files: Record<string, SpecPollerFileEntry> = {};
+    for (const [path, blobSHA] of snapshot.fileSHAs) {
+      const frontmatterStatus = snapshot.fileStatuses.get(path) ?? '';
+      files[path] = { blobSHA, frontmatterStatus };
+    }
+    return { specsDirTreeSHA: snapshot.treeSHA, files };
+  }
+
+  return { poll, getSnapshot };
+}
+
+function buildInitialSnapshot(initial?: SpecPollerSnapshot): SpecSnapshot {
+  if (!initial) {
+    return { treeSHA: null, fileSHAs: new Map(), fileStatuses: new Map() };
+  }
+
+  const fileSHAs = new Map<string, string>();
+  const fileStatuses = new Map<string, string>();
+  for (const [path, entry] of Object.entries(initial.files)) {
+    fileSHAs.set(path, entry.blobSHA);
+    fileStatuses.set(path, entry.frontmatterStatus);
+  }
+  return { treeSHA: initial.specsDirTreeSHA, fileSHAs, fileStatuses };
 }
