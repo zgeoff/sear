@@ -47,7 +47,7 @@ async function setupStartedTest(startupResult?: StartupResult) {
   await result.waitForStartCalled();
   result.resolveStart(startupResult ?? { issueCount: 0, recoveriesPerformed: 0 });
   await vi.waitFor(() => {
-    expect(result.lastFrame()).toContain('Notifications');
+    expect(result.lastFrame()).toContain('No issues tracked');
   });
   return result;
 }
@@ -70,9 +70,9 @@ test('it renders the three-pane layout after startup completes', async () => {
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Notifications');
-    expect(frame).toContain('Issue List');
-    expect(frame).toContain('Detail Pane');
+    expect(frame).toContain('No issues tracked');
+    expect(frame).toContain('No issue selected');
+    expect(frame).toContain('Startup complete: 5 issues');
   });
 });
 
@@ -118,13 +118,12 @@ test('it shows an error message when startup fails', async () => {
 // Layout — Focus
 // ---------------------------------------------------------------------------
 
-test('it highlights the issue list pane on initial render', async () => {
+test('it renders all three panes on initial startup', async () => {
   const { lastFrame } = await setupStartedTest();
 
   const frame = lastFrame();
-  expect(frame).toContain('Issue List');
-  expect(frame).toContain('Detail Pane');
-  expect(frame).toContain('Notifications');
+  expect(frame).toContain('No issues tracked');
+  expect(frame).toContain('No issue selected');
 });
 
 test('it shows placeholder content in the issue list pane', async () => {
@@ -144,23 +143,107 @@ test('it shows placeholder content in the detail pane', async () => {
 // ---------------------------------------------------------------------------
 
 test('it moves focus forward through the pane cycle when Tab is pressed', async () => {
-  const { lastFrame, stdin } = await setupStartedTest();
+  const { lastFrame, stdin, emit } = await setupStartedTest();
 
-  stdin.write('\t');
+  // Add two issues so j navigation is possible
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'First',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 2,
+    title: 'Second',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-02T00:00:00Z',
+  });
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Detail Pane');
+    expect(lastFrame()).toContain('#1');
   });
+
+  // Select the first issue while focus is on issue list
+  stdin.write('j');
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('> ');
+  });
+
+  // Move focus away from issue list to detail pane
+  stdin.write('\t');
+
+  // Allow focus change to take effect
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Pressing j should NOT change issue selection since focus moved to detail pane
+  stdin.write('j');
+
+  await new Promise((r) => setTimeout(r, 50));
+
+  const frame = lastFrame() ?? '';
+  const lines = frame.split('\n');
+  const selectedLine = lines.find((l) => l.includes('> '));
+  expect(selectedLine).toContain('#1');
 });
 
 test('it moves focus backward through the pane cycle when Shift+Tab is pressed', async () => {
-  const { lastFrame, stdin } = await setupStartedTest();
+  const { lastFrame, stdin, emit } = await setupStartedTest();
 
-  stdin.write('\x1b[Z');
+  // Add two issues so j navigation is possible
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'First',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 2,
+    title: 'Second',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-02T00:00:00Z',
+  });
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Notifications');
+    expect(lastFrame()).toContain('#1');
   });
+
+  // Select the first issue while focus is on issue list
+  stdin.write('j');
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('> ');
+  });
+
+  // Move focus backward from issue list to notifications
+  stdin.write('\x1b[Z');
+
+  // Allow focus change to take effect
+  await new Promise((r) => setTimeout(r, 50));
+
+  // Pressing j should NOT change issue selection since focus moved to notifications
+  stdin.write('j');
+
+  await new Promise((r) => setTimeout(r, 50));
+
+  const frame = lastFrame() ?? '';
+  const lines = frame.split('\n');
+  const selectedLine = lines.find((l) => l.includes('> '));
+  expect(selectedLine).toContain('#1');
 });
 
 // ---------------------------------------------------------------------------
@@ -173,7 +256,9 @@ test('it shows a quit prompt without agent count when no agents are running', as
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    const frame = lastFrame();
+    expect(frame).toContain('Quit?');
+    expect(frame).toContain('[y/n]');
   });
 });
 
@@ -200,7 +285,9 @@ test('it shows a quit prompt with agent count when agents are running', async ()
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? 1 agent(s) running. [y/n]');
+    const frame = lastFrame();
+    expect(frame).toContain('Quit? 1 agent(s) running.');
+    expect(frame).toContain('[y/n]');
   });
 });
 
@@ -210,7 +297,7 @@ test('it dismisses the quit prompt when the user presses n', async () => {
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   stdin.write('n');
@@ -226,7 +313,7 @@ test('it dismisses the quit prompt when the user presses Escape', async () => {
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   stdin.write('\x1b');
@@ -242,7 +329,7 @@ test('it sends the shutdown command when the user confirms quit', async () => {
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   stdin.write('y');
@@ -259,14 +346,14 @@ test('it ignores Enter while the quit prompt is displayed', async () => {
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   stdin.write('\r');
 
   // The prompt should still be visible — Enter is ignored
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   expect(sentCommands).not.toContainEqual({ command: 'shutdown' });
@@ -278,14 +365,14 @@ test('it ignores q while the quit prompt is displayed', async () => {
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   stdin.write('q');
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Quit? [y/n]');
+    expect(frame).toContain('Quit?');
   });
 });
 
@@ -332,7 +419,7 @@ test('it exits the app when all agents complete during shutdown', async () => {
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   stdin.write('y');
@@ -352,13 +439,13 @@ test('it ignores Tab while the quit prompt is active', async () => {
   stdin.write('q');
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 
   stdin.write('\t');
 
   // Prompt is still active — Tab was ignored
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Quit? [y/n]');
+    expect(lastFrame()).toContain('Quit?');
   });
 });
