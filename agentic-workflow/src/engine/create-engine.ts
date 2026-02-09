@@ -29,9 +29,11 @@ import type { Dispatch } from './dispatch/types.ts';
 import { createEventEmitter } from './event-emitter/create-event-emitter.ts';
 import { createGitHubClient } from './github-client/create-github-client.ts';
 import type { GitHubClient } from './github-client/types.ts';
+import { createPlannerCache } from './planner-cache/create-planner-cache.ts';
+import type { PlannerCache } from './planner-cache/types.ts';
 import { createIssuePoller } from './pollers/create-issue-poller.ts';
 import { createSpecPoller } from './pollers/create-spec-poller.ts';
-import type { IssuePoller, IssueSnapshot } from './pollers/types.ts';
+import type { IssuePoller, IssueSnapshot, SpecPollerSnapshot } from './pollers/types.ts';
 import { getIssueDetails } from './queries/get-issue-details.ts';
 import { getPRForIssue } from './queries/get-pr-for-issue.ts';
 import type { QueriesConfig } from './queries/types.ts';
@@ -66,6 +68,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   const emitter = createEventEmitter();
   const recovery = createRecovery({ octokit, owner, repo, emitter });
   const worktreeManager = deps?.worktreeManager ?? createWorktreeManager({ repoRoot });
+  const plannerCache = createPlannerCache({ repoRoot, logger });
 
   const issuePoller = createIssuePoller({
     octokit,
@@ -76,15 +79,13 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       logger.error(message, { error: String(error) }),
   });
 
-  const specPoller = createSpecPoller({
-    octokit,
-    owner,
-    repo,
-    specsDir: resolved.specPoller.specsDir,
-    defaultBranch: resolved.specPoller.defaultBranch,
-    logError: (message: string, error: unknown): void =>
-      logger.error(message, { error: String(error) }),
-  });
+  // SpecPoller is created without initialSnapshot here. During start(), if a
+  // valid cache exists, the specPoller is re-created with the cached snapshot.
+  let specPoller = buildSpecPoller(resolved, octokit, logger);
+
+  // Holds the SpecPoller snapshot captured at Planner dispatch time. Written to
+  // the cache file when the Planner completes successfully.
+  let pendingCacheSnapshot: SpecPollerSnapshot | null = null;
 
   const agentManager = createAgentManager({
     emitter,
@@ -107,6 +108,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     emitter,
     {
       dispatchPlanner: (specPaths: string[]): void => {
+        pendingCacheSnapshot = specPoller.getSnapshot();
         void agentManager.dispatchPlanner({ specPaths });
       },
       dispatchReviewer: (issueNumber: number): void => {
@@ -157,21 +159,32 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
         recovery,
         issuePoller,
         dispatch,
+        plannerCache,
+        getPendingCacheSnapshot: (): SpecPollerSnapshot | null => pendingCacheSnapshot,
+        clearPendingCacheSnapshot: (): void => {
+          pendingCacheSnapshot = null;
+        },
         logger,
       });
       emitter.on(eventHandler);
 
-      // Step 2: Startup recovery
+      // Step 2: Load planner cache (before recovery and before pollers)
+      const cachedSnapshot = await plannerCache.load();
+      if (cachedSnapshot) {
+        specPoller = buildSpecPoller(resolved, octokit, logger, cachedSnapshot);
+      }
+
+      // Step 3: Startup recovery
       const recoveryResult = await recovery.performStartupRecovery();
 
-      // Step 3: First IssuePoller cycle
+      // Step 4: First IssuePoller cycle
       await issuePoller.poll();
 
-      // Step 4: First SpecPoller cycle
+      // Step 5: First SpecPoller cycle
       const specResult = await specPoller.poll();
       dispatch.handleSpecPollerResult(specResult);
 
-      // Step 5: Start recurring poll timers
+      // Step 6: Start recurring poll timers
       pollerTimers.issueTimer = setInterval(() => {
         logger.debug('IssuePoller cycle starting');
         void issuePoller.poll();
@@ -228,40 +241,65 @@ interface EventHandlerDeps {
   recovery: Recovery;
   issuePoller: IssuePoller;
   dispatch: Dispatch;
+  plannerCache: PlannerCache;
+  getPendingCacheSnapshot: () => SpecPollerSnapshot | null;
+  clearPendingCacheSnapshot: () => void;
   logger: Logger;
 }
 
 function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void {
-  const { agentManager, recovery, issuePoller, dispatch, logger } = deps;
   return (event: EngineEvent): void => {
     if (event.type === 'issueStatusChanged') {
-      dispatch.handleIssueStatusChanged(event);
+      deps.dispatch.handleIssueStatusChanged(event);
     }
 
-    if (event.type === 'issueRemoved' && agentManager.isRunning(event.issueNumber)) {
-      agentManager.cancelAgent(event.issueNumber);
+    if (event.type === 'issueRemoved' && deps.agentManager.isRunning(event.issueNumber)) {
+      deps.agentManager.cancelAgent(event.issueNumber);
+    }
+
+    if (event.type === 'agentCompleted' && event.agentType === 'planner') {
+      handlePlannerCompleted(deps);
+    }
+
+    if (event.type === 'agentFailed' && event.agentType === 'planner') {
+      deps.clearPendingCacheSnapshot();
     }
 
     if (
       (event.type === 'agentCompleted' || event.type === 'agentFailed') &&
       event.issueNumber !== undefined
     ) {
-      const snapshotAdapter = buildSnapshotAdapter(issuePoller);
+      const snapshotAdapter = buildSnapshotAdapter(deps.issuePoller);
 
-      recovery
+      deps.recovery
         .performCrashRecovery({
           agentType: event.agentType,
           issueNumber: event.issueNumber,
           snapshot: snapshotAdapter,
         })
         .catch((error) => {
-          logger.error('Crash recovery failed', {
+          deps.logger.error('Crash recovery failed', {
             issueNumber: event.issueNumber,
             error: String(error),
           });
         });
     }
   };
+}
+
+function handlePlannerCompleted(deps: EventHandlerDeps): void {
+  const snapshot = deps.getPendingCacheSnapshot();
+  deps.clearPendingCacheSnapshot();
+
+  if (!snapshot) {
+    return;
+  }
+
+  deps.plannerCache.write(snapshot).catch((error) => {
+    deps.logger.error('Failed to write planner cache', {
+      error: String(error),
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -400,4 +438,31 @@ function buildGitHubClient(config: ResolvedEngineConfig): GitHubClient {
 
 function resolveRepoRoot(): string {
   return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf-8' }).trim();
+}
+
+// ---------------------------------------------------------------------------
+// SpecPoller factory (supports optional initial snapshot from cache)
+// ---------------------------------------------------------------------------
+
+function buildSpecPoller(
+  config: ResolvedEngineConfig,
+  octokit: GitHubClient,
+  logger: Logger,
+  initialSnapshot?: SpecPollerSnapshot,
+): ReturnType<typeof createSpecPoller> {
+  const baseConfig = {
+    octokit,
+    owner: config.repository.split('/')[0] ?? '',
+    repo: config.repository.split('/')[1] ?? '',
+    specsDir: config.specPoller.specsDir,
+    defaultBranch: config.specPoller.defaultBranch,
+    logError: (message: string, error: unknown): void =>
+      logger.error(message, { error: String(error) }),
+  };
+
+  if (initialSnapshot) {
+    return createSpecPoller({ ...baseConfig, initialSnapshot });
+  }
+
+  return createSpecPoller(baseConfig);
 }

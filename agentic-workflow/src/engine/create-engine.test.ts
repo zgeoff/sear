@@ -1,12 +1,20 @@
 import { execFileSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { vol } from 'memfs';
 import invariant from 'tiny-invariant';
 import { expect, test, vi } from 'vitest';
 import { buildValidConfig } from '../test-utils/build-valid-config.ts';
 import { createMockGitHubClient } from '../test-utils/create-mock-github-client.ts';
-import type { AgentFailedEvent, EngineEvent, IssueStatusChangedEvent } from '../types.ts';
+import type {
+  AgentCompletedEvent,
+  AgentFailedEvent,
+  EngineEvent,
+  IssueStatusChangedEvent,
+} from '../types.ts';
 import type { AgentQuery, QueryFactory, QueryFactoryParams } from './agent-manager/types.ts';
 import { createEngine } from './create-engine.ts';
 import type { GitHubClient } from './github-client/types.ts';
+import type { SpecPollerSnapshot } from './pollers/types.ts';
 import type { WorktreeManager } from './worktree-manager/types.ts';
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -778,4 +786,231 @@ test('it resolves the repository root via git when none is provided', () => {
   expect(execFileSync).toHaveBeenCalledWith('git', ['rev-parse', '--show-toplevel'], {
     encoding: 'utf-8',
   });
+});
+
+// ---------------------------------------------------------------------------
+// Planner Cache integration
+// ---------------------------------------------------------------------------
+
+function buildCacheSnapshot(): SpecPollerSnapshot {
+  return {
+    specsDirTreeSHA: 'tree-sha-1',
+    files: {
+      'docs/specs/workflow/control-plane.md': {
+        blobSHA: 'blob-sha-1',
+        frontmatterStatus: 'approved',
+      },
+    },
+  };
+}
+
+function setupCacheTest(
+  options: SetupOptions & { cacheSnapshot?: SpecPollerSnapshot } = {},
+): ReturnType<typeof setupTest> {
+  vol.reset();
+  vol.mkdirSync('/tmp/test-repo', { recursive: true });
+
+  if (options.cacheSnapshot) {
+    vol.writeFileSync(
+      '/tmp/test-repo/.agentic-workflow-cache.json',
+      JSON.stringify(options.cacheSnapshot),
+    );
+  }
+
+  return setupTest(options);
+}
+
+test('it does not dispatch the planner when the cache matches the current tree', async () => {
+  const cacheSnapshot = buildCacheSnapshot();
+  const { engine, mockQueries, octokit } = setupCacheTest({ cacheSnapshot });
+
+  // SpecPoller returns tree-sha-1, matching the cache
+  vi.mocked(octokit.git.getTree).mockResolvedValue({
+    data: { sha: 'tree-sha-1', tree: [] },
+  });
+
+  await engine.start();
+
+  // No planner should have been dispatched (no spec changes detected)
+  const plannerQueries = mockQueries.length;
+  expect(plannerQueries).toBe(0);
+});
+
+test('it reports only changed files when the cache has a different tree', async () => {
+  const cacheSnapshot: SpecPollerSnapshot = {
+    specsDirTreeSHA: 'old-tree-sha',
+    files: {
+      'docs/specs/control-plane.md': {
+        blobSHA: 'blob-sha-1',
+        frontmatterStatus: 'approved',
+      },
+    },
+  };
+  const { engine, events, octokit } = setupCacheTest({
+    cacheSnapshot,
+    autoComplete: true,
+  });
+
+  // SpecPoller: first call finds specs dir with a new tree SHA
+  vi.mocked(octokit.git.getTree).mockImplementation(async (params) => {
+    if (params.tree_sha === 'main') {
+      return {
+        data: {
+          sha: 'root-sha',
+          tree: [{ path: 'docs/specs', type: 'tree', sha: 'new-tree-sha' }],
+        },
+      };
+    }
+    // Second call: subtree enumeration
+    return {
+      data: {
+        sha: 'new-tree-sha',
+        tree: [
+          { path: 'control-plane.md', type: 'blob', sha: 'blob-sha-1' },
+          { path: 'new-spec.md', type: 'blob', sha: 'blob-sha-new' },
+        ],
+      },
+    };
+  });
+
+  vi.mocked(octokit.repos.getContent).mockImplementation(async (params) => {
+    if (params.path.includes('new-spec.md')) {
+      const content = Buffer.from('---\nstatus: approved\n---\n# New Spec').toString('base64');
+      return { data: { content } };
+    }
+    return { data: { content: '' } };
+  });
+
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
+    data: { object: { sha: 'commit-sha-2' } },
+  });
+
+  await engine.start();
+
+  // Wait for planner agent to complete
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Should see a specChanged event only for the new file, not for control-plane.md
+  const specChanged = events.filter((e) => e.type === 'specChanged');
+  expect(specChanged.length).toBe(1);
+  expect(specChanged[0]).toMatchObject({
+    filePath: 'docs/specs/new-spec.md',
+    frontmatterStatus: 'approved',
+  });
+});
+
+test('it writes the cache file when the planner completes successfully', async () => {
+  const { engine, octokit, events } = setupCacheTest({ autoComplete: true });
+
+  // Set up SpecPoller to detect changes (which triggers planner dispatch)
+  vi.mocked(octokit.git.getTree).mockImplementation(async (params) => {
+    if (params.tree_sha === 'main') {
+      return {
+        data: {
+          sha: 'root-sha',
+          tree: [{ path: 'docs/specs', type: 'tree', sha: 'tree-sha-new' }],
+        },
+      };
+    }
+    return {
+      data: {
+        sha: 'tree-sha-new',
+        tree: [{ path: 'spec.md', type: 'blob', sha: 'blob-sha-1' }],
+      },
+    };
+  });
+
+  const specContent = Buffer.from('---\nstatus: approved\n---\n# Spec').toString('base64');
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({
+    data: { content: specContent },
+  });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
+    data: { object: { sha: 'commit-sha-1' } },
+  });
+
+  await engine.start();
+
+  // Wait for the planner to complete and cache to be written
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Verify the planner completed
+  const completed = events.filter(
+    (e): e is AgentCompletedEvent => e.type === 'agentCompleted' && e.agentType === 'planner',
+  );
+  expect(completed.length).toBe(1);
+
+  // Verify cache file was written
+  const raw = await readFile('/tmp/test-repo/.agentic-workflow-cache.json', 'utf-8');
+  const cached = JSON.parse(raw) as SpecPollerSnapshot;
+  expect(cached.specsDirTreeSHA).toBe('tree-sha-new');
+});
+
+test('it does not write the cache file when the planner fails', async () => {
+  const { engine, octokit, events, mockQueries } = setupCacheTest({ autoComplete: false });
+
+  // Set up SpecPoller to detect changes
+  vi.mocked(octokit.git.getTree).mockImplementation(async (params) => {
+    if (params.tree_sha === 'main') {
+      return {
+        data: {
+          sha: 'root-sha',
+          tree: [{ path: 'docs/specs', type: 'tree', sha: 'tree-sha-new' }],
+        },
+      };
+    }
+    return {
+      data: {
+        sha: 'tree-sha-new',
+        tree: [{ path: 'spec.md', type: 'blob', sha: 'blob-sha-1' }],
+      },
+    };
+  });
+
+  const specContent = Buffer.from('---\nstatus: approved\n---\n# Spec').toString('base64');
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({
+    data: { content: specContent },
+  });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
+    data: { object: { sha: 'commit-sha-1' } },
+  });
+
+  await engine.start();
+
+  // Wait for planner to start
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  // Fail the planner by ending the query with an execution error
+  const plannerQuery = mockQueries[0];
+  invariant(plannerQuery, 'planner query must exist');
+  plannerQuery.pushMessage({ type: 'result', subtype: 'error_during_execution' });
+  plannerQuery.end();
+
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // Verify the planner failed
+  const failed = events.filter(
+    (e): e is AgentFailedEvent => e.type === 'agentFailed' && e.agentType === 'planner',
+  );
+  expect(failed.length).toBe(1);
+
+  // Verify no cache file was written
+  const exists = vol.existsSync('/tmp/test-repo/.agentic-workflow-cache.json');
+  expect(exists).toBe(false);
+});
+
+test('it treats a corrupt cache file as a cold start', async () => {
+  vol.reset();
+  vol.mkdirSync('/tmp/test-repo', { recursive: true });
+  vol.writeFileSync('/tmp/test-repo/.agentic-workflow-cache.json', '{corrupt json');
+
+  const { engine, octokit } = setupTest();
+
+  // SpecPoller should behave as cold start (empty snapshot)
+  vi.mocked(octokit.git.getTree).mockResolvedValue({
+    data: { sha: 'tree-sha-1', tree: [] },
+  });
+
+  // Should not throw
+  const result = await engine.start();
+  expect(result.issueCount).toBe(0);
 });
