@@ -1,4 +1,4 @@
-import type { Notification } from '../types';
+import type { Notification, Repository } from '../types';
 
 export type OpenURL = (url: string) => void;
 
@@ -16,4 +16,5 @@ export type NotificationsPaneProps = {
   notifications: Notification[];
   focused: boolean;
   selectedIndex: number;
+  repository: Repository;
 };

@@ -28,6 +28,7 @@ export function App({ engine, repository }: AppProps) {
   const shuttingDown = useStore(engineStore, (s) => s.shuttingDown);
   const runningAgentCount = useStore(engineStore, selectRunningAgentCount);
   const notifications = useStore(engineStore, (s) => s.notifications);
+  const storeRepository = useStore(engineStore, (s) => s.repository);
   const cycleFocus = useStore(engineStore, (s) => s.cycleFocus);
   const shutdown = useStore(engineStore, (s) => s.shutdown);
 
@@ -165,6 +166,7 @@ export function App({ engine, repository }: AppProps) {
             notifications={notifications}
             focused={focusedPane === 'notifications'}
             selectedIndex={selectedNotificationIndex}
+            repository={storeRepository}
           />
         </Box>
         <Box

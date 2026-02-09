@@ -40,6 +40,7 @@ export type AgentCompletedNotification = BaseNotification & {
   eventType: 'agentCompleted';
   agentType: 'implementor' | 'reviewer' | 'planner';
   issueNumber?: number;
+  specCount?: number;
   logFilePath?: string;
 };
 
