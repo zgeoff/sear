@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { expect, test, vi } from 'vitest';
 import { buildValidConfig } from '../test-utils/build-valid-config';
 import { createMockGitHubClient } from '../test-utils/create-mock-github-client';
@@ -6,6 +7,14 @@ import type { QueryFactory } from './agent-manager/types';
 import { createEngine } from './create-engine';
 import type { GitHubClient } from './github-client/types';
 import type { WorktreeManager } from './worktree-manager/types';
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    execFileSync: vi.fn().mockReturnValue('/resolved/repo/root\n'),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Test utilities
@@ -704,4 +713,53 @@ test('it cancels a running agent when its issue is removed from the poller snaps
   expect(failed.length).toBe(1);
 
   engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// Repository root resolution
+// ---------------------------------------------------------------------------
+
+test('it uses the provided repository root when one is given via dependency injection', () => {
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+  const config = buildValidConfig();
+
+  setupMockGitHubClient(octokit);
+
+  vi.mocked(execFileSync).mockClear();
+
+  createEngine(config, {
+    octokit,
+    queryFactory: () => {
+      const q = createMockQuery();
+      q.end();
+      return q as unknown as ReturnType<QueryFactory>;
+    },
+    repoRoot: '/explicit/repo/root',
+    worktreeManager,
+  });
+
+  expect(execFileSync).not.toHaveBeenCalled();
+});
+
+test('it resolves the repository root via git when none is provided', () => {
+  const octokit = createMockGitHubClient();
+  const config = buildValidConfig();
+
+  setupMockGitHubClient(octokit);
+
+  vi.mocked(execFileSync).mockReturnValue('/resolved/repo/root\n');
+
+  createEngine(config, {
+    octokit,
+    queryFactory: () => {
+      const q = createMockQuery();
+      q.end();
+      return q as unknown as ReturnType<QueryFactory>;
+    },
+  });
+
+  expect(execFileSync).toHaveBeenCalledWith('git', ['rev-parse', '--show-toplevel'], {
+    encoding: 'utf-8',
+  });
 });

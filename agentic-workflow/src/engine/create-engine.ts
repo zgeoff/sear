@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import type { Engine, EngineConfig, EngineEvent } from '../types';
 import { createBashValidatorHook } from './agent-manager/bash-validator/create-bash-validator-hook';
@@ -41,7 +42,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   const resolved = buildResolvedConfig(config);
   const [owner = '', repo = ''] = resolved.repository.split('/');
   const logger = createLogger(resolved);
-  const repoRoot = deps?.repoRoot ?? process.cwd();
+  const repoRoot = deps?.repoRoot ?? resolveRepoRoot();
 
   const octokit = deps?.octokit ?? buildGitHubClient(resolved);
 
@@ -349,4 +350,12 @@ function buildGitHubClient(config: ResolvedEngineConfig): GitHubClient {
     privateKey,
     installationID: config.githubAppInstallationID,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Repository root resolution
+// ---------------------------------------------------------------------------
+
+function resolveRepoRoot(): string {
+  return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf-8' }).trim();
 }
