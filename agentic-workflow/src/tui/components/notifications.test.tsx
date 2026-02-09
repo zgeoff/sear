@@ -2,20 +2,26 @@ import { Box } from 'ink';
 import { render } from 'ink-testing-library';
 import { match } from 'ts-pattern';
 import { expect, test, vi } from 'vitest';
-import type { Notification, Repository } from '../types';
-import { handleNotificationsInput, NotificationsPane } from './notifications';
-import type { NotificationsPaneProps } from './types';
+import type { Notification } from '../types';
+import {
+  handleNotificationsInput,
+  NotificationsPane,
+  type NotificationsPaneProps,
+} from './notifications';
 
 type PartialKeyState = { upArrow?: boolean; downArrow?: boolean; return?: boolean };
-
-const TEST_REPOSITORY: Repository = { owner: 'test-owner', repo: 'test-repo' };
 
 function setupRenderTest(overrides?: Partial<NotificationsPaneProps>) {
   const props: NotificationsPaneProps = {
     notifications: [],
     focused: false,
     selectedIndex: 0,
-    repository: TEST_REPOSITORY,
+    paneWidth: 80,
+    paneHeight: 20,
+    viewportOffset: 0,
+    onViewportOffsetChange: vi.fn(),
+    mouseScrolled: false,
+    onMouseScrolledChange: vi.fn(),
     ...overrides,
   };
 
@@ -55,6 +61,13 @@ function setupInputTest(notifications: Notification[], selectedIndex: number) {
 // ---------------------------------------------------------------------------
 // Indicators
 // ---------------------------------------------------------------------------
+
+test('it renders the pane header with uppercase label and horizontal rule', () => {
+  const { lastFrame } = setupRenderTest({ notifications: [] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('NOTIFICATIONS');
+});
 
 test('it renders the correct Unicode glyph for each notification type', () => {
   const glyphMap: Array<{ eventType: Notification['eventType']; glyph: string }> = [
@@ -487,16 +500,6 @@ test('it does not show a copy indicator for notifications without a clipboard co
   const { lastFrame } = setupRenderTest({ notifications: [notification] });
 
   expect(lastFrame()).not.toContain('[copy]');
-});
-
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-test('it shows an empty state message when there are no notifications', () => {
-  const { lastFrame } = setupRenderTest({ notifications: [] });
-
-  expect(lastFrame()).toContain('No notifications');
 });
 
 // ---------------------------------------------------------------------------

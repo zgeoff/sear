@@ -25,12 +25,13 @@ export function App(props: AppProps) {
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
   const [issueListPromptMessage, setIssueListPromptMessage] = useState<string | null>(null);
   const [selectedNotificationIndex, setSelectedNotificationIndex] = useState(0);
+  const [notificationViewportOffset, setNotificationViewportOffset] = useState(0);
+  const [notificationMouseScrolled, setNotificationMouseScrolled] = useState(false);
 
   const focusedPane = useStore(engineStore, (s) => s.focusedPane);
   const shuttingDown = useStore(engineStore, (s) => s.shuttingDown);
   const runningAgentCount = useStore(engineStore, selectRunningAgentCount);
   const notifications = useStore(engineStore, (s) => s.notifications);
-  const storeRepository = useStore(engineStore, (s) => s.repository);
   const cycleFocus = useStore(engineStore, (s) => s.cycleFocus);
   const shutdown = useStore(engineStore, (s) => s.shutdown);
 
@@ -182,7 +183,12 @@ export function App(props: AppProps) {
           notifications={notifications}
           focused={focusedPane === 'notifications'}
           selectedIndex={selectedNotificationIndex}
-          repository={storeRepository}
+          paneWidth={paneWidth}
+          paneHeight={terminalHeight}
+          viewportOffset={notificationViewportOffset}
+          onViewportOffsetChange={setNotificationViewportOffset}
+          mouseScrolled={notificationMouseScrolled}
+          onMouseScrolledChange={setNotificationMouseScrolled}
         />
         {startupNotification && <Text>{startupNotification}</Text>}
       </Box>
