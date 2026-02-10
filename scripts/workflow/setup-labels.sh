@@ -46,6 +46,9 @@ labels=(
   "priority:high|Do first|b60205"
   "priority:medium|Default|e4e669"
   "priority:low|Do when capacity allows|c5def5"
+  # Complexity labels
+  "complexity:simple|Straightforward task — single-file, mechanical|d4c5f9"
+  "complexity:complex|Multi-file or architecturally nuanced task|7057ff"
 )
 
 # ---------------------------------------------------------------------------
