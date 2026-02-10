@@ -7,6 +7,26 @@ import { IssueList } from './issue-list.tsx';
 
 type EventHandler = (event: EngineEvent) => void;
 
+const READY_MARKER = '\u25CF';
+const STALE_MARKER = '\u25CB';
+const REVIEW_MARKER = '\u25B6';
+const BLOCKED_MARKER = '\u26A0';
+const DONE_MARKER = '\u2713';
+const ERROR_MARKER = '\u2717';
+
+const SPINNER_FRAMES: readonly string[] = [
+  '\u280B',
+  '\u2819',
+  '\u2839',
+  '\u2838',
+  '\u283C',
+  '\u2834',
+  '\u2826',
+  '\u2827',
+  '\u2807',
+  '\u280F',
+];
+
 function createMockEngine(): {
   engine: Engine;
   emit: (event: EngineEvent) => void;
@@ -57,7 +77,8 @@ function createMockEngine(): {
 
 interface SetupTestConfig {
   focused?: boolean;
-  height?: number;
+  paneHeight?: number;
+  paneWidth?: number;
 }
 
 function setupTest(config?: SetupTestConfig): ReturnType<typeof render> & {
@@ -67,14 +88,19 @@ function setupTest(config?: SetupTestConfig): ReturnType<typeof render> & {
   onOpenURL: ReturnType<typeof vi.fn>;
   engine: Engine;
   onPromptChange: ReturnType<typeof vi.fn>;
+  onViewportOffsetChange: ReturnType<typeof vi.fn>;
+  onMouseScrolledChange: ReturnType<typeof vi.fn>;
 } {
   const { engine, emit, sentCommands } = createMockEngine();
   const store = createEngineStore({ engine, repository: 'owner/repo' });
   const onOpenUrl = vi.fn();
   const focused = config?.focused ?? true;
-  const height = config?.height ?? 20;
+  const paneHeight = config?.paneHeight ?? 20;
+  const paneWidth = config?.paneWidth ?? 40;
 
   const onPromptChange = vi.fn();
+  const onViewportOffsetChange = vi.fn();
+  const onMouseScrolledChange = vi.fn();
 
   const instance = render(
     <IssueList
@@ -82,13 +108,28 @@ function setupTest(config?: SetupTestConfig): ReturnType<typeof render> & {
       focused={focused}
       onOpenURL={onOpenUrl}
       repository="owner/repo"
-      height={height}
+      paneWidth={paneWidth}
+      paneHeight={paneHeight}
+      viewportOffset={0}
+      onViewportOffsetChange={onViewportOffsetChange}
+      mouseScrolled={false}
+      onMouseScrolledChange={onMouseScrolledChange}
       promptActive={false}
       onPromptChange={onPromptChange}
     />,
   );
 
-  return { ...instance, store, emit, sentCommands, onOpenURL: onOpenUrl, engine, onPromptChange };
+  return {
+    ...instance,
+    store,
+    emit,
+    sentCommands,
+    onOpenURL: onOpenUrl,
+    engine,
+    onPromptChange,
+    onViewportOffsetChange,
+    onMouseScrolledChange,
+  };
 }
 
 interface AddIssueOverrides {
@@ -139,7 +180,7 @@ test('it displays each issue with priority, number, title, and state indicator',
     expect(frame).toContain('!!!');
     expect(frame).toContain('#5');
     expect(frame).toContain('My feature');
-    expect(frame).toContain('[READY]');
+    expect(frame).toContain(READY_MARKER);
   });
 });
 
@@ -154,7 +195,7 @@ test('it shows a ready marker for pending issues', async () => {
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[READY]');
+    expect(lastFrame()).toContain(READY_MARKER);
   });
 });
 
@@ -165,7 +206,7 @@ test('it shows a ready marker for unblocked issues', async () => {
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[READY]');
+    expect(lastFrame()).toContain(READY_MARKER);
   });
 });
 
@@ -176,7 +217,7 @@ test('it shows a ready marker for needs-changes issues', async () => {
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[READY]');
+    expect(lastFrame()).toContain(READY_MARKER);
   });
 });
 
@@ -193,7 +234,20 @@ test('it shows a spinner indicator for issues with a running agent', async () =>
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[RUNNING]');
+    const frame = lastFrame() ?? '';
+    const hasSpinner = SPINNER_FRAMES.some((f) => frame.includes(f));
+    expect(hasSpinner).toBe(true);
+  });
+});
+
+test('it shows a stale marker for in-progress issues without a running agent', async () => {
+  const { lastFrame, emit, store } = setupTest();
+
+  addIssue(emit, 1, { status: 'in-progress' });
+  store.getState().selectIssue(1);
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain(STALE_MARKER);
   });
 });
 
@@ -204,7 +258,7 @@ test('it shows a review marker for review issues without a running agent', async
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[REVIEW]');
+    expect(lastFrame()).toContain(REVIEW_MARKER);
   });
 });
 
@@ -215,7 +269,7 @@ test('it shows a blocked marker for needs-refinement issues', async () => {
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[BLOCKED]');
+    expect(lastFrame()).toContain(BLOCKED_MARKER);
   });
 });
 
@@ -226,7 +280,7 @@ test('it shows a blocked marker for blocked issues', async () => {
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[BLOCKED]');
+    expect(lastFrame()).toContain(BLOCKED_MARKER);
   });
 });
 
@@ -237,7 +291,7 @@ test('it shows a done marker for approved issues', async () => {
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[DONE]');
+    expect(lastFrame()).toContain(DONE_MARKER);
   });
 });
 
@@ -261,7 +315,7 @@ test('it shows an error marker when an issue has a failure regardless of status'
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('[ERROR]');
+    expect(lastFrame()).toContain(ERROR_MARKER);
   });
 });
 
@@ -353,10 +407,7 @@ test('it moves the selection down when j is pressed', async () => {
   stdin.write('j');
 
   await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    const lines = frame.split('\n');
-    const selectedLine = lines.find((l) => l.includes('> '));
-    expect(selectedLine).toContain('#2');
+    expect(store.getState().selectedIssue).toBe(2);
   });
 });
 
@@ -374,10 +425,7 @@ test('it moves the selection up when k is pressed', async () => {
   stdin.write('k');
 
   await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    const lines = frame.split('\n');
-    const selectedLine = lines.find((l) => l.includes('> '));
-    expect(selectedLine).toContain('#1');
+    expect(store.getState().selectedIssue).toBe(1);
   });
 });
 
@@ -395,10 +443,7 @@ test('it moves the selection down when the down arrow is pressed', async () => {
   stdin.write('\x1b[B');
 
   await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    const lines = frame.split('\n');
-    const selectedLine = lines.find((l) => l.includes('> '));
-    expect(selectedLine).toContain('#2');
+    expect(store.getState().selectedIssue).toBe(2);
   });
 });
 
@@ -416,10 +461,7 @@ test('it moves the selection up when the up arrow is pressed', async () => {
   stdin.write('\x1b[A');
 
   await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    const lines = frame.split('\n');
-    const selectedLine = lines.find((l) => l.includes('> '));
-    expect(selectedLine).toContain('#1');
+    expect(store.getState().selectedIssue).toBe(1);
   });
 });
 
@@ -438,10 +480,7 @@ test('it does not move past the end of the list when pressing down', async () =>
   // Wait a tick and ensure selection didn't change
   await new Promise((r) => setTimeout(r, 50));
 
-  const frame = lastFrame() ?? '';
-  const lines = frame.split('\n');
-  const selectedLine = lines.find((l) => l.includes('> '));
-  expect(selectedLine).toContain('#1');
+  expect(store.getState().selectedIssue).toBe(1);
 });
 
 test('it does not move past the beginning of the list when pressing up', async () => {
@@ -459,10 +498,7 @@ test('it does not move past the beginning of the list when pressing up', async (
   // Wait a tick and ensure selection didn't change
   await new Promise((r) => setTimeout(r, 50));
 
-  const frame = lastFrame() ?? '';
-  const lines = frame.split('\n');
-  const selectedLine = lines.find((l) => l.includes('> '));
-  expect(selectedLine).toContain('#1');
+  expect(store.getState().selectedIssue).toBe(1);
 });
 
 // ---------------------------------------------------------------------------
@@ -868,7 +904,7 @@ test('it falls back to the issue URL when no PR is found for a review issue', as
 // ---------------------------------------------------------------------------
 
 test('it scrolls to keep the selected item visible when navigating past the visible area', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest({ height: 3 });
+  const { lastFrame, emit, store, stdin } = setupTest({ paneHeight: 3 });
 
   for (let i = 1; i <= 5; i += 1) {
     addIssue(emit, i, {
@@ -885,26 +921,18 @@ test('it scrolls to keep the selected item visible when navigating past the visi
   // Navigate down one at a time, waiting for each to settle
   stdin.write('j');
   await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    const lines = frame.split('\n');
-    const selectedLine = lines.find((l) => l.includes('> '));
-    expect(selectedLine).toContain('#2');
+    expect(store.getState().selectedIssue).toBe(2);
   });
 
   stdin.write('j');
   await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    const lines = frame.split('\n');
-    const selectedLine = lines.find((l) => l.includes('> '));
-    expect(selectedLine).toContain('#3');
+    expect(store.getState().selectedIssue).toBe(3);
   });
 
   stdin.write('j');
   await vi.waitFor(() => {
+    expect(store.getState().selectedIssue).toBe(4);
     const frame = lastFrame() ?? '';
-    const lines = frame.split('\n');
-    const selectedLine = lines.find((l) => l.includes('> '));
-    expect(selectedLine).toContain('#4');
     // Issue 4 should be visible
     expect(frame).toContain('Issue4');
   });

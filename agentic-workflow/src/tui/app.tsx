@@ -37,6 +37,8 @@ export function App(props: AppProps): ReactNode {
   const [selectedNotificationIndex, setSelectedNotificationIndex] = useState(0);
   const [notificationViewportOffset, setNotificationViewportOffset] = useState(0);
   const [notificationMouseScrolled, setNotificationMouseScrolled] = useState(false);
+  const [issueListViewportOffset, setIssueListViewportOffset] = useState(0);
+  const [issueListMouseScrolled, setIssueListMouseScrolled] = useState(false);
 
   const focusedPane = useStore(engineStore, (s) => s.focusedPane);
   const shuttingDown = useStore(engineStore, (s) => s.shuttingDown);
@@ -235,7 +237,12 @@ export function App(props: AppProps): ReactNode {
             focused={focusedPane === 'issueList'}
             onOpenURL={openUrl}
             repository={props.repository}
-            height={contentHeight}
+            paneWidth={paneWidths[1]}
+            paneHeight={contentHeight}
+            viewportOffset={issueListViewportOffset}
+            onViewportOffsetChange={setIssueListViewportOffset}
+            mouseScrolled={issueListMouseScrolled}
+            onMouseScrolledChange={setIssueListMouseScrolled}
             promptActive={prompt.type !== 'none'}
             onPromptChange={handleIssueListPromptChange}
           />

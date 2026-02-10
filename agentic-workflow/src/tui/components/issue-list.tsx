@@ -5,6 +5,8 @@ import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
 import type { CachedPRDetails, EngineStore, TrackedIssue } from '../types.ts';
+import { List } from './list/list.tsx';
+import type { ListItemData } from './list/types.ts';
 
 export type IssueListPromptChangeHandler = (message: string | null) => void;
 
@@ -13,7 +15,12 @@ export interface IssueListProps {
   focused: boolean;
   onOpenURL: (url: string) => void;
   repository: string;
-  height: number;
+  paneWidth: number;
+  paneHeight: number;
+  viewportOffset: number;
+  onViewportOffsetChange: (offset: number) => void;
+  mouseScrolled: boolean;
+  onMouseScrolledChange: (scrolled: boolean) => void;
   promptActive: boolean;
   onPromptChange: IssueListPromptChangeHandler;
 }
@@ -30,6 +37,27 @@ const PRIORITY_ORDER: Record<string, number> = {
   'priority:low': 2,
 };
 
+const SPINNER_FRAMES: readonly string[] = [
+  '\u280B',
+  '\u2819',
+  '\u2839',
+  '\u2838',
+  '\u283C',
+  '\u2834',
+  '\u2826',
+  '\u2827',
+  '\u2807',
+  '\u280F',
+];
+const SPINNER_INTERVAL_MS = 80;
+
+const READY_MARKER = '\u25CF';
+const STALE_MARKER = '\u25CB';
+const REVIEW_MARKER = '\u25B6';
+const BLOCKED_MARKER = '\u26A0';
+const DONE_MARKER = '\u2713';
+const ERROR_MARKER = '\u2717';
+
 export function IssueList(props: IssueListProps): ReactNode {
   const issues = useStore(props.store, (s) => s.issues);
   const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
@@ -39,6 +67,7 @@ export function IssueList(props: IssueListProps): ReactNode {
   const cancelAgent = useStore(props.store, (s) => s.cancelAgent);
   const prDetails = useStore(props.store, (s) => s.prDetails);
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
+  const [spinnerFrame, setSpinnerFrame] = useState(0);
 
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
@@ -50,6 +79,21 @@ export function IssueList(props: IssueListProps): ReactNode {
   }, [prompt, onPromptChange]);
 
   const sortedIssues = sortIssues(issues);
+  const hasRunningAgent = sortedIssues.some((issue) => issue.agentRunning);
+
+  useEffect(() => {
+    if (!hasRunningAgent) {
+      return;
+    }
+    const timer = setInterval(() => {
+      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, SPINNER_INTERVAL_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [hasRunningAgent]);
+
+  const selectedIndex = sortedIssues.findIndex((i) => i.number === selectedIssue);
 
   useInput(
     (input, key) => {
@@ -156,20 +200,21 @@ export function IssueList(props: IssueListProps): ReactNode {
     );
   }
 
-  const currentIndex = sortedIssues.findIndex((i) => i.number === selectedIssue);
-  const { start } = computeVisibleWindow(currentIndex, sortedIssues.length, props.height);
-  const visibleIssues = sortedIssues.slice(start, start + props.height);
+  const currentSpinner = SPINNER_FRAMES[spinnerFrame] ?? '\u280B';
+  const items = buildIssueListItems(sortedIssues, currentSpinner);
 
   return (
-    <Box flexDirection="column">
-      {visibleIssues.map((issue) => (
-        <Text key={issue.number}>
-          {issue.number === selectedIssue ? '> ' : '  '}
-          {getPriorityIndicator(issue.priorityLabel)} #{issue.number} {issue.title}{' '}
-          {getStateIndicator(issue)}
-        </Text>
-      ))}
-    </Box>
+    <List
+      items={items}
+      selectedIndex={selectedIndex}
+      focused={props.focused}
+      paneWidth={props.paneWidth}
+      paneHeight={props.paneHeight}
+      viewportOffset={props.viewportOffset}
+      onViewportOffsetChange={props.onViewportOffsetChange}
+      mouseScrolled={props.mouseScrolled}
+      onMouseScrolledChange={props.onMouseScrolledChange}
+    />
   );
 }
 
@@ -191,24 +236,65 @@ function sortIssues(issues: Map<number, TrackedIssue>): TrackedIssue[] {
   });
 }
 
-function getStateIndicator(issue: TrackedIssue): string {
+function buildIssueListItems(sortedIssues: TrackedIssue[], spinnerChar: string): ListItemData[] {
+  return sortedIssues.map((issue) => {
+    const priority = getPriorityIndicator(issue.priorityLabel);
+    const state = getStateIndicator(issue, spinnerChar);
+    const content = `${priority} #${issue.number} ${issue.title} ${state}`;
+    const richContent = buildRichIssueContent(issue, spinnerChar);
+    return { key: String(issue.number), content, richContent };
+  });
+}
+
+function buildRichIssueContent(issue: TrackedIssue, spinnerChar: string): ReactNode {
+  const priority = getPriorityIndicator(issue.priorityLabel);
+  const stateIndicator = getStateIndicatorElement(issue, spinnerChar);
+
+  return (
+    <>
+      {priority} #{issue.number} {issue.title} {stateIndicator}
+    </>
+  );
+}
+
+function getStateIndicator(issue: TrackedIssue, spinnerChar: string): string {
   if (issue.lastFailure) {
-    return '[ERROR]';
+    return ERROR_MARKER;
   }
   if (issue.agentRunning) {
-    return '[RUNNING]';
+    return spinnerChar;
   }
 
   return match(issue.statusLabel)
-    .with('pending', () => '[READY]')
-    .with('unblocked', () => '[READY]')
-    .with('needs-changes', () => '[READY]')
-    .with('in-progress', () => '[STALE]')
-    .with('review', () => '[REVIEW]')
-    .with('needs-refinement', () => '[BLOCKED]')
-    .with('blocked', () => '[BLOCKED]')
-    .with('approved', () => '[DONE]')
+    .with('pending', () => READY_MARKER)
+    .with('unblocked', () => READY_MARKER)
+    .with('needs-changes', () => READY_MARKER)
+    .with('in-progress', () => STALE_MARKER)
+    .with('review', () => REVIEW_MARKER)
+    .with('needs-refinement', () => BLOCKED_MARKER)
+    .with('blocked', () => BLOCKED_MARKER)
+    .with('approved', () => DONE_MARKER)
     .otherwise(() => '');
+}
+
+function getStateIndicatorElement(issue: TrackedIssue, spinnerChar: string): ReactNode {
+  if (issue.lastFailure) {
+    return <Text color="red">{ERROR_MARKER}</Text>;
+  }
+  if (issue.agentRunning) {
+    return <Text color="cyan">{spinnerChar}</Text>;
+  }
+
+  return match(issue.statusLabel)
+    .with('pending', () => <Text color="green">{READY_MARKER}</Text>)
+    .with('unblocked', () => <Text color="green">{READY_MARKER}</Text>)
+    .with('needs-changes', () => <Text color="green">{READY_MARKER}</Text>)
+    .with('in-progress', () => <Text color="yellow">{STALE_MARKER}</Text>)
+    .with('review', () => <Text color="cyan">{REVIEW_MARKER}</Text>)
+    .with('needs-refinement', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
+    .with('blocked', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
+    .with('approved', () => <Text color="green">{DONE_MARKER}</Text>)
+    .otherwise(() => <Text />);
 }
 
 function getPriorityIndicator(priorityLabel: string): string {
@@ -273,32 +359,4 @@ function buildPromptMessage(prompt: PromptState): string {
     })
     .with({ type: 'none' }, () => '')
     .exhaustive();
-}
-
-interface VisibleWindow {
-  start: number;
-}
-
-function computeVisibleWindow(
-  selectedIndex: number,
-  totalCount: number,
-  visibleRows: number,
-): VisibleWindow {
-  if (totalCount <= visibleRows) {
-    return { start: 0 };
-  }
-  if (selectedIndex < 0) {
-    return { start: 0 };
-  }
-
-  let start = 0;
-  if (selectedIndex >= visibleRows) {
-    start = selectedIndex - visibleRows + 1;
-  }
-
-  if (start + visibleRows > totalCount) {
-    start = totalCount - visibleRows;
-  }
-
-  return { start };
 }

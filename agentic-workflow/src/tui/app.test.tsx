@@ -165,12 +165,13 @@ test('it moves focus forward through the pane cycle when Tab is pressed', async 
     expect(lastFrame()).toContain('#1');
   });
 
-  // Select the first issue while focus is on issue list
+  // Select the first issue while focus is on issue list (detail pane shows selected issue)
   stdin.write('j');
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('> ');
+    expect(frame).not.toContain('No issue selected');
+    expect(frame).toContain('#1 First');
   });
 
   // Move focus away from issue list to detail pane
@@ -185,9 +186,7 @@ test('it moves focus forward through the pane cycle when Tab is pressed', async 
   await new Promise((r) => setTimeout(r, 50));
 
   const frame = lastFrame() ?? '';
-  const lines = frame.split('\n');
-  const selectedLine = lines.find((l) => l.includes('> '));
-  expect(selectedLine).toContain('#1');
+  expect(frame).toContain('#1 First');
 });
 
 test('it moves focus backward through the pane cycle when Shift+Tab is pressed', async () => {
@@ -217,12 +216,13 @@ test('it moves focus backward through the pane cycle when Shift+Tab is pressed',
     expect(lastFrame()).toContain('#1');
   });
 
-  // Select the first issue while focus is on issue list
+  // Select the first issue while focus is on issue list (detail pane shows selected issue)
   stdin.write('j');
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('> ');
+    expect(frame).not.toContain('No issue selected');
+    expect(frame).toContain('#1 First');
   });
 
   // Move focus backward from issue list to notifications
@@ -237,9 +237,7 @@ test('it moves focus backward through the pane cycle when Shift+Tab is pressed',
   await new Promise((r) => setTimeout(r, 50));
 
   const frame = lastFrame() ?? '';
-  const lines = frame.split('\n');
-  const selectedLine = lines.find((l) => l.includes('> '));
-  expect(selectedLine).toContain('#1');
+  expect(frame).toContain('#1 First');
 });
 
 // ---------------------------------------------------------------------------
