@@ -18,7 +18,7 @@ export interface SpecChangedEvent {
   filePath: string;
   frontmatterStatus: string;
   changeType: 'added' | 'modified';
-  commitSHA: string; // HEAD commit on default branch (for diff URLs)
+  commitSHA: string; // Always non-empty — events are only emitted when changes are detected. HEAD commit on default branch (for diff URLs).
 }
 
 export type AgentType = 'planner' | 'implementor' | 'reviewer';
@@ -70,7 +70,7 @@ export interface NotificationEvent {
   statusLabel: string;
   clipboardCommand?: string; // present for needs-refinement, absent for blocked and approved
   contextURL: string; // issue URL for needs-refinement/blocked; issue URL initially for approved (async PR URL update by TUI)
-  resolutionGuidance?: string; // present for blocked and needs-refinement, absent for approved
+  resolutionGuidance?: string; // The engine guarantees this is always present when statusLabel is 'needs-refinement' or 'blocked'; absent only for 'approved'.
 }
 
 export interface NotificationDismissedEvent {
@@ -233,6 +233,10 @@ export interface StartupResult {
   recoveriesPerformed: number;
 }
 
+// Startup contract: Callers MUST subscribe to the event emitter (via on())
+// before calling start(). Events emitted during startup recovery are
+// delivered synchronously within the start() call. If the caller subscribes
+// after start() resolves, startup recovery events are lost.
 export interface Engine {
   start: () => Promise<StartupResult>; // resolves after startup recovery + first IssuePoller and SpecPoller cycles complete
   on: (handler: (event: EngineEvent) => void | Promise<void>) => () => void; // returns unsubscribe function
