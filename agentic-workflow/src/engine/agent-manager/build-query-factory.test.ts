@@ -366,3 +366,108 @@ test('it propagates the error when a context file does not exist', async () => {
 
   await expect(buildQueryFactory(config)(params)).rejects.toThrow();
 });
+
+test('it parses disallowed tools from frontmatter and includes them in the agent definition', async () => {
+  const { config, params } = setupTest({
+    frontmatter: [
+      'description: Test agent',
+      'tools: Read, Write, Bash',
+      'disallowedTools: Bash, Edit',
+      'model: opus',
+      '',
+    ].join('\n'),
+  });
+
+  await buildQueryFactory(config)(params);
+
+  expect(mockQuery).toHaveBeenCalledWith(
+    expect.objectContaining({
+      options: expect.objectContaining({
+        agents: {
+          implementor: expect.objectContaining({
+            tools: ['Read', 'Write', 'Bash'],
+            disallowedTools: ['Bash', 'Edit'],
+          }),
+        },
+      }),
+    }),
+  );
+});
+
+test('it passes the parsed max turns value as a session-level option', async () => {
+  const { config, params } = setupTest({
+    frontmatter: [
+      'description: Test agent',
+      'tools: Read, Bash',
+      'model: opus',
+      'maxTurns: 50',
+      '',
+    ].join('\n'),
+  });
+
+  await buildQueryFactory(config)(params);
+
+  expect(mockQuery).toHaveBeenCalledWith(
+    expect.objectContaining({
+      options: expect.objectContaining({
+        maxTurns: 50,
+      }),
+    }),
+  );
+});
+
+test('it omits the max turns session option when not specified in frontmatter', async () => {
+  const { config, params } = setupTest({
+    frontmatter: ['description: Test agent', 'tools: Read, Bash', 'model: opus', ''].join('\n'),
+  });
+
+  await buildQueryFactory(config)(params);
+
+  expect(mockQuery).toHaveBeenCalledTimes(1);
+  const callArgs = mockQuery.mock.calls[0];
+  invariant(callArgs, 'query must have been called at least once');
+
+  expect(callArgs[0].options).not.toHaveProperty('maxTurns');
+});
+
+test('it uses the model override instead of the frontmatter model when provided', async () => {
+  const { config, params } = setupTest({
+    frontmatter: ['description: Test agent', 'model: opus', ''].join('\n'),
+  });
+
+  params.modelOverride = 'sonnet';
+
+  await buildQueryFactory(config)(params);
+
+  expect(mockQuery).toHaveBeenCalledWith(
+    expect.objectContaining({
+      options: expect.objectContaining({
+        agents: {
+          implementor: expect.objectContaining({
+            model: 'sonnet',
+          }),
+        },
+      }),
+    }),
+  );
+});
+
+test('it uses the frontmatter model when no model override is provided', async () => {
+  const { config, params } = setupTest({
+    frontmatter: ['description: Test agent', 'model: haiku', ''].join('\n'),
+  });
+
+  await buildQueryFactory(config)(params);
+
+  expect(mockQuery).toHaveBeenCalledWith(
+    expect.objectContaining({
+      options: expect.objectContaining({
+        agents: {
+          implementor: expect.objectContaining({
+            model: 'haiku',
+          }),
+        },
+      }),
+    }),
+  );
+});

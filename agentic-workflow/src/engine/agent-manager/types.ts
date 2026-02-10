@@ -36,6 +36,7 @@ export interface QueryFactoryParams {
   agent: string;
   cwd: string;
   abortController: AbortController;
+  modelOverride?: 'sonnet' | 'opus' | 'haiku';
 }
 
 export type LogError = (message: string, error: unknown) => void;
