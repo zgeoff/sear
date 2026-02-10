@@ -557,6 +557,20 @@ mockFn.mockImplementation(async (params) => {
 });
 ```
 
+### No decorative comment banners
+
+Never use horizontal-rule comment separators or banner-style section headers in code. Let the code structure (modules, functions, named types) communicate organization — not ASCII art.
+
+```ts
+// Wrong — decorative banner comments
+// ---------------------------------------------------------------------------
+// List — Zero pane height
+// ---------------------------------------------------------------------------
+
+// Correct — if a section needs a comment, use a single plain comment
+// Zero pane height
+```
+
 ## Testing
 
 ### Test orchestration
