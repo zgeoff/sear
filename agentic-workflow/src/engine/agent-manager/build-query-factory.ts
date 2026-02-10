@@ -7,29 +7,40 @@ import type { AgentQuery, QueryFactory, QueryFactoryConfig, QueryFactoryParams }
 
 export function buildQueryFactory(config: QueryFactoryConfig): QueryFactory {
   return async (params: QueryFactoryParams): Promise<AgentQuery> => {
-    const agentDefinition = await loadAgentDefinition(config.repoRoot, params.agent);
+    const loaded = await loadAgentDefinition(config.repoRoot, params.agent);
+    const agentDefinition = loaded.definition;
     const contextBlock = await loadContextFiles(config.repoRoot, config.contextPaths);
+
+    if (params.modelOverride !== undefined) {
+      agentDefinition.model = params.modelOverride;
+    }
 
     if (contextBlock.length > 0) {
       agentDefinition.prompt = `${agentDefinition.prompt}\n\n${contextBlock}`;
     }
 
+    const sessionOptions: Record<string, unknown> = {
+      agent: params.agent,
+      agents: {
+        [params.agent]: agentDefinition,
+      },
+      cwd: params.cwd,
+      settingSources: [],
+      hooks: {
+        PreToolUse: [{ matcher: 'Bash', hooks: [config.bashValidatorHook] }],
+      },
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      abortController: params.abortController,
+    };
+
+    if (loaded.maxTurns !== undefined) {
+      sessionOptions.maxTurns = loaded.maxTurns;
+    }
+
     return query({
       prompt: params.prompt,
-      options: {
-        agent: params.agent,
-        agents: {
-          [params.agent]: agentDefinition,
-        },
-        cwd: params.cwd,
-        settingSources: [],
-        hooks: {
-          PreToolUse: [{ matcher: 'Bash', hooks: [config.bashValidatorHook] }],
-        },
-        permissionMode: 'bypassPermissions',
-        allowDangerouslySkipPermissions: true,
-        abortController: params.abortController,
-      },
+      options: sessionOptions,
     });
   };
 }
@@ -43,7 +54,15 @@ const VALID_MODELS: Record<string, AgentModel> = {
   inherit: 'inherit',
 };
 
-async function loadAgentDefinition(repoRoot: string, agentName: string): Promise<AgentDefinition> {
+interface LoadedAgentDefinition {
+  definition: AgentDefinition;
+  maxTurns: number | undefined;
+}
+
+async function loadAgentDefinition(
+  repoRoot: string,
+  agentName: string,
+): Promise<LoadedAgentDefinition> {
   const filePath = join(repoRoot, '.claude', 'agents', `${agentName}.md`);
   const fileContent = await readFile(filePath, 'utf-8');
   const parsed = matter(fileContent);
@@ -52,6 +71,8 @@ async function loadAgentDefinition(repoRoot: string, agentName: string): Promise
   const prompt = parsed.content;
   const model = parseModel(parsed.data.model);
   const tools = parseTools(parsed.data.tools);
+  const disallowedTools = parseTools(parsed.data.disallowedTools);
+  const maxTurns = parseMaxTurns(parsed.data.maxTurns);
 
   const definition: AgentDefinition = {
     description,
@@ -63,7 +84,11 @@ async function loadAgentDefinition(repoRoot: string, agentName: string): Promise
     definition.tools = tools;
   }
 
-  return definition;
+  if (disallowedTools !== undefined) {
+    definition.disallowedTools = disallowedTools;
+  }
+
+  return { definition, maxTurns };
 }
 
 async function loadContextFiles(repoRoot: string, contextPaths: string[]): Promise<string> {
@@ -97,6 +122,17 @@ function parseTools(raw: unknown): string[] | undefined {
       .split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
+  }
+  return;
+}
+
+function parseMaxTurns(raw: unknown): number | undefined {
+  if (raw === null || raw === undefined) {
+    return;
+  }
+  const parsed = Number(raw);
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
   }
   return;
 }
