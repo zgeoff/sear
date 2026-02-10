@@ -239,10 +239,12 @@ test('it detects new spec files and returns their frontmatter status', async () 
   expect(result.changes).toContainEqual({
     filePath: 'docs/specs/workflow/engine.md',
     frontmatterStatus: 'approved',
+    changeType: 'added',
   });
   expect(result.changes).toContainEqual({
     filePath: 'docs/specs/workflow/tui.md',
     frontmatterStatus: 'draft',
+    changeType: 'added',
   });
   expect(result.commitSHA).toBe('commit-abc123');
 });
@@ -283,6 +285,7 @@ test('it detects modified files when the blob SHA changes between polls', async 
   const result1 = await poller.poll();
   expect(result1.changes).toHaveLength(1);
   expect(result1.changes[0]?.frontmatterStatus).toBe('draft');
+  expect(result1.changes[0]?.changeType).toBe('added');
 
   // Simulate file modification: new blob SHA, new tree SHA, new content
   specsDirTreeSha = 'specs-tree-sha-2';
@@ -293,6 +296,7 @@ test('it detects modified files when the blob SHA changes between polls', async 
   const result2 = await poller.poll();
   expect(result2.changes).toHaveLength(1);
   expect(result2.changes[0]?.frontmatterStatus).toBe('approved');
+  expect(result2.changes[0]?.changeType).toBe('modified');
   expect(result2.commitSHA).toBe('head-sha');
 });
 
@@ -669,6 +673,7 @@ test('it reports only files with changed blob SHAs when the seeded tree SHA diff
   expect(result.changes[0]).toStrictEqual({
     filePath: 'docs/specs/tui.md',
     frontmatterStatus: 'draft',
+    changeType: 'modified',
   });
   expect(result.commitSHA).toBe('head-sha');
 
@@ -746,5 +751,150 @@ test('it returns a fresh copy of the snapshot that does not affect internal stat
     files: {
       'docs/specs/engine.md': { blobSHA: 'blob-sha-1', frontmatterStatus: 'approved' },
     },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — changeType for new files
+// ---------------------------------------------------------------------------
+
+test('it marks files as added when they appear for the first time', async () => {
+  const specFiles = [
+    { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
+    { path: 'tui.md', sha: 'blob-sha-2', type: 'blob' as const },
+  ];
+
+  const contentMap: Record<string, string> = {
+    'docs/specs/engine.md': buildSpecContent('approved'),
+    'docs/specs/tui.md': buildSpecContent('draft'),
+  };
+
+  const handlers = {
+    ...buildTreeHandlers('specs-tree-sha-1', specFiles),
+    getContent: (params: { path: string }) => ({
+      data: { content: toBase64(contentMap[params.path] ?? '') },
+    }),
+    getRef: () => ({ data: { object: { sha: 'commit-sha' } } }),
+  };
+
+  const { poller } = setupTest({ handlers });
+  const result = await poller.poll();
+
+  expect(result.changes).toHaveLength(2);
+  for (const change of result.changes) {
+    expect(change.changeType).toBe('added');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — changeType for modified files
+// ---------------------------------------------------------------------------
+
+test('it marks files as modified when their blob SHA changes between polls', async () => {
+  let specsDirTreeSha = 'specs-tree-sha-1';
+  let specFiles = [
+    { path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const },
+    { path: 'tui.md', sha: 'blob-sha-2', type: 'blob' as const },
+  ];
+
+  const handlers = {
+    getTree: (params: { tree_sha: string; recursive?: string }) => {
+      if (params.tree_sha === 'main') {
+        return {
+          data: {
+            sha: 'root-sha',
+            tree: [
+              { path: 'docs', sha: 'docs-sha', type: 'tree' as const },
+              { path: 'docs/specs', sha: specsDirTreeSha, type: 'tree' as const },
+            ],
+          },
+        };
+      }
+      return { data: { sha: specsDirTreeSha, tree: specFiles } };
+    },
+    getContent: () => ({
+      data: { content: toBase64(buildSpecContent('approved')) },
+    }),
+    getRef: () => ({ data: { object: { sha: 'head-sha' } } }),
+  };
+
+  const { poller } = setupTest({ handlers });
+
+  // First poll: both files are new
+  await poller.poll();
+
+  // Modify both files
+  specsDirTreeSha = 'specs-tree-sha-2';
+  specFiles = [
+    { path: 'engine.md', sha: 'blob-sha-1-modified', type: 'blob' as const },
+    { path: 'tui.md', sha: 'blob-sha-2-modified', type: 'blob' as const },
+  ];
+
+  // Second poll: both files are modified
+  const result = await poller.poll();
+
+  expect(result.changes).toHaveLength(2);
+  for (const change of result.changes) {
+    expect(change.changeType).toBe('modified');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// SpecPoller — mixed batch with added and modified files
+// ---------------------------------------------------------------------------
+
+test('it correctly distinguishes added and modified files in a mixed batch', async () => {
+  let specsDirTreeSha = 'specs-tree-sha-1';
+  let specFiles = [{ path: 'engine.md', sha: 'blob-sha-1', type: 'blob' as const }];
+
+  const handlers = {
+    getTree: (params: { tree_sha: string; recursive?: string }) => {
+      if (params.tree_sha === 'main') {
+        return {
+          data: {
+            sha: 'root-sha',
+            tree: [
+              { path: 'docs', sha: 'docs-sha', type: 'tree' as const },
+              { path: 'docs/specs', sha: specsDirTreeSha, type: 'tree' as const },
+            ],
+          },
+        };
+      }
+      return { data: { sha: specsDirTreeSha, tree: specFiles } };
+    },
+    getContent: () => ({
+      data: { content: toBase64(buildSpecContent('approved')) },
+    }),
+    getRef: () => ({ data: { object: { sha: 'head-sha' } } }),
+  };
+
+  const { poller } = setupTest({ handlers });
+
+  // First poll: engine.md is new
+  await poller.poll();
+
+  // Second poll: engine.md modified + tui.md added
+  specsDirTreeSha = 'specs-tree-sha-2';
+  specFiles = [
+    { path: 'engine.md', sha: 'blob-sha-1-modified', type: 'blob' as const },
+    { path: 'tui.md', sha: 'blob-sha-2', type: 'blob' as const },
+  ];
+
+  const result = await poller.poll();
+
+  expect(result.changes).toHaveLength(2);
+
+  const engineChange = result.changes.find((c) => c.filePath === 'docs/specs/engine.md');
+  const tuiChange = result.changes.find((c) => c.filePath === 'docs/specs/tui.md');
+
+  expect(engineChange).toStrictEqual({
+    filePath: 'docs/specs/engine.md',
+    frontmatterStatus: 'approved',
+    changeType: 'modified',
+  });
+  expect(tuiChange).toStrictEqual({
+    filePath: 'docs/specs/tui.md',
+    frontmatterStatus: 'approved',
+    changeType: 'added',
   });
 });
