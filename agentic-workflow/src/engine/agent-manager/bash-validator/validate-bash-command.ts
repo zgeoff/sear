@@ -1,6 +1,6 @@
 import invariant from 'tiny-invariant';
+import { ALLOWLIST_PREFIXES, BLOCKLIST_PATTERNS } from './constants.ts';
 import type { BashValidationResult } from './types.ts';
-import { ALLOWLIST_PREFIXES, BLOCKLIST_PATTERNS } from './types.ts';
 
 const ALLOWED: BashValidationResult = { allowed: true };
 
