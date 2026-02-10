@@ -73,7 +73,6 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
 
   const prevSelectedIssueRef = useRef(selectedIssue);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedIssue is a trigger for reset, not a consumed value
   useEffect(() => {
     const issueChanged = selectedIssue !== prevSelectedIssueRef.current;
     prevSelectedIssueRef.current = selectedIssue;
