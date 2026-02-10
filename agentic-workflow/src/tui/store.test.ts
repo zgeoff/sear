@@ -1632,3 +1632,91 @@ test('it clears the viewport offset when an issue is removed', () => {
 
   expect(store.getState().streamViewportOffsets.has(1)).toBe(false);
 });
+
+// ---------------------------------------------------------------------------
+// PR not found tracking
+// ---------------------------------------------------------------------------
+
+test('it does not cache the result in PR details when the PR lookup returns null', async () => {
+  const { store, emit, engine } = setupTest();
+
+  vi.mocked(engine.getPRForIssue).mockResolvedValue(null);
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  await store.getState().selectIssue(1);
+
+  expect(store.getState().prDetails.has(1)).toBe(false);
+});
+
+test('it marks the issue as having no linked PR when the PR lookup returns null', async () => {
+  const { store, emit, engine } = setupTest();
+
+  vi.mocked(engine.getPRForIssue).mockResolvedValue(null);
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  await store.getState().selectIssue(1);
+
+  expect(store.getState().prNotFound.has(1)).toBe(true);
+});
+
+test('it re-fetches the PR when re-selecting an issue that previously had no linked PR', async () => {
+  const { store, emit, engine } = setupTest();
+
+  vi.mocked(engine.getPRForIssue).mockResolvedValue(null);
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  await store.getState().selectIssue(1);
+
+  expect(store.getState().prNotFound.has(1)).toBe(true);
+  expect(engine.getPRForIssue).toHaveBeenCalledTimes(1);
+
+  // Re-select the same issue — should re-fetch because nothing is cached
+  await store.getState().selectIssue(1);
+
+  expect(engine.getPRForIssue).toHaveBeenCalledTimes(2);
+});
+
+test('it clears the no-PR marker when a subsequent fetch returns a real PR', async () => {
+  const { store, emit, engine } = setupTest();
+
+  vi.mocked(engine.getPRForIssue).mockResolvedValue(null);
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  await store.getState().selectIssue(1);
+
+  expect(store.getState().prNotFound.has(1)).toBe(true);
+
+  // Now mock a successful PR result
+  vi.mocked(engine.getPRForIssue).mockResolvedValue({
+    number: 10,
+    title: 'PR Title',
+    changedFilesCount: 3,
+    ciStatus: 'success',
+    url: 'https://github.com/owner/repo/pull/10',
+  });
+
+  await store.getState().selectIssue(1);
+
+  expect(store.getState().prNotFound.has(1)).toBe(false);
+  expect(store.getState().prDetails.has(1)).toBe(true);
+});
+
+test('it clears the no-PR marker when the issue is removed', async () => {
+  const { store, emit, engine } = setupTest();
+
+  vi.mocked(engine.getPRForIssue).mockResolvedValue(null);
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  await store.getState().selectIssue(1);
+
+  expect(store.getState().prNotFound.has(1)).toBe(true);
+
+  emit({ type: 'issueRemoved', issueNumber: 1 } satisfies IssueRemovedEvent);
+
+  expect(store.getState().prNotFound.has(1)).toBe(false);
+});
