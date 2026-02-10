@@ -6,9 +6,10 @@ description: >-
   issues, assesses codebase state, and creates hermetic task issues with
   labels, dependencies, and priority.
 tools: Read, Grep, Glob, Bash
-model: opus
+model: sonnet
+maxTurns: 50
+disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
 permissionMode: bypassPermissions
-skills: github-workflow
 hooks:
   PreToolUse:
     - matcher: Bash

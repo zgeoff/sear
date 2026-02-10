@@ -6,8 +6,9 @@ description: >-
   task issue number. Works on exactly one task at a time.
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: opus
+maxTurns: 50
+disallowedTools: NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
 permissionMode: bypassPermissions
-skills: github-workflow
 hooks:
   PreToolUse:
     - matcher: Bash
