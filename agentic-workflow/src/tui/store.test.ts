@@ -733,6 +733,70 @@ test('it notifies with guidance text when an issue is blocked', () => {
 });
 
 // ---------------------------------------------------------------------------
+// resolutionGuidance on TrackedIssue
+// ---------------------------------------------------------------------------
+
+test('it sets resolution guidance on the tracked issue when a notification event has guidance', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'needs-refinement' }));
+
+  const event: NotificationEvent = {
+    type: 'notification',
+    issueNumber: 3,
+    statusLabel: 'needs-refinement',
+    contextURL: 'https://github.com/owner/repo/issues/3',
+    resolutionGuidance: 'Amend the spec to clarify constraints',
+  };
+  emit(event);
+
+  const issue = store.getState().issues.get(3);
+  expect(issue?.resolutionGuidance).toBe('Amend the spec to clarify constraints');
+});
+
+test('it clears resolution guidance on a non-recovery status change', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'needs-refinement' }));
+
+  const event: NotificationEvent = {
+    type: 'notification',
+    issueNumber: 3,
+    statusLabel: 'needs-refinement',
+    contextURL: 'https://github.com/owner/repo/issues/3',
+    resolutionGuidance: 'Fix the spec',
+  };
+  emit(event);
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Fix the spec');
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'pending', isRecovery: false }));
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBeUndefined();
+});
+
+test('it preserves resolution guidance on a recovery status change', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'blocked' }));
+
+  const event: NotificationEvent = {
+    type: 'notification',
+    issueNumber: 3,
+    statusLabel: 'blocked',
+    contextURL: 'https://github.com/owner/repo/issues/3',
+    resolutionGuidance: 'Waiting on dependency',
+  };
+  emit(event);
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Waiting on dependency');
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'pending', isRecovery: true }));
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Waiting on dependency');
+});
+
+// ---------------------------------------------------------------------------
 // Other events
 // ---------------------------------------------------------------------------
 

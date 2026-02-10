@@ -19,6 +19,7 @@ export interface TrackedIssue {
   agentRunning: boolean;
   agentType?: TaskAgentType;
   lastFailure?: LastFailure;
+  resolutionGuidance?: string;
 }
 
 export interface BaseNotification {
