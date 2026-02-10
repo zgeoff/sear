@@ -73,8 +73,8 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     },
 
     shutdown(): void {
-      engine.send({ command: 'shutdown' });
       set({ shuttingDown: true });
+      engine.send({ command: 'shutdown' });
     },
 
     cycleFocus(direction: 'forward' | 'backward'): void {

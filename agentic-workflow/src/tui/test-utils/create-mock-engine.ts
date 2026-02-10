@@ -31,9 +31,9 @@ export function createMockEngine(overrides?: MockEngineOverrides): MockEngineRes
         }
       };
     },
-    send(command: EngineCommand): void {
+    send: vi.fn((command: EngineCommand): void => {
       sentCommands.push(command);
-    },
+    }),
     getIssueDetails:
       overrides?.getIssueDetails ??
       vi.fn(async () => ({

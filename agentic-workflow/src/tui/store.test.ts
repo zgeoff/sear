@@ -1035,6 +1035,19 @@ test('it enters shutdown mode and tells the engine to shut down', () => {
   expect(store.getState().shuttingDown).toBe(true);
 });
 
+test('it sets the shutting down flag before sending the shutdown command to the engine', () => {
+  const { engine } = createMockEngine();
+  const store = createEngineStore({ engine, repository: 'owner/repo' });
+
+  vi.mocked(engine.send).mockImplementation(() => {
+    expect(store.getState().shuttingDown).toBe(true);
+  });
+
+  store.getState().shutdown();
+
+  expect(vi.mocked(engine.send)).toHaveBeenCalledWith({ command: 'shutdown' });
+});
+
 test('it advances focus to the next pane when cycling forward', () => {
   const { store } = setupTest();
 
