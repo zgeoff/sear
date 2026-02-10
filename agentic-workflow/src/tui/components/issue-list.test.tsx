@@ -14,7 +14,7 @@ const BLOCKED_MARKER = '\u26A0';
 const DONE_MARKER = '\u2713';
 const ERROR_MARKER = '\u2717';
 
-const SPINNER_FRAMES = [
+const SPINNER_FRAMES: readonly string[] = [
   '\u280B',
   '\u2819',
   '\u2839',
