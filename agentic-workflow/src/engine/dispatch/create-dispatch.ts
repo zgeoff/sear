@@ -113,7 +113,7 @@ function handleSpecPollerResult(
   }
 
   // Dispatch Planner with all approved paths
-  agentManager.dispatchPlanner(pathsToDispatch);
+  void agentManager.dispatchPlanner(pathsToDispatch);
   deferredPaths.clear();
 }
 

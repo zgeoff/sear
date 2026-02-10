@@ -1,7 +1,7 @@
 import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types.ts';
 
 export interface AgentManagerDelegate {
-  dispatchPlanner: (specPaths: string[]) => void;
+  dispatchPlanner: (specPaths: string[]) => Promise<void>;
   dispatchReviewer: (issueNumber: number) => void;
   isPlannerRunning: () => boolean;
 }

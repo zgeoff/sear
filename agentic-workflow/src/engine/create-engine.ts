@@ -126,27 +126,28 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   const dispatch = createDispatch(
     emitter,
     {
-      dispatchPlanner: (specPaths: string[]): void => {
+      dispatchPlanner: async (specPaths: string[]): Promise<void> => {
         pendingCacheSnapshot = specPoller.getSnapshot();
         pendingCacheCommitSHA = latestSpecCommitSHA;
 
-        void buildPlannerPrompt({
-          specPaths,
-          octokit,
-          owner,
-          repo,
-          currentCommitSHA: latestSpecCommitSHA,
-          previousCommitSHA: previousPlannerCommitSHA,
-          latestSpecChangeTypes,
-          repoRoot,
-        })
-          .then((prompt) => agentManager.dispatchPlanner({ specPaths, prompt }))
-          .catch((error) => {
-            logger.error('Failed to build planner context', { error: String(error) });
-            pendingCacheSnapshot = null;
-            pendingCacheCommitSHA = null;
-            dispatch.handlePlannerFailed(specPaths);
+        try {
+          const prompt = await buildPlannerPrompt({
+            specPaths,
+            octokit,
+            owner,
+            repo,
+            currentCommitSHA: latestSpecCommitSHA,
+            previousCommitSHA: previousPlannerCommitSHA,
+            latestSpecChangeTypes,
+            repoRoot,
           });
+          await agentManager.dispatchPlanner({ specPaths, prompt });
+        } catch (error) {
+          logger.error('Failed to build planner context', { error: String(error) });
+          pendingCacheSnapshot = null;
+          pendingCacheCommitSHA = null;
+          dispatch.handlePlannerFailed(specPaths);
+        }
       },
       dispatchReviewer: (issueNumber: number): void => {
         void agentManager.dispatchReviewer({ issueNumber });
@@ -308,7 +309,7 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
     }
 
     if (event.type === 'agentCompleted' && event.agentType === 'planner') {
-      handlePlannerCompleted(deps);
+      void handlePlannerCompleted(deps);
     }
 
     if (event.type === 'agentFailed' && event.agentType === 'planner') {
@@ -345,7 +346,7 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
   };
 }
 
-function handlePlannerCompleted(deps: EventHandlerDeps): void {
+async function handlePlannerCompleted(deps: EventHandlerDeps): Promise<void> {
   const snapshot = deps.getPendingCacheSnapshot();
   const commitSHA = deps.getPendingCacheCommitSHA();
   deps.clearPendingCache();
@@ -354,16 +355,14 @@ function handlePlannerCompleted(deps: EventHandlerDeps): void {
     return;
   }
 
-  deps.plannerCache
-    .write(snapshot, commitSHA)
-    .then(() => {
-      deps.onPlannerCacheWritten(commitSHA);
-    })
-    .catch((error) => {
-      deps.logger.error('Failed to write planner cache', {
-        error: String(error),
-      });
+  try {
+    await deps.plannerCache.write(snapshot, commitSHA);
+    deps.onPlannerCacheWritten(commitSHA);
+  } catch (error) {
+    deps.logger.error('Failed to write planner cache', {
+      error: String(error),
     });
+  }
 }
 
 // ---------------------------------------------------------------------------

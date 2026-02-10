@@ -24,7 +24,7 @@ function setupTest(options: SetupTestOptions = {}): {
   emitter.on((event) => events.push(event));
 
   const agentManager: AgentManagerDelegate = {
-    dispatchPlanner: vi.fn(),
+    dispatchPlanner: vi.fn().mockResolvedValue(undefined),
     dispatchReviewer: vi.fn(),
     isPlannerRunning: vi.fn().mockReturnValue(options.isPlannerRunning ?? false),
   };
