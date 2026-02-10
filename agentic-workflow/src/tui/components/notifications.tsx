@@ -22,7 +22,6 @@ export function NotificationsPane(props: NotificationsPaneProps): ReactNode {
 
   return (
     <List
-      label="notifications"
       items={items}
       selectedIndex={props.selectedIndex}
       focused={props.focused}

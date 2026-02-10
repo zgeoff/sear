@@ -77,11 +77,11 @@ function setupInputTest(
 // Indicators
 // ---------------------------------------------------------------------------
 
-test('it renders the pane header with uppercase label and horizontal rule', () => {
+test('it does not render its own header label since the dashboard border owns it', () => {
   const { lastFrame } = setupRenderTest({ notifications: [] });
 
   const frame = lastFrame() ?? '';
-  expect(frame).toContain('NOTIFICATIONS');
+  expect(frame).not.toContain('NOTIFICATIONS');
 });
 
 test('it renders the correct Unicode glyph for each notification type', () => {
