@@ -1,7 +1,7 @@
 ---
 title: GitHub CLI Wrapper
-version: 0.1.0
-last_updated: 2026-02-08
+version: 0.2.0
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -16,7 +16,8 @@ Authenticated wrapper script for the `gh` CLI. Workflow agents use this script a
 - Must be a single Bash script at `scripts/workflow/gh.sh`
 - Must forward all arguments to `gh` unchanged
 - Must use `exec` to replace the shell process with `gh` (no subshell)
-- Must read credentials from `scripts/workflow/.env.local` (not committed to version control)
+- Must read credentials from `scripts/workflow/.env.local` in the main repo root (not committed to version control)
+- Must work identically when invoked from a git worktree — all auth and cache files resolve from the main repo root, not the worktree
 - Must not require any CLI arguments beyond those intended for `gh`
 - Must exit with a non-zero code if authentication fails, before reaching `gh`
 - Must print all diagnostic output to stderr (stdout is reserved for `gh` output)
@@ -39,18 +40,19 @@ scripts/workflow/gh.sh pr create --title "feat: add X" --body "Closes #42"
 scripts/workflow/gh.sh issue list --label "status:pending" --state open --json number,title
 ```
 
-The script resolves all internal paths (env file, cache files) relative to its own directory, so it works regardless of the caller's working directory.
+The script resolves all auth-related paths (env file, cache files, private key) from the **main repo root**, not from its own directory. This is critical for git worktree support — worktrees share the committed source tree but do not have gitignored files like `.env.local`. The main root is discovered via `git rev-parse --path-format=absolute --git-common-dir`, which returns the main repo's `.git` directory regardless of whether the script is invoked from the main working tree or a worktree.
 
 ### Execution Flow
 
 On every invocation:
 
 1. Resolve `SCRIPT_DIR` from the script's own location.
-2. Check the token cache (see [Token Caching](#token-caching)).
+2. Resolve `MAIN_ROOT` — the main repo root — by stripping `/.git` from the output of `git rev-parse --path-format=absolute --git-common-dir` (run from `SCRIPT_DIR`). Derive `MAIN_SCRIPT_DIR` as `$MAIN_ROOT/scripts/workflow`.
+3. Check the token cache (see [Token Caching](#token-caching)).
    - If a valid cached token exists, use it.
    - Otherwise, generate a fresh token (see [Token Generation](#token-generation)) and write it to the cache.
-3. Export `GH_TOKEN` with the token value.
-4. `exec gh "$@"` — replace the process with `gh`, forwarding all arguments.
+4. Export `GH_TOKEN` with the token value.
+5. `exec gh "$@"` — replace the process with `gh`, forwarding all arguments.
 
 If any step before `exec` fails, the script prints a diagnostic message to stderr and exits with code `1`. The `gh` process is never started.
 
@@ -58,7 +60,7 @@ If any step before `exec` fails, the script prints a diagnostic message to stder
 
 The script caches the most recent token to avoid redundant JWT signing and API calls during burst operations (e.g., a planner cycle issuing 10-20 `gh` commands in quick succession).
 
-**Cache files** (resolved relative to the script's directory):
+**Cache files** (resolved relative to `MAIN_SCRIPT_DIR`, i.e. the main repo's `scripts/workflow/`):
 
 | File | Contents |
 |------|----------|
@@ -90,7 +92,7 @@ When the cache is missed, the script generates a fresh GitHub App installation a
 
 #### Env File
 
-The script reads credentials from `scripts/workflow/.env.local` (resolved relative to the script's own location). A template is provided at `scripts/workflow/.env.example`.
+The script reads credentials from `scripts/workflow/.env.local` in the main repo root (resolved via `MAIN_SCRIPT_DIR`). A template is provided at `scripts/workflow/.env.example`.
 
 **Required variables:**
 
@@ -117,7 +119,7 @@ The `.env.local` file must not be committed to version control. It must be liste
 The `GH_APP_PRIVATE_KEY` variable supports two formats:
 
 1. **Inline PEM** -- If the value starts with `-----BEGIN`, it is treated as PEM key content directly.
-2. **File path** -- Otherwise, the value is treated as a file path. Relative paths are resolved from the script's own directory (`scripts/workflow/`). If the file exists, its contents are read as the PEM key. If the file does not exist, the script prints an error naming the path to stderr and exits with code `1`.
+2. **File path** -- Otherwise, the value is treated as a file path. Relative paths are resolved from the main repo's `scripts/workflow/` directory (`MAIN_SCRIPT_DIR`). If the file exists, its contents are read as the PEM key. If the file does not exist, the script prints an error naming the path to stderr and exits with code `1`.
 
 #### JWT Generation
 
@@ -152,7 +154,7 @@ The script validates prerequisites and reports failures to stderr:
 
 | Condition | Behavior |
 |-----------|----------|
-| `scripts/workflow/.env.local` does not exist | Print error message to stderr, exit code `1` |
+| `scripts/workflow/.env.local` does not exist in the main repo root | Print error message to stderr, exit code `1` |
 | A required variable (`GH_APP_ID`, `GH_APP_PRIVATE_KEY`, `GH_APP_INSTALLATION_ID`) is empty or unset | Print error naming the missing variable to stderr, exit code `1` |
 | `GH_APP_PRIVATE_KEY` does not start with `-----BEGIN` and is not a path to an existing file | Print error naming the invalid path to stderr, exit code `1` |
 | A required dependency (`openssl`, `curl`, `jq`, `gh`) is not installed | Print error naming the missing dependency to stderr, exit code `1` |
@@ -175,6 +177,7 @@ All errors halt execution before `gh` is started. A non-zero exit from the scrip
 
 The script requires these commands on `PATH`:
 
+- `git` -- Main repo root discovery via `--git-common-dir` (worktree support)
 - `gh` -- GitHub CLI (the command being wrapped)
 - `openssl` -- JWT signing and base64 encoding
 - `curl` -- HTTP requests to the GitHub API
@@ -188,7 +191,8 @@ The script requires these commands on `PATH`:
 - [ ] Given valid credentials and a working `gh` installation, when `scripts/workflow/gh.sh issue list` is run, then the output matches what `gh issue list` would produce with the same token
 - [ ] Given valid credentials, when `scripts/workflow/gh.sh issue view 1` is run, then `gh` receives `issue view 1` as its arguments (all arguments forwarded unchanged)
 - [ ] Given valid credentials, when the script is run, then `gh` replaces the wrapper process via `exec` (no subshell; the wrapper's PID becomes the `gh` PID)
-- [ ] Given the script is invoked from a directory other than the repository root, when the script is run, then it resolves internal paths relative to its own location and succeeds
+- [ ] Given the script is invoked from a directory other than the repository root, when the script is run, then it resolves auth paths from the main repo root and succeeds
+- [ ] Given the script is invoked from inside a git worktree, when the script is run, then it reads `.env.local`, cache files, and private key paths from the main repo's `scripts/workflow/` directory (not the worktree's copy)
 
 ### Token Caching
 
@@ -223,7 +227,7 @@ The script requires these commands on `PATH`:
 
 ## Dependencies
 
-- `gh`, `openssl`, `curl`, `jq` (available on PATH)
+- `git`, `gh`, `openssl`, `curl`, `jq` (available on PATH)
 - A registered GitHub App with: App ID, private key (.pem), and installation ID for the target repository
 - `scripts/workflow/.env.local` populated with valid credentials
 
