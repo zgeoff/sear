@@ -170,7 +170,9 @@ test('it fetches the specs directory tree SHA with a single recursive API call',
   await poller.poll();
 
   const firstCall = vi.mocked(octokit.git.getTree).mock.calls[0];
-  expect(firstCall?.[0]).toEqual(expect.objectContaining({ tree_sha: 'main', recursive: 'true' }));
+  expect(firstCall?.[0]).toStrictEqual(
+    expect.objectContaining({ tree_sha: 'main', recursive: 'true' }),
+  );
 });
 
 // ---------------------------------------------------------------------------

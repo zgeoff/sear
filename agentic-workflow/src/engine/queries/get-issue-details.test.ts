@@ -31,7 +31,7 @@ test('it returns the body, labels, and creation date for an issue', async () => 
 
   const result = await getIssueDetails(config, 10);
 
-  expect(result).toEqual({
+  expect(result).toStrictEqual({
     number: 10,
     title: 'Implement query interface',
     body: '## Objective\n\nImplement the query interface.',
@@ -77,7 +77,7 @@ test('it extracts label names when labels are plain strings', async () => {
   });
 
   const result = await getIssueDetails(config, 5);
-  expect(result.labels).toEqual(['label-a', 'label-b']);
+  expect(result.labels).toStrictEqual(['label-a', 'label-b']);
 });
 
 test('it extracts label names from mixed formats and discards objects without a name', async () => {
@@ -88,18 +88,13 @@ test('it extracts label names from mixed formats and discards objects without a 
       number: 5,
       title: 'Mixed labels',
       body: 'body',
-      labels: [
-        'bare-string',
-        { name: 'named-object' },
-        {} as { name?: string },
-        { name: 'another-named' },
-      ],
+      labels: ['bare-string', { name: 'named-object' }, {}, { name: 'another-named' }],
       created_at: '2026-01-01T00:00:00Z',
     },
   });
 
   const result = await getIssueDetails(config, 5);
-  expect(result.labels).toEqual(['bare-string', 'named-object', 'another-named']);
+  expect(result.labels).toStrictEqual(['bare-string', 'named-object', 'another-named']);
 });
 
 test('it propagates API errors when fetching issue details', async () => {

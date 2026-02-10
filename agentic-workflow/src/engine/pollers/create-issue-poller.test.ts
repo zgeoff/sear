@@ -96,7 +96,7 @@ test('it emits issueStatusChanged with oldStatus null for each issue on the firs
   const changed = statusChangedEvents(events);
   expect(changed).toHaveLength(2);
 
-  expect(changed[0]).toEqual({
+  expect(changed[0]).toStrictEqual({
     type: 'issueStatusChanged',
     issueNumber: 1,
     title: 'First task',
@@ -106,7 +106,7 @@ test('it emits issueStatusChanged with oldStatus null for each issue on the firs
     createdAt: '2026-02-01T00:00:00Z',
   });
 
-  expect(changed[1]).toEqual({
+  expect(changed[1]).toStrictEqual({
     type: 'issueStatusChanged',
     issueNumber: 2,
     title: 'Second task',
@@ -148,7 +148,7 @@ test('it emits issueStatusChanged when the status label changes between polls', 
 
   const changed = statusChangedEvents(events);
   expect(changed).toHaveLength(1);
-  expect(changed[0]).toEqual(
+  expect(changed[0]).toStrictEqual(
     expect.objectContaining({
       issueNumber: 1,
       oldStatus: 'pending',
@@ -232,7 +232,7 @@ test('it emits issueRemoved when an issue disappears from the poll results', asy
 
   const removed = removedEvents(events);
   expect(removed).toHaveLength(1);
-  expect(removed[0]).toEqual({ type: 'issueRemoved', issueNumber: 2 });
+  expect(removed[0]).toStrictEqual({ type: 'issueRemoved', issueNumber: 2 });
 });
 
 // ---------------------------------------------------------------------------
@@ -308,7 +308,7 @@ test('it stores issue number, title, status label, priority label, and creation 
   await poller.poll();
 
   const snap = poller.getSnapshot().get(42);
-  expect(snap).toEqual({
+  expect(snap).toStrictEqual({
     issueNumber: 42,
     title: 'Implement feature X',
     statusLabel: 'pending',
@@ -336,7 +336,7 @@ test('it includes issue number, title, old status, new status, priority label, a
 
   const changed = statusChangedEvents(events);
   expect(changed).toHaveLength(1);
-  expect(changed[0]).toEqual({
+  expect(changed[0]).toStrictEqual({
     type: 'issueStatusChanged',
     issueNumber: 7,
     title: 'Important task',

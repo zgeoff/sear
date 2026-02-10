@@ -9,14 +9,6 @@ import type {
 } from '../types.ts';
 import { createEngineStore, selectRunningAgentCount } from './store.ts';
 import { createMockEngine } from './test-utils/create-mock-engine.ts';
-import type {
-  AgentCompletedNotification,
-  AgentFailedNotification,
-  AgentStartedNotification,
-  EngineEventNotification,
-  IssueStatusChangedNotification,
-  SpecChangedNotification,
-} from './types.ts';
 
 function setupTest(): {
   store: ReturnType<typeof createEngineStore>;
@@ -211,12 +203,15 @@ test('it creates a typed notification with old and new status when an issue stat
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
 
-  const notif = notifications[0] as IssueStatusChangedNotification;
-  expect(notif.eventType).toBe('issueStatusChanged');
-  expect(notif.issueNumber).toBe(3);
-  expect(notif.oldStatus).toBe('pending');
-  expect(notif.newStatus).toBe('in-progress');
-  expect(notif.summary).toBe('#3: pending → in-progress');
+  expect(notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'issueStatusChanged',
+      issueNumber: 3,
+      oldStatus: 'pending',
+      newStatus: 'in-progress',
+      summary: '#3: pending → in-progress',
+    }),
+  );
 });
 
 test('it renders the old status as none when an issue is first detected', () => {
@@ -224,9 +219,13 @@ test('it renders the old status as none when an issue is first detected', () => 
 
   emit(buildIssueStatusChanged({ issueNumber: 1, oldStatus: null, newStatus: 'pending' }));
 
-  const notif = store.getState().notifications[0] as IssueStatusChangedNotification;
-  expect(notif.oldStatus).toBeNull();
-  expect(notif.summary).toBe('#1: none → pending');
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'issueStatusChanged',
+      oldStatus: null,
+      summary: '#1: none → pending',
+    }),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -268,7 +267,7 @@ test('it resets the stream buffer and subscribes to a new stream when an agent s
   };
   emit(event);
 
-  expect(store.getState().agentStreams.get(1)).toEqual([]);
+  expect(store.getState().agentStreams.get(1)).toStrictEqual([]);
   expect(engine.getAgentStream).toHaveBeenCalledWith(1);
 });
 
@@ -289,11 +288,14 @@ test('it flags the planner as running and derives the spec count when the planne
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
 
-  const notif = notifications[0] as AgentStartedNotification;
-  expect(notif.eventType).toBe('agentStarted');
-  expect(notif.agentType).toBe('planner');
-  expect(notif.specCount).toBe(1);
-  expect(notif.summary).toBe('Planner started for 1 specs');
+  expect(notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'agentStarted',
+      agentType: 'planner',
+      specCount: 1,
+      summary: 'Planner started for 1 specs',
+    }),
+  );
 });
 
 test('it derives the correct spec count from multiple spec paths when the planner starts', () => {
@@ -307,9 +309,12 @@ test('it derives the correct spec count from multiple spec paths when the planne
   };
   emit(event);
 
-  const notif = store.getState().notifications[0] as AgentStartedNotification;
-  expect(notif.specCount).toBe(3);
-  expect(notif.summary).toBe('Planner started for 3 specs');
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      specCount: 3,
+      summary: 'Planner started for 3 specs',
+    }),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -426,11 +431,13 @@ test('it includes the log file path on the notification when an agent completes 
     logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
   } satisfies AgentCompletedEvent);
 
-  const notifications = store.getState().notifications;
-  const completedNotif = notifications.find(
-    (n) => n.eventType === 'agentCompleted' && 'issueNumber' in n && n.issueNumber === 1,
-  ) as AgentCompletedNotification;
-  expect(completedNotif.logFilePath).toBe('/logs/2026-02-08T10-00-00Z-implementor-1.log');
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'agentCompleted',
+      issueNumber: 1,
+      logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+    }),
+  );
 });
 
 test('it omits the log file path on the notification when an agent completes without session logging', () => {
@@ -454,8 +461,9 @@ test('it omits the log file path on the notification when an agent completes wit
   const notifications = store.getState().notifications;
   const completedNotif = notifications.find(
     (n) => n.eventType === 'agentCompleted' && 'issueNumber' in n && n.issueNumber === 1,
-  ) as AgentCompletedNotification;
-  expect(completedNotif.logFilePath).toBeUndefined();
+  );
+  expect(completedNotif).toBeDefined();
+  expect(completedNotif).not.toHaveProperty('logFilePath');
 });
 
 test('it flags the planner as not running when the planner completes', () => {
@@ -526,10 +534,9 @@ test('it does not include the spec count when a task agent completes', () => {
   } satisfies AgentCompletedEvent);
 
   const notifications = store.getState().notifications;
-  const completedNotif = notifications.find(
-    (n) => n.eventType === 'agentCompleted',
-  ) as AgentCompletedNotification;
-  expect(completedNotif.specCount).toBeUndefined();
+  const completedNotif = notifications.find((n) => n.eventType === 'agentCompleted');
+  expect(completedNotif).toBeDefined();
+  expect(completedNotif).not.toHaveProperty('specCount');
 });
 
 // ---------------------------------------------------------------------------
@@ -558,7 +565,7 @@ test('it records a failure with worktree path when an implementor fails', () => 
 
   const issue = store.getState().issues.get(1);
   expect(issue?.agentRunning).toBe(false);
-  expect(issue?.lastFailure).toEqual({
+  expect(issue?.lastFailure).toStrictEqual({
     agentType: 'implementor',
     error: 'process crashed',
     sessionID: 'sess-1',
@@ -586,7 +593,7 @@ test('it records a failure without worktree path when a reviewer fails', () => {
   } satisfies AgentFailedEvent);
 
   const issue = store.getState().issues.get(1);
-  expect(issue?.lastFailure).toEqual({
+  expect(issue?.lastFailure).toStrictEqual({
     agentType: 'reviewer',
     error: 'review failed',
     sessionID: 'sess-r-1',
@@ -638,11 +645,11 @@ test('it includes the log file path on the notification when an agent fails with
     logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
   } satisfies AgentFailedEvent);
 
-  const notifications = store.getState().notifications;
-  const failNotif = notifications.find((n) => n.eventType === 'agentFailed');
-  expect(failNotif).toBeDefined();
-  expect((failNotif as AgentFailedNotification).logFilePath).toBe(
-    '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'agentFailed',
+      logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
+    }),
   );
 });
 
@@ -734,10 +741,13 @@ test('it notifies with a PR link when an issue is approved', async () => {
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
 
-  const notif = notifications[0] as EngineEventNotification;
-  expect(notif.summary).toBe('#5 approved — ready to merge');
-  expect(notif.notificationType).toBe('approved');
-  expect(notif.issueNumber).toBe(5);
+  expect(notifications).toContainEqual(
+    expect.objectContaining({
+      summary: '#5 approved — ready to merge',
+      notificationType: 'approved',
+      issueNumber: 5,
+    }),
+  );
 
   expect(engine.getPRForIssue).toHaveBeenCalledWith(5);
 
@@ -760,11 +770,14 @@ test('it includes a clipboard command in the notification when an issue needs re
   };
   emit(event);
 
-  const notif = store.getState().notifications[0] as EngineEventNotification;
-  expect(notif.summary).toBe('#3 needs refinement — Amend the spec');
-  expect(notif.notificationType).toBe('needs-refinement');
-  expect(notif.resolutionGuidance).toBe('Amend the spec');
-  expect(notif.clipboardCommand).toBe('claude -p "fix the spec"');
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      summary: '#3 needs refinement — Amend the spec',
+      notificationType: 'needs-refinement',
+      resolutionGuidance: 'Amend the spec',
+      clipboardCommand: 'claude -p "fix the spec"',
+    }),
+  );
 });
 
 test('it notifies with guidance text when an issue is blocked', () => {
@@ -779,9 +792,12 @@ test('it notifies with guidance text when an issue is blocked', () => {
   };
   emit(event);
 
-  const notif = store.getState().notifications[0] as EngineEventNotification;
-  expect(notif.summary).toBe('#4 blocked — Waiting on dependency');
-  expect(notif.notificationType).toBe('blocked');
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      summary: '#4 blocked — Waiting on dependency',
+      notificationType: 'blocked',
+    }),
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -923,11 +939,14 @@ test('it notifies with filename only and a commit link when a spec file changes'
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
 
-  const notif = notifications[0] as SpecChangedNotification;
-  expect(notif.eventType).toBe('specChanged');
-  expect(notif.specFileName).toBe('workflow.md');
-  expect(notif.summary).toBe('Spec changed: workflow.md');
-  expect(notif.contextURL).toBe('https://github.com/owner/repo/commit/abc123def');
+  expect(notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'specChanged',
+      specFileName: 'workflow.md',
+      summary: 'Spec changed: workflow.md',
+      contextURL: 'https://github.com/owner/repo/commit/abc123def',
+    }),
+  );
 });
 
 // ---------------------------------------------------------------------------

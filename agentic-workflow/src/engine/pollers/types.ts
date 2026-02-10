@@ -15,6 +15,7 @@ export interface IssueSnapshot {
 export interface IssuePoller {
   poll: () => Promise<void>;
   getSnapshot: () => ReadonlyMap<number, IssueSnapshot>;
+  getSnapshotMap: () => Map<number, IssueSnapshot>;
 }
 
 // ---------------------------------------------------------------------------

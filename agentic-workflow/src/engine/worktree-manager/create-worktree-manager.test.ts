@@ -84,7 +84,7 @@ test('it creates a new worktree from main when no existing worktree or branch is
   const addCall = calls.find(
     (c) => c.args[0] === 'worktree' && c.args[1] === 'add' && c.args[2] === '-b',
   );
-  expect(addCall?.args).toEqual([
+  expect(addCall?.args).toStrictEqual([
     'worktree',
     'add',
     '-b',
@@ -136,7 +136,7 @@ test('it prunes and re-adds the worktree when the branch exists but the worktree
   expect(pruneCall).toBeDefined();
 
   const addCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
-  expect(addCall?.args).toEqual([
+  expect(addCall?.args).toStrictEqual([
     'worktree',
     'add',
     resolve('/repo', '.worktrees', 'issue-5'),
@@ -152,7 +152,7 @@ test('it force-removes the worktree for a given issue number', async () => {
   await manager.remove(42);
 
   const removeCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'remove');
-  expect(removeCall?.args).toEqual([
+  expect(removeCall?.args).toStrictEqual([
     'worktree',
     'remove',
     resolve('/repo', '.worktrees', 'issue-42'),

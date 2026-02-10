@@ -180,7 +180,7 @@ test('it returns PR details when a linked pull request exists', async () => {
 
   const result = await getPRForIssue(config, 10);
 
-  expect(result).toEqual({
+  expect(result).toStrictEqual({
     number: 20,
     title: 'feat(agentic-workflow): implement queries',
     changedFilesCount: 3,
