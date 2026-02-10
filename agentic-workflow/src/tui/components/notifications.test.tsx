@@ -662,6 +662,7 @@ test('it renders issue references as terminal hyperlinks to the issue URL', () =
   const frame = lastFrame() ?? '';
   // OSC 8 hyperlink format: \x1b]8;;<url>\x07<text>\x1b]8;;\x07
   expect(frame).toContain(
+    // biome-ignore lint/security/noSecrets: OSC 8 escape sequence test fixture
     '\x1b]8;;https://github.com/test-owner/test-repo/issues/42\x07#42\x1b]8;;\x07',
   );
 });
@@ -677,9 +678,7 @@ test('it renders issue references with the correct repository in the URL', () =>
   });
 
   const frame = lastFrame() ?? '';
-  expect(frame).toContain(
-    '\x1b]8;;https://github.com/acme/widgets/issues/7\x07#7\x1b]8;;\x07',
-  );
+  expect(frame).toContain('\x1b]8;;https://github.com/acme/widgets/issues/7\x07#7\x1b]8;;\x07');
 });
 
 test('it renders spec filenames as terminal hyperlinks to the commit diff URL', () => {
@@ -696,6 +695,7 @@ test('it renders spec filenames as terminal hyperlinks to the commit diff URL', 
 
   const frame = lastFrame() ?? '';
   expect(frame).toContain(
+    // biome-ignore lint/security/noSecrets: OSC 8 escape sequence test fixture
     '\x1b]8;;https://github.com/test-owner/test-repo/commit/abc123\x07control-plane.md\x1b]8;;\x07',
   );
 });
@@ -727,6 +727,7 @@ test('it renders log file paths as terminal hyperlinks to the local file', () =>
 
   const frame = lastFrame() ?? '';
   expect(frame).toContain(
+    // biome-ignore lint/security/noSecrets: OSC 8 escape sequence test fixture
     '\x1b]8;;file:///tmp/agent-session.log\x07(logs)\x1b]8;;\x07',
   );
 });
@@ -743,6 +744,7 @@ test('it renders log file paths for failed agent notifications as terminal hyper
 
   const frame = lastFrame() ?? '';
   expect(frame).toContain(
+    // biome-ignore lint/security/noSecrets: OSC 8 escape sequence test fixture
     '\x1b]8;;file:///logs/reviewer.log\x07(logs)\x1b]8;;\x07',
   );
 });
@@ -776,6 +778,7 @@ test('it renders issue references as hyperlinks in approved notifications', () =
 
   const frame = lastFrame() ?? '';
   expect(frame).toContain(
+    // biome-ignore lint/security/noSecrets: OSC 8 escape sequence test fixture
     '\x1b]8;;https://github.com/test-owner/test-repo/issues/25\x07#25\x1b]8;;\x07',
   );
 });

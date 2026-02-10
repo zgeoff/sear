@@ -151,9 +151,8 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        {' started for '}
-        {renderIssueLink(n.issueNumber, repository)}
+        </Text>{' '}
+        started for {renderIssueLink(n.issueNumber, repository)}
       </>
     ))
     .with({ eventType: 'agentCompleted', agentType: 'planner' }, (n) => {
@@ -171,46 +170,40 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        {' completed for '}
-        {renderIssueLink(n.issueNumber, repository)}
+        </Text>{' '}
+        completed for {renderIssueLink(n.issueNumber, repository)}
       </>
     ))
     .with({ eventType: 'agentFailed', agentType: 'planner' }, (n) => (
       <>
         <Text bold={true} color="cyan">
           Planner
-        </Text>
-        {' failed \u2014 '}
-        <Text color="red">{n.error}</Text>
+        </Text>{' '}
+        failed — <Text color="red">{n.error}</Text>
       </>
     ))
     .with({ eventType: 'agentFailed' }, (n) => (
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        {' failed for '}
-        {renderIssueLink(n.issueNumber, repository)}
-        {' \u2014 '}
-        <Text color="red">{n.error}</Text>
+        </Text>{' '}
+        failed for {renderIssueLink(n.issueNumber, repository)} — <Text color="red">{n.error}</Text>
       </>
     ))
     .with({ eventType: 'agentSkipped', agentType: 'planner' }, () => (
       <>
         <Text bold={true} color="cyan">
           Planner
-        </Text>
-        {' skipped \u2014 paths deferred'}
+        </Text>{' '}
+        skipped — paths deferred
       </>
     ))
     .with({ eventType: 'agentSkipped' }, (n) => (
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        {' skipped for '}
-        {renderIssueLink(n.issueNumber, repository)}
+        </Text>{' '}
+        skipped for {renderIssueLink(n.issueNumber, repository)}
       </>
     ))
     .with({ eventType: 'issueStatusChanged' }, (n) => {
@@ -221,12 +214,11 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
       const newColorProps = newStyle.color ? { color: newStyle.color } : {};
       return (
         <>
-          {renderIssueLink(n.issueNumber, repository)}
-          {': '}
+          {renderIssueLink(n.issueNumber, repository)}:{' '}
           <Text {...oldColorProps} dimColor={oldStyle.dimColor}>
             {oldStatusText}
-          </Text>
-          {' \u2192 '}
+          </Text>{' '}
+          →{' '}
           <Text {...newColorProps} dimColor={newStyle.dimColor}>
             {n.newStatus}
           </Text>
@@ -235,7 +227,7 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
     })
     .with({ eventType: 'specChanged' }, (n) => (
       <>
-        {'Spec changed: '}
+        Spec changed:{' '}
         {n.contextURL ? (
           <Link url={n.contextURL} fallback={false}>
             <Text color="magenta">{n.specFileName}</Text>
@@ -246,15 +238,12 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
       </>
     ))
     .with({ eventType: 'recoveryPerformed' }, (n) => (
-      <>
-        {renderIssueLink(n.issueNumber, repository)}
-        {' recovered from stale'}
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} recovered from stale</>
     ))
     .with({ eventType: 'notification', notificationType: 'approved' }, (n) => (
       <>
-        {renderIssueLink(n.issueNumber, repository)} <Text color="green">approved</Text>
-        {' \u2014 ready to merge'}
+        {renderIssueLink(n.issueNumber, repository)} <Text color="green">approved</Text> — ready to
+        merge
       </>
     ))
     .with(
@@ -276,22 +265,13 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
       },
     )
     .with({ eventType: 'dispatchReady' }, (n) => (
-      <>
-        {renderIssueLink(n.issueNumber, repository)}
-        {' ready for dispatch'}
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} ready for dispatch</>
     ))
     .with({ eventType: 'notificationDismissed' }, (n) => (
-      <>
-        {renderIssueLink(n.issueNumber, repository)}
-        {' dismissed'}
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} dismissed</>
     ))
     .with({ eventType: 'issueRemoved' }, (n) => (
-      <>
-        {renderIssueLink(n.issueNumber, repository)}
-        {' removed'}
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} removed</>
     ))
     .with({ eventType: 'startup' }, (n) => {
       const base = `Startup complete: ${n.issueCount} issues tracked`;
