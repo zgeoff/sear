@@ -37,7 +37,7 @@ const PRIORITY_ORDER: Record<string, number> = {
   'priority:low': 2,
 };
 
-const SPINNER_FRAMES = ['\u280B', '\u2819', '\u2839', '\u2838', '\u283C', '\u2834', '\u2826', '\u2827', '\u2807', '\u280F'];
+const SPINNER_FRAMES: readonly string[] = ['\u280B', '\u2819', '\u2839', '\u2838', '\u283C', '\u2834', '\u2826', '\u2827', '\u2807', '\u280F'];
 const SPINNER_INTERVAL_MS = 80;
 
 const READY_MARKER = '\u25CF';
