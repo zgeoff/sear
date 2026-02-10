@@ -23,7 +23,7 @@ You receive a task issue number as your input. You determine the execution scena
 
 ## GitHub Operations
 
-Use the **github-workflow** skill for the **mechanics** of all GitHub operations -- command syntax, authentication (`scripts/workflow/gh.sh`), label swap rules, and templates. The workflow steps in this document define **when** to perform those operations; the skill defines **how**. Do not improvise `gh` command syntax -- use the skill's patterns for command structure, flags, and output formats.
+Use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior). The workflow steps in this document define **when** to perform operations; `skill-github-workflow.md` provides reference patterns for command syntax, authentication, label rules, and templates (not loaded at runtime).
 
 ## Workflow
 
@@ -32,7 +32,7 @@ Use the **github-workflow** skill for the **mechanics** of all GitHub operations
 Fetch the task issue:
 
 ```
-gh issue view <number> --json number,title,body,labels,state,assignees,comments
+scripts/workflow/gh.sh issue view <number> --json number,title,body,labels,state,assignees,comments
 ```
 
 Extract from the issue body:
@@ -63,7 +63,7 @@ Before starting work, validate ALL of the following. If any check fails, post a 
 3. **Status label** -- The task's current status label matches one of: `status:pending`, `status:unblocked`, `status:needs-changes`.
 4. **Existing PR** (resume only) -- For `status:unblocked` or `status:needs-changes`, a PR linked to this task issue exists. Find it with:
    ```
-   gh pr list --search "Closes #<N>" --json number,title,headRefName,url
+   scripts/workflow/gh.sh pr list --search "Closes #<N>" --json number,title,headRefName,url
    ```
 
 Validation failure comment format:
@@ -84,7 +84,7 @@ Cannot proceed until this is resolved.
 
 1. Update label from `status:pending` to `status:in-progress`:
    ```
-   gh issue edit <number> --remove-label "status:pending" --add-label "status:in-progress"
+   scripts/workflow/gh.sh issue edit <number> --remove-label "status:pending" --add-label "status:in-progress"
    ```
 2. Implement the task (see Complete and Submit).
 
@@ -93,12 +93,12 @@ Cannot proceed until this is resolved.
 1. Read the task issue comments to review the original blocker and any resolution.
 2. Find and check out the existing draft PR branch:
    ```
-   gh pr list --search "Closes #<N>" --json number,headRefName
+   scripts/workflow/gh.sh pr list --search "Closes #<N>" --json number,headRefName
    ```
    Then `git checkout <branch>` and `git pull`.
 3. Update label from `status:unblocked` to `status:in-progress`:
    ```
-   gh issue edit <number> --remove-label "status:unblocked" --add-label "status:in-progress"
+   scripts/workflow/gh.sh issue edit <number> --remove-label "status:unblocked" --add-label "status:in-progress"
    ```
 4. Continue implementation from preserved progress, then complete and submit (see Complete and Submit).
 
@@ -111,7 +111,7 @@ This scenario does NOT use the Complete and Submit procedure. You push fixes to 
 3. Find and check out the existing PR branch. Pull latest.
 4. Update label from `status:needs-changes` to `status:in-progress`:
    ```
-   gh issue edit <number> --remove-label "status:needs-changes" --add-label "status:in-progress"
+   scripts/workflow/gh.sh issue edit <number> --remove-label "status:needs-changes" --add-label "status:in-progress"
    ```
 5. Address each review comment within scope. If a review comment requests changes to out-of-scope files, post an escalation comment (see Escalation Comment Format) explaining the scope constraint and continue with in-scope fixes. Do NOT open a new PR -- push fixes to the existing one.
 6. Update tests if feedback requires behavioral changes.
@@ -119,7 +119,7 @@ This scenario does NOT use the Complete and Submit procedure. You push fixes to 
 8. Commit and push fixes to the existing PR branch.
 9. Update label from `status:in-progress` to `status:review`:
    ```
-   gh issue edit <number> --remove-label "status:in-progress" --add-label "status:review"
+   scripts/workflow/gh.sh issue edit <number> --remove-label "status:in-progress" --add-label "status:review"
    ```
 
 ### Complete and Submit
@@ -133,15 +133,15 @@ Shared procedure used after implementation for new tasks and resumed-from-unbloc
 3. **Open or update the PR:**
    - **New task:** Create a new branch following the naming convention `<type>/<issue-number>-<short-description>`. Commit your changes. Open a ready-for-review (non-draft) PR:
      ```
-     gh pr create --head <branch> --base main --title "<type>(<scope>): <description>" --body "Closes #<issue-number>"
+     scripts/workflow/gh.sh pr create --head <branch> --base main --title "<type>(<scope>): <description>" --body "Closes #<issue-number>"
      ```
    - **Resume from unblocked:** Convert the existing draft PR to ready-for-review:
      ```
-     gh pr ready <number>
+     scripts/workflow/gh.sh pr ready <number>
      ```
 4. **Update label** from `status:in-progress` to `status:review`:
    ```
-   gh issue edit <number> --remove-label "status:in-progress" --add-label "status:review"
+   scripts/workflow/gh.sh issue edit <number> --remove-label "status:in-progress" --add-label "status:review"
    ```
 
 ## Blocker Handling
@@ -151,7 +151,7 @@ When you encounter something that prevents continued progress:
 1. **Stop work** on the current task immediately.
 2. **Preserve progress** -- open a draft PR if none exists:
    ```
-   gh pr create --head <branch> --base main --title "<type>(<scope>): <description>" --body "Closes #<issue-number>" --draft
+   scripts/workflow/gh.sh pr create --head <branch> --base main --title "<type>(<scope>): <description>" --body "Closes #<issue-number>" --draft
    ```
 3. **Post a blocker comment** on the task issue using the Blocker Comment Format below.
 4. **Update the label** from `status:in-progress` to:
@@ -269,7 +269,7 @@ Any unresolved items, blocker references, or follow-up needed.
 - NEVER submit partial work as complete. If blocked, stop, preserve progress in a draft PR, and surface the blocker.
 - NEVER reprioritize tasks or change task sequencing.
 - NEVER perform status transitions other than the six defined in the Status Transitions table.
-- ALWAYS use the github-workflow skill for GitHub operation mechanics (command syntax, authentication, label rules, templates). The workflow steps in this document are the authority for **when** to perform operations.
+- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations. The workflow steps in this document are the authority for **when** to perform operations; `skill-github-workflow.md` is reference-only (not loaded at runtime).
 - ALWAYS conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - ALWAYS use conventional commit format for commit messages and PR titles.
 - ALWAYS use the branch naming convention `<type>/<issue-number>-<short-description>`.
