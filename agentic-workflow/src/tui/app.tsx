@@ -218,6 +218,7 @@ export function App(props: AppProps): ReactNode {
         <Box width={paneWidths[0]} height={contentHeight} flexDirection="column">
           <NotificationsPane
             notifications={notifications}
+            repository={props.repository}
             focused={focusedPane === 'notifications'}
             selectedIndex={selectedNotificationIndex}
             paneWidth={paneWidths[0]}
