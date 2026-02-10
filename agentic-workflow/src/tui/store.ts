@@ -106,7 +106,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
         const issues = new Map(state.issues);
         const existing = issues.get(e.issueNumber);
 
-        const shouldClearFailure = !e.isRecovery && existing?.lastFailure !== undefined;
+        const shouldClearOverlays = !e.isRecovery;
 
         const updated = buildTrackedIssue({
           number: e.issueNumber,
@@ -116,7 +116,14 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           createdAt: e.createdAt,
           agentRunning: existing?.agentRunning ?? false,
           agentType: existing?.agentType,
-          lastFailure: shouldClearFailure ? undefined : existing?.lastFailure,
+          lastFailure:
+            shouldClearOverlays && existing?.lastFailure !== undefined
+              ? undefined
+              : existing?.lastFailure,
+          resolutionGuidance:
+            shouldClearOverlays && existing?.resolutionGuidance !== undefined
+              ? undefined
+              : existing?.resolutionGuidance,
         });
 
         issues.set(e.issueNumber, updated);
@@ -394,9 +401,20 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           notification.clipboardCommand = e.clipboardCommand;
         }
 
-        store.setState({
+        const issues = new Map(state.issues);
+        const existing = issues.get(e.issueNumber);
+        if (existing && e.resolutionGuidance !== undefined) {
+          issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
+        }
+
+        const updates: Partial<EngineStoreState> = {
           notifications: [notification, ...state.notifications],
-        });
+        };
+        if (existing && e.resolutionGuidance !== undefined) {
+          updates.issues = issues;
+        }
+
+        store.setState(updates);
 
         if (e.statusLabel === 'approved') {
           updateNotificationWithPrurl(notification.id, e.issueNumber);
@@ -641,6 +659,7 @@ interface BuildTrackedIssueParams {
   agentRunning: boolean;
   agentType: TaskAgentType | undefined;
   lastFailure: LastFailure | undefined;
+  resolutionGuidance: string | undefined;
 }
 
 function buildTrackedIssue(params: BuildTrackedIssueParams): TrackedIssue {
@@ -657,6 +676,9 @@ function buildTrackedIssue(params: BuildTrackedIssueParams): TrackedIssue {
   }
   if (params.lastFailure !== undefined) {
     issue.lastFailure = params.lastFailure;
+  }
+  if (params.resolutionGuidance !== undefined) {
+    issue.resolutionGuidance = params.resolutionGuidance;
   }
   return issue;
 }
