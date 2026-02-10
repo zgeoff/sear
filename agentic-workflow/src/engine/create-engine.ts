@@ -232,18 +232,17 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       dispatch.handleSpecPollerResult(specResult);
 
       // Step 6: Start recurring poll timers
-      pollerTimers.issueTimer = setInterval(() => {
+      pollerTimers.issueTimer = setInterval(async () => {
         logger.debug('IssuePoller cycle starting');
-        void issuePoller.poll();
+        await issuePoller.poll();
       }, resolved.issuePoller.pollInterval * SECONDS_TO_MS);
 
-      pollerTimers.specTimer = setInterval(() => {
+      pollerTimers.specTimer = setInterval(async () => {
         logger.debug('SpecPoller cycle starting');
-        void specPoller.poll().then((result) => {
-          latestSpecCommitSHA = result.commitSHA;
-          trackSpecChangeTypes(result.changes, latestSpecChangeTypes);
-          dispatch.handleSpecPollerResult(result);
-        });
+        const result = await specPoller.poll();
+        latestSpecCommitSHA = result.commitSHA;
+        trackSpecChangeTypes(result.changes, latestSpecChangeTypes);
+        dispatch.handleSpecPollerResult(result);
       }, resolved.specPoller.pollInterval * SECONDS_TO_MS);
 
       const issueCount = issuePoller.getSnapshot().size;
