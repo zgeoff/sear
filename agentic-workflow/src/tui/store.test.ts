@@ -480,6 +480,58 @@ test('it flags the planner as not running when the planner completes', () => {
   expect(store.getState().plannerRunning).toBe(false);
 });
 
+test('it derives the spec count and includes it in the summary when the planner completes', () => {
+  const { store, emit } = setupTest();
+
+  emit({
+    type: 'agentStarted',
+    agentType: 'planner',
+    specPaths: ['docs/specs/a.md', 'docs/specs/b.md'],
+    sessionID: 'sess-p-1',
+  } satisfies AgentStartedEvent);
+
+  emit({
+    type: 'agentCompleted',
+    agentType: 'planner',
+    specPaths: ['docs/specs/a.md', 'docs/specs/b.md'],
+    sessionID: 'sess-p-1',
+  } satisfies AgentCompletedEvent);
+
+  const notifications = store.getState().notifications;
+  const completedNotif = notifications.find((n) => n.eventType === 'agentCompleted');
+  expect(completedNotif).toMatchObject({
+    eventType: 'agentCompleted',
+    agentType: 'planner',
+    specCount: 2,
+    summary: 'Planner completed for 2 specs',
+  });
+});
+
+test('it does not include the spec count when a task agent completes', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentStartedEvent);
+
+  emit({
+    type: 'agentCompleted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  } satisfies AgentCompletedEvent);
+
+  const notifications = store.getState().notifications;
+  const completedNotif = notifications.find(
+    (n) => n.eventType === 'agentCompleted',
+  ) as AgentCompletedNotification;
+  expect(completedNotif.specCount).toBeUndefined();
+});
+
 // ---------------------------------------------------------------------------
 // agentFailed
 // ---------------------------------------------------------------------------
