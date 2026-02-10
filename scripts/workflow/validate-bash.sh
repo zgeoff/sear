@@ -28,9 +28,59 @@ if [[ -z "$COMMAND" ]]; then
   exit 0
 fi
 
+# ─── Quote Masking ──────────────────────────────────────────────────────────
+# Replaces the contents of single- and double-quoted strings with spaces,
+# preserving quote delimiters and string length. Backslash escapes are
+# respected outside quotes and inside double quotes; single-quoted strings
+# are literal. Unclosed quotes mask to end of string.
+mask_quotes() {
+  printf '%s' "$1" | awk -v sq="'" '
+  { buf = buf sep $0; sep = "\n" }
+  END {
+    len = length(buf)
+    q = ""
+    out = ""
+    i = 1
+    while (i <= len) {
+      c = substr(buf, i, 1)
+      if (q == "") {
+        if (c == "\"" || c == sq) {
+          q = c
+          out = out c
+          i++
+          continue
+        }
+        if (c == "\\" && i < len) {
+          out = out c substr(buf, i + 1, 1)
+          i += 2
+          continue
+        }
+        out = out c
+      } else {
+        if (c == "\\" && q == "\"" && i < len) {
+          out = out "  "
+          i += 2
+          continue
+        }
+        if (c == q) {
+          q = ""
+          out = out c
+        } else {
+          out = out " "
+        }
+      }
+      i++
+    }
+    printf "%s", out
+  }'
+}
+
+MASKED_COMMAND=$(mask_quotes "$COMMAND")
+
 # ─── Layer 1: Blocklist ─────────────────────────────────────────────────────
-# Patterns checked against the FULL command string (before splitting).
-# Any match is an immediate block, even if the command prefix is allowed.
+# Patterns checked against a quote-masked copy of the command string (before
+# splitting). Any match is an immediate block, even if the command prefix is
+# allowed.
 
 blocklist=(
   # ── Git destructive operations ──
@@ -69,7 +119,7 @@ blocklist=(
 )
 
 for pattern in "${blocklist[@]}"; do
-  if echo "$COMMAND" | grep -qE "$pattern"; then
+  if echo "$MASKED_COMMAND" | grep -qE "$pattern"; then
     echo "Blocked: matches dangerous pattern '$pattern'" >&2
     exit 2
   fi

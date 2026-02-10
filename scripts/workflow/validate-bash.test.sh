@@ -129,6 +129,33 @@ run_validator() {
   [[ "$status" -eq 2 ]]
 }
 
+# ─── Blocklist — Quote Masking ────────────────────────────────────────────────
+
+@test "it allows blocklist words inside double-quoted arguments" {
+  run_validator 'git commit -m "fix: kill orphaned timers"'
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows blocklist words inside single-quoted arguments" {
+  run_validator "echo 'sudo is not allowed normally'"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows blocklist patterns inside double-quoted arguments" {
+  run_validator 'git commit -m "rm stale cache entries"'
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows blocklist words in quoted arguments alongside real operators outside the quotes" {
+  run_validator 'git commit -m "kill orphan timers" && git push'
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it still blocks blocklist words that appear outside any quoted string" {
+  run_validator "kill 1234"
+  [[ "$status" -eq 2 ]]
+}
+
 # ─── Allowlist ────────────────────────────────────────────────────────────────
 
 @test "it allows git commands" {
