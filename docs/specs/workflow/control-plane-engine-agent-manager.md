@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine — Agent Manager
-version: 0.4.0
+version: 0.5.0
 last_updated: 2026-02-10
 status: approved
 ---
@@ -42,11 +42,13 @@ When the engine dispatches an agent:
 
 **Session resume:** The SDK supports resuming a failed session via `resume: sessionId`. The engine does not resume sessions automatically — it always starts fresh sessions. However, the session ID from a failed run is included in the `agentFailed` event so the TUI can surface it to the user for manual resume outside the control plane if needed.
 
+### Trigger Context
+
 Each agent session receives trigger-specific context as its initial prompt:
 
 | Agent | Trigger Context |
 |-------|----------------|
-| Planner | Changed spec file paths (space-separated) |
+| Planner | Enriched prompt containing: full content of each changed spec (with diffs for modified specs), and existing open task issues (number, title, labels, body). See Planner Context Pre-computation below. |
 | Implementor | Issue number |
 | Reviewer | Issue number |
 
@@ -58,24 +60,29 @@ The engine reads agent definition files from `.claude/agents/<name>.md` at the r
 
 1. The `QueryFactory` receives `repoRoot` at construction time.
 2. When creating a session, it reads `{repoRoot}/.claude/agents/{agentName}.md` from disk.
-3. It parses the file's YAML frontmatter using `gray-matter`, extracting: `description`, `tools` (comma-separated string → `string[]`), `model`, and any other frontmatter fields.
+3. It parses the file's YAML frontmatter using `gray-matter`, extracting: `description`, `tools` (comma-separated string → `string[]`), `disallowedTools` (comma-separated string → `string[]`), `model`, `maxTurns`, and any other frontmatter fields.
 4. The markdown body (after frontmatter) becomes the agent's `prompt` (system prompt).
 5. It constructs an `AgentDefinition` object (SDK type) and passes it via the `agents` option in the `query()` call.
 
 **Frontmatter field mapping:**
 
-| Agent file frontmatter | `AgentDefinition` field | Transform |
-|------------------------|------------------------|-----------|
-| `description` | `description` | Direct string copy |
-| `tools` | `tools` | Split comma-separated string, trim whitespace → `string[]`. The agent files use YAML bare string format (`tools: Read, Grep, Glob, Bash`), which `gray-matter` parses as a single string. If the field is already an array (YAML list syntax), use it directly. |
-| `model` | `model` | Direct string copy (e.g., `'opus'`). Defaults to `'inherit'` if absent. |
-| (markdown body) | `prompt` | Direct string copy |
+| Agent file frontmatter | Target | Transform |
+|------------------------|--------|-----------|
+| `description` | `AgentDefinition.description` | Direct string copy |
+| `tools` | `AgentDefinition.tools` | Split comma-separated string, trim whitespace → `string[]`. The agent files use YAML bare string format (`tools: Read, Grep, Glob, Bash`), which `gray-matter` parses as a single string. If the field is already an array (YAML list syntax), use it directly. |
+| `disallowedTools` | `AgentDefinition.disallowedTools` | Same comma-separated → `string[]` transform as `tools`. Tools in this list are denied even if they appear in `tools` or would be inherited. |
+| `model` | `AgentDefinition.model` | Direct string copy (e.g., `'opus'`). Defaults to `'inherit'` if absent. Overridden by `modelOverride` from `QueryFactoryParams` when present (see Type Definitions). |
+| `maxTurns` | `query()` option | Parsed as integer. Passed as a session-level `query()` option, not as part of `AgentDefinition`. Limits the number of agentic turns before the SDK stops the session. If absent, the SDK default applies (no limit). |
+| (markdown body) | `AgentDefinition.prompt` | Direct string copy |
 
-**Fields not mapped to `AgentDefinition`:** The agent file frontmatter includes fields like `name`, `skills`, `hooks`, and `permissionMode` that are not part of the SDK's `AgentDefinition` type. These are handled as follows:
+**Fields not mapped to `AgentDefinition`:** The agent file frontmatter includes fields like `name`, `hooks`, and `permissionMode` that are not part of the SDK's `AgentDefinition` type. These are handled as follows:
 
 - **`hooks`** — Passed programmatically via the SDK's `hooks` option (session-level, not agent-level). The engine provides a TypeScript implementation of the bash validator hook. See Programmatic Hooks below.
-- **`skills`** — Not available. With `settingSources: []` (see Known SDK Limitation in SDK Session Configuration), the SDK does not discover skills from `.claude/skills/`. If a `skills` field appears in the agent file's frontmatter, it is ignored — it is not part of the SDK's `AgentDefinition` type and is not mapped. Skills are not needed for agent operation within the control plane — agents receive all necessary context via their system prompt and project context injection.
 - **`permissionMode`** — Overridden by the engine's explicit `permissionMode` option regardless.
+
+**Fields mapped to session options (not `AgentDefinition`):** Some frontmatter fields map to `query()` session-level options rather than the `AgentDefinition` object:
+
+- **`maxTurns`** — Passed as a session-level `query()` option. See frontmatter field mapping table above.
 
 **Error handling:** If the agent definition file cannot be read (missing, permissions error) or contains malformed YAML (frontmatter parsing failure), the error propagates to the caller — the session is not created. This is treated as an agent session creation failure (log at `error` level, retry next cycle).
 
@@ -118,13 +125,15 @@ The Agent Manager creates agent sessions using the v1 `query()` function from `@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 const q = query({
-  prompt: triggerContext,     // e.g., 'docs/specs/workflow/control-plane-tui.md' or '42'
+  prompt: triggerContext,     // enriched prompt (Planner) or issue number string (Implementor, Reviewer)
   options: {
     agent: agentName,         // e.g., 'planner', 'implementor', 'reviewer'
     agents: {
       [agentName]: agentDefinition, // inline AgentDefinition loaded from .claude/agents/<name>.md
                                     // prompt field includes appended project context (CLAUDE.md)
+                                    // model field may be overridden by modelOverride from caller
     },
+    maxTurns,                 // from agent definition frontmatter (e.g., 50)
     cwd: workingDirectory,    // worktree path (Implementor) or repo root (Planner, Reviewer)
     settingSources: [],
     hooks: {
@@ -141,9 +150,10 @@ const q = query({
 
 | Option | Value | Purpose |
 |--------|-------|---------|
-| `prompt` | Trigger context string | The initial user message. Space-separated spec paths (Planner), or issue number as string (Implementor, Reviewer). |
+| `prompt` | Trigger context string | The initial user message. Enriched prompt with spec content, diffs, and existing issues (Planner — see Planner Context Pre-computation), or issue number as string (Implementor, Reviewer). |
 | `agent` | Agent name from config | Selects which agent definition to use from the `agents` map. |
-| `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). |
+| `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). The `model` field may be overridden by `modelOverride` from `QueryFactoryParams`. |
+| `maxTurns` | Integer from frontmatter | Maximum number of agentic turns before the SDK stops the session. Read from the agent definition's frontmatter `maxTurns` field. If absent in frontmatter, omitted from options (SDK default: no limit). |
 | `cwd` | Worktree or repo root | Implementor: `.worktrees/issue-<N>`. Planner, Reviewer: repository root. |
 | `settingSources` | `[]` (empty) | Intentionally empty. The SDK's `settingSources: ['project']` resolution hangs indefinitely when `cwd` is a git worktree (see Known SDK Limitation below). All project-level concerns are handled manually: agent definitions via inline loading, project context (CLAUDE.md) via `contextPaths`, hooks via the programmatic `hooks` option, and `permissionMode` via the explicit option. |
 | `hooks` | `{ PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }] }` | Programmatic hooks. The bash validator hook validates every Bash command against a blocklist/allowlist before execution. See Programmatic Hooks. |
@@ -164,6 +174,42 @@ When `contextPaths` is empty, no context is appended and the agent's original pr
 **Error handling:** If a context file cannot be read (missing or permissions error), the error propagates to the caller — the session is not created. This matches the behavior of agent definition loading failures.
 
 **Extensibility:** The `contextPaths` mechanism supports appending arbitrary context files to all agent prompts. Per-agent contextual injection (e.g., different context for Planner vs Implementor) is not yet supported — all agents receive the same context files. This can be extended in the future by accepting per-agent context paths at dispatch time.
+
+### Planner Context Pre-computation
+
+When dispatching the Planner, the Engine Core builds an enriched trigger prompt so the Planner starts with all context in hand, avoiding costly tool-call turns for data gathering. The Engine Core assembles this prompt before calling the `QueryFactory`.
+
+**Enriched prompt format:**
+
+```
+## Changed Specs
+
+### <filePath> (added)
+<full file content fetched via repos.getContent>
+
+### <filePath> (modified)
+<full file content fetched via repos.getContent>
+
+#### Diff
+<unified diff output from git diff>
+
+## Existing Open Issues
+<JSON array of {number, title, labels, body} for all open task:implement and task:refinement issues>
+```
+
+For added specs, only the full content is included (no diff — all content is new). For modified specs, the full content is followed by a unified diff showing what changed since the last successful Planner run.
+
+**Data sources:**
+
+| Data | Source | When fetched |
+|------|--------|-------------|
+| Spec content | `GitHubClient.repos.getContent` for each changed spec path, using the current commit SHA as ref | At planner dispatch time |
+| Spec diffs | `git diff <previousCommitSHA>..<currentCommitSHA> -- <path>` for each modified spec. Previous commit SHA: from the planner cache (see `control-plane-engine-planner-cache.md`). Current commit SHA: from the `SpecPollerBatchResult.commitSHA`. Skipped for added specs. | At planner dispatch time |
+| Existing issues | `GitHubClient.issues.listForRepo` filtered to open issues with `task:implement` or `task:refinement` labels, requesting `number`, `title`, `labels`, and `body` fields. Fetched in a single API call (`per_page: 100`, no pagination — same v1 limitation as the IssuePoller). | At planner dispatch time |
+
+Pre-computing diffs in the engine saves the Planner at least one Bash tool-call turn per invocation. The engine runs `git diff` locally — this is a cheap local operation that avoids adding GitHub Compare API calls.
+
+**Error handling:** If spec content or issue list fetching fails (GitHub API error), the Planner dispatch fails. This is treated as an agent session creation failure — logged at `error` level, retried on the next SpecPoller cycle (the deferred paths mechanism re-adds the spec paths).
 
 ### SDK Types and Isolation
 
@@ -277,17 +323,21 @@ All `[HH:MM:SS]` timestamps are UTC. Each SDK `assistant` message may contain mu
 
 ```ts
 type QueryFactoryParams = {
-  prompt: string;
+  prompt: string; // enriched prompt (Planner) or issue number string (Implementor, Reviewer)
   agent: string; // agent name, e.g., 'planner'
   cwd: string;
   abortController: AbortController;
+  modelOverride?: 'sonnet' | 'opus' | 'haiku'; // overrides the agent definition's frontmatter model when present (used for complexity-based dispatch)
 };
 
 // The factory abstracts the SDK's query() call. The default implementation
 // reads agent definition files from {repoRoot}/.claude/agents/{agent}.md,
 // parses YAML frontmatter with gray-matter, passes the inline AgentDefinition
 // to the SDK via the agents option, and appends project context files to the
-// agent's system prompt. settingSources is set to [] (see Known SDK Limitation).
+// agent's system prompt. Session-level options (maxTurns) are read from
+// frontmatter and passed to query() directly. If modelOverride is provided,
+// it replaces the agent definition's model field in the AgentDefinition.
+// settingSources is set to [] (see Known SDK Limitation).
 // Test doubles return a mock Query without spawning a real agent process.
 //
 // buildQueryFactory(config: QueryFactoryConfig): QueryFactory
@@ -337,7 +387,12 @@ type AgentStream = AsyncIterable<string> | null;
 - [ ] Given the engine dispatches any agent, when the `QueryFactory` creates the session, then it reads each file in `contextPaths` from `repoRoot` (UTF-8), concatenates their contents (double newline separator), and appends the result to the agent definition's `prompt` field (double newline separator between original prompt and context block).
 - [ ] Given the engine dispatches any agent and `contextPaths` is empty, when the `QueryFactory` creates the session, then the agent's original prompt is used as-is with no context appended.
 - [ ] Given the engine dispatches any agent and a context file in `contextPaths` cannot be read (missing or permissions error), when the `QueryFactory` attempts to create the session, then the error propagates to the caller and the session is not created (same behavior as agent definition file loading failures).
-- [ ] Given the engine dispatches any agent, when the `QueryFactory` loads the agent definition file, then it reads `{repoRoot}/.claude/agents/{agentName}.md`, parses YAML frontmatter with `gray-matter`, maps `description`, `tools` (comma-separated → array), `model` (default `'inherit'`), and the markdown body as `prompt` into an `AgentDefinition`.
+- [ ] Given the engine dispatches any agent, when the `QueryFactory` loads the agent definition file, then it reads `{repoRoot}/.claude/agents/{agentName}.md`, parses YAML frontmatter with `gray-matter`, maps `description`, `tools` (comma-separated → array), `disallowedTools` (comma-separated → array), `model` (default `'inherit'`), and the markdown body as `prompt` into an `AgentDefinition`. `maxTurns` is read from frontmatter and passed as a session-level `query()` option (not part of `AgentDefinition`).
+- [ ] Given an agent definition file includes a `disallowedTools` frontmatter field, when the `QueryFactory` constructs the `AgentDefinition`, then the `disallowedTools` array is populated with the parsed tool names.
+- [ ] Given an agent definition file includes a `maxTurns` frontmatter field, when `query()` is called, then the `maxTurns` session option is set to the parsed integer value.
+- [ ] Given an agent definition file does not include a `maxTurns` frontmatter field, when `query()` is called, then the `maxTurns` option is omitted (SDK default applies).
+- [ ] Given `modelOverride` is provided in `QueryFactoryParams`, when the `QueryFactory` constructs the `AgentDefinition`, then the `model` field uses the override value instead of the frontmatter value.
+- [ ] Given `modelOverride` is not provided in `QueryFactoryParams`, when the `QueryFactory` constructs the `AgentDefinition`, then the `model` field uses the frontmatter value (or `'inherit'` if absent).
 - [ ] Given the engine dispatches an Implementor for issue N, when `query()` is called, then `cwd` is set to the worktree path (`.worktrees/issue-<N>`). For Planner and Reviewer, `cwd` is the repository root.
 - [ ] Given the engine codebase, when inspected, then no file outside `engine/agent-manager/` imports from `@anthropic-ai/claude-agent-sdk` or `gray-matter`.
 - [ ] Given the engine dispatches any agent, when `query()` is called, then the `hooks` option includes a `PreToolUse` hook with matcher `Bash` that implements the bash validator logic from `agent-hook-bash-validator.md`.
@@ -345,6 +400,14 @@ type AgentStream = AsyncIterable<string> | null;
 - [ ] Given the bash validator hook receives a Bash command with all segments having allowlisted prefixes, when the hook evaluates the command, then it returns an approve decision.
 - [ ] Given `getAgentStream` is called for an issue with a running agent, when the agent produces output, then the returned async iterable yields output chunks.
 - [ ] Given `getAgentStream` is called for an issue with no running agent, when called, then it returns `null`.
+
+### Planner Context Pre-computation
+
+- [ ] Given the Engine Core dispatches the Planner, when it builds the trigger prompt, then the prompt includes the full content of each changed spec fetched via `repos.getContent`.
+- [ ] Given the Engine Core dispatches the Planner, when it builds the trigger prompt, then the prompt includes a JSON array of all open `task:implement` and `task:refinement` issues with number, title, labels, and body fields.
+- [ ] Given the Engine Core dispatches the Planner with modified specs, when it builds the trigger prompt, then the prompt includes a unified diff for each modified spec computed via `git diff` using the cached and current commit SHAs.
+- [ ] Given the Engine Core dispatches the Planner with added specs only, when it builds the trigger prompt, then no diffs are included (only full content).
+- [ ] Given a spec content fetch fails during planner dispatch, when the error is caught, then the dispatch fails (treated as agent session creation failure) and the spec paths are re-added to the deferred buffer.
 
 ### Agent Session Logging
 

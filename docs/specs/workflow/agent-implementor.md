@@ -1,7 +1,7 @@
 ---
 title: Implementor Agent
-version: 0.3.3
-last_updated: 2026-02-09
+version: 0.4.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -17,11 +17,40 @@ Agent that executes assigned tasks by reading task issues and referenced specs, 
 - Must not modify files outside the task's declared scope, except for incidental changes (see Scope Enforcement).
 - Must not make interpretive decisions when the spec is ambiguous, contradictory, or incomplete. Must escalate instead.
 - Must not submit partial work as complete. If blocked, must stop, preserve progress, and surface the blocker.
-- Must use the `github-workflow` skill for the mechanics of all GitHub operations (command syntax, authentication, label rules, templates). This spec's workflow steps define **when** to perform operations; the skill defines **how** to execute them.
+- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
 - Must follow the blocker and escalation comment formats defined in this spec.
 - Must conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - Must not reprioritize tasks or change task sequencing. Executes what is assigned.
 - PR branch names must follow the convention `<type>/<issue-number>-<short-description>`.
+
+## Agent Definition Frontmatter
+
+The agent definition file for the Implementor must include the following frontmatter fields (see `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses these):
+
+```yaml
+name: implementor
+description: Implements assigned tasks by writing code and tests within declared scope
+model: opus
+maxTurns: 50
+tools: Read, Write, Edit, Grep, Glob, Bash
+disallowedTools: NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
+permissionMode: bypassPermissions
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: scripts/workflow/validate-bash.sh
+```
+
+- **name:** Agent identifier used by the engine for dispatch and logging.
+- **description:** One-line summary mapped to `AgentDefinition.description`.
+- **model:** `opus` — the default model. The Engine overrides this at dispatch time based on the task's complexity label: `complexity:simple` → `sonnet`, `complexity:complex` → `opus` (see `control-plane-engine.md` § Dispatch Logic).
+- **maxTurns:** `50` — upper bound on agentic turns per session.
+- **tools:** Allowlist. The Implementor reads, writes, and edits code.
+- **disallowedTools:** Denylist reinforcing the allowlist. Blocks notebook editing, web access, sub-agent spawning, plan mode, user interaction, and todo list management.
+- **permissionMode:** `bypassPermissions` — agents run non-interactively. The engine overrides this at dispatch time, but including it ensures correct behavior when the agent is run directly via CLI.
+- **hooks:** PreToolUse bash validator hook. The engine provides this programmatically at dispatch time (see `control-plane-engine-agent-manager.md` § Programmatic Hooks), but including it ensures the validator is active when the agent is run directly via CLI.
 
 ## Specification
 
@@ -37,7 +66,12 @@ The trigger mechanism is outside the scope of this spec. The agent receives a ta
 
 ### Inputs
 
-On invocation, the agent reads:
+The Engine injects the following into the agent's session at dispatch time (see `control-plane-engine-agent-manager.md` § Trigger Context and § Project Context Injection):
+
+1. **Trigger prompt:** The task issue number (e.g., `"42"`).
+2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended to the agent's system prompt.
+
+The agent fetches all remaining data via tool calls. On invocation, the agent reads:
 
 1. **Task issue** -- The GitHub Issue body, including:
    - Objective
@@ -85,7 +119,7 @@ When invoked with a `status:pending` task:
 2. Read the referenced spec sections to understand the required behavior.
 3. Read the current state of in-scope files to understand the baseline.
 4. Validate inputs (see Input Validation).
-5. Update the task issue label from `status:pending` to `status:in-progress` (via the `github-workflow` skill).
+5. Update the task issue label from `status:pending` to `status:in-progress` (`scripts/workflow/gh.sh issue edit`).
 6. Implement and submit (see Complete and Submit).
 
 #### Resume from Unblocked
@@ -214,7 +248,7 @@ If the agent determines that changes outside the declared scope are needed and d
 
 ### Status Transitions
 
-The agent is responsible for the following label transitions (all via the `github-workflow` skill):
+The agent is responsible for the following label transitions (all via `scripts/workflow/gh.sh`):
 
 | From | To | When |
 |------|----|------|
@@ -266,17 +300,17 @@ Any unresolved items, blocker references, or follow-up needed.
 - [ ] Given the agent identifies a non-blocking issue (e.g., scope conflict with another task), when it posts an escalation comment, then it continues working and does not change the status label.
 - [ ] Given a completed PR, when reviewed, then the branch name follows the `<type>/<issue-number>-<short-description>` convention.
 - [ ] Given the agent finishes execution (any outcome), when reviewed, then it has returned a completion summary with the task number, outcome, PR reference, and description of what was done.
+- [ ] Given any GitHub CLI operation performed by the Implementor, when the command is inspected, then it uses `scripts/workflow/gh.sh` (not bare `gh`).
 
 ## Dependencies
 
-- `github-workflow` skill -- All GitHub operations (label changes, issue comments, PR creation and updates).
-- `gh` CLI -- Authenticated via `scripts/workflow/gh.sh` wrapper (see `github-cli.md`).
+- `scripts/workflow/gh.sh` -- Authenticated `gh` CLI wrapper (see `docs/specs/workflow/github-cli.md`). All GitHub operations (label changes, issue comments, PR creation and updates).
 - Project testing framework -- Tests must be runnable locally via the commands defined in `CLAUDE.md`.
 - `CLAUDE.md` -- Code style, naming conventions, and patterns that the agent must conform to.
-- Agent Bash Tool Validator (`scripts/workflow/validate-bash.sh`) -- PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
+- Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
 
 ## References
 
-- `docs/specs/workflow/skill-github-workflow.md` -- GitHub Workflow Skill spec (operations, label transitions, query patterns)
+- `docs/specs/workflow/skill-github-workflow.md` -- GitHub Workflow Skill spec (reference for `gh` command patterns and label rules; not loaded at runtime)
 - `docs/specs/workflow/github-cli.md` -- GitHub CLI wrapper spec
 - `docs/specs/workflow/script-label-setup.md` -- Label definitions for the repository

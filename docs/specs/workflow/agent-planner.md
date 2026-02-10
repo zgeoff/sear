@@ -1,7 +1,7 @@
 ---
 title: Planner Agent
-version: 0.1.2
-last_updated: 2026-02-09
+version: 0.2.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -14,13 +14,43 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 ## Constraints
 
 - Must not assign tasks to Implementors
-- Must not modify code outside `docs/specs/` (reads specs, writes only GitHub Issues)
+- Must not modify any files (reads the codebase, writes only GitHub Issues)
 - Must not create tasks for specs that are not `approved` status
 - Must review existing GitHub Issues before creating new ones to avoid duplicates
-- Must use the `github-workflow` skill for the mechanics of all GitHub operations (command syntax, authentication, label rules, templates). This spec's workflow steps define **when** to perform operations; the skill defines **how** to execute them.
+- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior)
 - Must not make interpretive decisions about spec intent -- if a spec is ambiguous, the Planner creates a `task:refinement` issue instead of guessing
 - Each task must be hermetic: completable without real-time coordination with other agents
 - Must not reprioritize tasks created by previous planning runs unless the spec has changed
+- Do not narrate reasoning between tool calls. Output only: gate check results, issue action summaries (created/updated/closed with number and title), and the final planning summary. No exploratory commentary.
+
+## Agent Definition Frontmatter
+
+The agent definition file for the Planner must include the following frontmatter fields (see `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses these):
+
+```yaml
+name: planner
+description: Decomposes approved specs into executable GitHub Issues
+model: sonnet
+maxTurns: 50
+tools: Read, Grep, Glob, Bash
+disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
+permissionMode: bypassPermissions
+hooks:
+  PreToolUse:
+    - matcher: Bash
+      hooks:
+        - type: command
+          command: scripts/workflow/validate-bash.sh
+```
+
+- **name:** Agent identifier used by the engine for dispatch and logging.
+- **description:** One-line summary mapped to `AgentDefinition.description`.
+- **model:** `sonnet` — the Planner decomposes specs into tasks; Sonnet is sufficient.
+- **maxTurns:** `50` — upper bound on agentic turns per session.
+- **tools:** Allowlist. The Planner reads the codebase and runs `gh` commands but never modifies files.
+- **disallowedTools:** Denylist reinforcing the allowlist. Blocks write operations, web access, sub-agent spawning, plan mode, user interaction, and todo list management.
+- **permissionMode:** `bypassPermissions` — agents run non-interactively. The engine overrides this at dispatch time, but including it ensures correct behavior when the agent is run directly via CLI.
+- **hooks:** PreToolUse bash validator hook. The engine provides this programmatically at dispatch time (see `control-plane-engine-agent-manager.md` § Programmatic Hooks), but including it ensures the validator is active when the agent is run directly via CLI.
 
 ## Specification
 
@@ -28,16 +58,16 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 
 The Planner is invoked when one or more specification files are committed or updated in `docs/specs/`. The trigger mechanism (polling, webhook, manual invocation) is defined by the workflow dispatcher and is outside the scope of this spec.
 
-The Planner receives as input one or more spec file paths and processes them as a batch in a single invocation. When multiple specs change in the same poll cycle, they are all passed to the Planner together rather than triggering separate invocations.
+The Planner receives as input an enriched prompt built by the Engine Core. When multiple specs change in the same poll cycle, they are all included in the prompt for a single invocation.
 
-### Inputs
+### Injected Context
 
-The Planner reads the following before producing any output:
+The Engine Core pre-computes and injects the following data into the Planner's trigger prompt (see `control-plane-engine-agent-manager.md` § Planner Context Pre-computation for the format):
 
-1. **Spec file(s):** The committed or updated spec(s) in `docs/specs/`. The Planner reads the full spec content including frontmatter, acceptance criteria, and dependencies.
-2. **Spec diff:** The diff between the two most recent commits that touched the spec file, to understand what was added, modified, or removed. If only one commit exists (new spec), the entire spec is treated as new content.
-3. **Existing GitHub Issues:** All open issues in the repository, including their labels, bodies, and linked spec references. Fetched via `gh issue list`.
-4. **Codebase state:** The current state of files referenced by the spec's scope, to assess what work is already done vs. what remains.
+1. **Spec content:** Full content of each changed spec, including frontmatter, acceptance criteria, and dependencies. The Planner does not need to read spec files from disk — they are provided inline.
+2. **Spec diffs:** For modified specs, a unified diff showing what changed since the last successful Planner run. Added specs have no diff (all content is new). The Planner does not need to run `git diff` — diffs are pre-computed by the engine.
+3. **Existing GitHub Issues:** All open `task:implement` and `task:refinement` issues with number, title, labels, and body. The Planner does not need to query GitHub for existing issues — they are provided inline.
+4. **Codebase state** is NOT injected. The Planner reads the current codebase via tool calls (Read, Grep, Glob) to assess what work is already done vs. what remains. This is the Planner's primary tool-use activity.
 
 ### Pre-Planning: Validate Entry Criteria
 
@@ -67,7 +97,7 @@ What must be resolved before the Planner can process this spec.
 
 ### Phase 1: Review Existing Issues
 
-Before creating new issues, the Planner reviews all open issues that reference any of the input specs. An issue references a spec if its body contains the spec file path in the "Spec Reference" section (e.g., `docs/specs/feature-name.md`). Issues that do not reference any of the input specs are ignored. The Planner should query efficiently — e.g., fetching all open `task:implement` issues once and filtering client-side by spec path, rather than issuing a separate query per spec.
+Before creating new issues, the Planner reviews all open issues provided in the injected context that reference any of the input specs. An issue references a spec if its body contains the spec file path in the "Spec Reference" section (e.g., `docs/specs/feature-name.md`). Issues that do not reference any of the input specs are ignored.
 
 The Planner identifies:
 
@@ -98,6 +128,15 @@ The Planner breaks remaining work into tasks. Each task:
 #### Task Sizing
 
 Tasks should be sized so that an Implementor can complete one in a single working session. If a spec section requires work that is too large for one task, split it into sequential tasks with explicit dependencies.
+
+#### Complexity Assessment
+
+For each task, the Planner assigns a complexity label that determines the Implementor's model:
+
+- `complexity:simple` — Single-file changes, mechanical transformations, straightforward CRUD, boilerplate. The Implementor runs with Sonnet.
+- `complexity:complex` — Multi-file coordination, architectural decisions, nuanced logic, non-trivial error handling. The Implementor runs with Opus.
+
+When in doubt, prefer `complexity:complex` — the cost of under-resourcing a task (wasted turns, poor output) exceeds the cost of over-resourcing (higher token cost). See `script-label-setup.md` for label definitions and `control-plane-engine.md` § Dispatch Logic for how the engine maps complexity labels to model overrides.
 
 Cross-spec dependencies are detected during aggregate decomposition (e.g., Task A from spec-1 depends on types defined in spec-2's tasks). These are documented using the same "Blocked by #X" mechanism as intra-spec dependencies.
 
@@ -152,6 +191,27 @@ Each issue receives the following labels at creation:
 - **Type:** `task:implement` (or `task:refinement` for spec clarification requests)
 - **Status:** `status:pending`
 - **Priority:** One of `priority:high`, `priority:medium`, `priority:low`
+- **Complexity:** One of `complexity:simple`, `complexity:complex` (see Complexity Assessment above). Not applied to `task:refinement` issues.
+
+#### GitHub CLI Commands
+
+All GitHub operations use the authenticated wrapper script. The Planner's `gh` usage is limited to these write operations:
+
+```bash
+# Create a new task issue
+scripts/workflow/gh.sh issue create --title "<title>" --body "<body>" --label "<label>" --label "<label>" ...
+
+# Update an existing issue (body, labels)
+scripts/workflow/gh.sh issue edit <N> --body "<body>" --add-label "<label>" --remove-label "<label>"
+
+# Close an irrelevant or duplicate issue
+scripts/workflow/gh.sh issue close <N> --reason "not planned" --comment "<reason>"
+
+# Add a comment explaining a change
+scripts/workflow/gh.sh issue comment <N> --body "<comment>"
+```
+
+See `skill-github-workflow.md` for additional command patterns if needed.
 
 #### Priority Assignment
 
@@ -250,23 +310,29 @@ Refinement issues receive labels `task:refinement`, `status:pending`, and a prio
 - [ ] Given existing open issues with outdated acceptance criteria, when the Planner runs on the updated spec, then those issues are updated to match the current spec
 - [ ] Given a new spec with acceptance criteria that the codebase already satisfies, when the Planner runs, then no tasks are created for those criteria
 - [ ] Given the Planner creates tasks, when each task issue is inspected, then it contains all required sections: Objective, Spec Reference, Scope (In Scope / Out of Scope), Acceptance Criteria, Context, Constraints
-- [ ] Given the Planner creates tasks, when each task issue is inspected, then it has labels `task:implement`, `status:pending`, and exactly one priority label
+- [ ] Given the Planner creates tasks, when each task issue is inspected, then it has labels `task:implement`, `status:pending`, exactly one priority label, and exactly one complexity label
 - [ ] Given two tasks that could touch the same file, when the Planner creates them, then their Scope sections define non-overlapping boundaries
 - [ ] Given a task that depends on another task, when the task issue is inspected, then it includes "Blocked by #X" referencing the dependency
 - [ ] Given the Planner creates multiple tasks, when the tasks are inspected, then foundational work (types, interfaces, core modules) is marked `priority:high`
 - [ ] Given an ambiguous section in the spec, when the Planner encounters it, then it creates a `task:refinement` issue instead of guessing intent
 - [ ] Given the Planner creates a `task:refinement` issue, when the issue is inspected, then it has labels `task:refinement`, `status:pending`, and exactly one priority label
 - [ ] Given the Planner completes, when the summary is reviewed, then it lists all closed, updated, and newly created issues with their priorities and dependencies
+- [ ] Given the Planner creates a `task:refinement` issue, when the issue is inspected, then it does not have a complexity label
+- [ ] Given the Planner receives an enriched prompt with spec content and existing issues, when it starts processing, then it does not issue tool calls to read spec files or list existing issues (data is already in hand)
+- [ ] Given a modified spec in the injected context, when the Planner needs to understand what changed, then it uses the pre-computed diff from the enriched prompt (does not run `git diff`)
+- [ ] Given any GitHub CLI operation performed by the Planner, when the command is inspected, then it uses `scripts/workflow/gh.sh` (not bare `gh`)
 
 ## Dependencies
 
-- `github-workflow` skill (for all GitHub operations)
+- `scripts/workflow/gh.sh` (authenticated `gh` CLI wrapper; see `docs/specs/workflow/github-cli.md`)
 - `gh` CLI (authenticated with repo access)
 - Label setup (all workflow labels must exist in the repository; see `script-label-setup.md`)
 - Approved specification in `docs/specs/`
-- Agent Bash Tool Validator (`scripts/workflow/validate-bash.sh`) -- PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
+- Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
+- `control-plane-engine-agent-manager.md` § Planner Context Pre-computation — Engine builds the enriched trigger prompt
 
 ## References
 
 - Label definitions: `docs/specs/workflow/script-label-setup.md`
-- GitHub Workflow Skill: `docs/specs/workflow/skill-github-workflow.md`
+- GitHub Workflow Skill: `docs/specs/workflow/skill-github-workflow.md` (reference for `gh` command patterns and label rules; not loaded at runtime)
+- `control-plane-engine.md` § Dispatch Logic — Planner auto-dispatch and complexity-based model override

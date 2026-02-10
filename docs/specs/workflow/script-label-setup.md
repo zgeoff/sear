@@ -1,7 +1,7 @@
 ---
 title: Label Setup Script
-version: 0.1.2
-last_updated: 2026-02-08
+version: 0.2.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -67,9 +67,16 @@ If the wrapper exits non-zero before reaching `gh`, authentication has failed. T
 | `priority:medium` | Default | `e4e669` |
 | `priority:low` | Do when capacity allows | `c5def5` |
 
+#### Complexity Labels
+
+| Label | Description | Color |
+| --- | --- | --- |
+| `complexity:simple` | Straightforward task — single-file, mechanical | `d4c5f9` |
+| `complexity:complex` | Multi-file or architecturally nuanced task | `7057ff` |
+
 ### Script Behavior
 
-The script processes each label in the following order: type labels, status labels, priority labels.
+The script processes each label in the following order: type labels, status labels, priority labels, complexity labels.
 
 For each label:
 

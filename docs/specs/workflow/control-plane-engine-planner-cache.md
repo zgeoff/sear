@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine — Planner Cache
-version: 0.2.0
-last_updated: 2026-02-09
+version: 0.3.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -26,6 +26,7 @@ The engine persists a lightweight cache to prevent redundant Planner runs across
 ```json
 {
   "specsDirTreeSHA": "abc123def456...",
+  "commitSHA": "fedcba987654...",
   "files": {
     "docs/specs/workflow/control-plane.md": {
       "blobSHA": "def456...",
@@ -39,14 +40,14 @@ The engine persists a lightweight cache to prevent redundant Planner runs across
 }
 ```
 
-The cache stores the SpecPoller's snapshot at the time the Planner was last successfully dispatched: the specs directory tree SHA and per-file blob SHAs with frontmatter status. The on-disk format is a JSON serialization of `SpecPollerSnapshot` (see `control-plane-engine-pollers.md` § Type Definitions).
+The cache stores the SpecPoller's snapshot at the time the Planner was last successfully dispatched: the specs directory tree SHA, per-file blob SHAs with frontmatter status, and the commit SHA from the `SpecPollerBatchResult`. The `commitSHA` field is used as the "previous" commit SHA when building the Planner's enriched trigger prompt (see `control-plane-engine-agent-manager.md` § Planner Context Pre-computation) — it enables the Planner to compute diffs between the last planned state and the current state. The on-disk format is a JSON serialization of `PlannerCacheEntry` (see Type Definitions below).
 
 ### Startup Seeding
 
 On engine initialization, before startup recovery:
 
 1. Attempt to read `.agentic-workflow-cache.json` from `repoRoot`.
-2. If the file exists and contains valid JSON matching the `SpecPollerSnapshot` schema, pass it to the SpecPoller as the initial snapshot seed.
+2. If the file exists and contains valid JSON matching the `PlannerCacheEntry` schema, extract the `snapshot` and pass it to the SpecPoller as the initial snapshot seed. Retain the `commitSHA` for use in the Planner's enriched trigger prompt.
 3. The SpecPoller uses the seed as its starting snapshot, so the first poll cycle compares the current tree SHA and per-file blob SHAs against the seeded state. Only files that actually changed since the last successful Planner run are reported.
 4. If the file is missing, unreadable, or contains invalid JSON, treat as a cold start — the SpecPoller starts with an empty snapshot (existing behavior). Log at `debug` level (a missing cache is normal on first run).
 
@@ -54,7 +55,7 @@ The startup sequence becomes: load planner cache → startup recovery → start 
 
 ### Cache Write
 
-When the Engine Core dispatches the Planner, it calls `getSnapshot()` on the SpecPoller and stores the result. When the Planner session completes successfully (`agentCompleted`), the Engine Core writes the stored snapshot to the cache file. The snapshot is captured at dispatch time, not at completion time — this ensures changes detected by the SpecPoller during the Planner's run (which go to the deferred buffer) are not incorrectly marked as planned.
+When the Engine Core dispatches the Planner, it calls `getSnapshot()` on the SpecPoller and stores the result along with the `commitSHA` from the `SpecPollerBatchResult`. When the Planner session completes successfully (`agentCompleted`), the Engine Core writes the stored snapshot and commit SHA to the cache file. The snapshot is captured at dispatch time, not at completion time — this ensures changes detected by the SpecPoller during the Planner's run (which go to the deferred buffer) are not incorrectly marked as planned.
 
 ### Behavior by Scenario
 
@@ -75,7 +76,7 @@ If the Planner succeeds but changes were deferred during its run, the cached sna
 
 The Planner Cache logic lives in `engine/planner-cache/`. The module contains:
 
-- `types.ts` — `PlannerCache` interface type.
+- `types.ts` — `PlannerCacheEntry` and `PlannerCache` types.
 - `create-planner-cache.ts` — Factory function implementing `load()` and `write()`.
 
 ### Cache Write Errors
@@ -85,15 +86,22 @@ If the cache file cannot be written (permissions, disk full), log at `error` lev
 ### Type Definitions
 
 ```ts
+interface PlannerCacheEntry {
+  snapshot: SpecPollerSnapshot;
+  commitSHA: string;
+}
+
 type PlannerCache = {
-  load(): Promise<SpecPollerSnapshot | null>; // returns null on miss/error (cold start)
-  write(snapshot: SpecPollerSnapshot): Promise<void>; // non-fatal on failure
+  load(): Promise<PlannerCacheEntry | null>; // returns null on miss/error (cold start)
+  write(snapshot: SpecPollerSnapshot, commitSHA: string): Promise<void>; // non-fatal on failure
 };
 
 // createPlannerCache(repoRoot: string): PlannerCache
 ```
 
-The `SpecPollerSnapshot` type is defined in `control-plane-engine-pollers.md` § Type Definitions. The `write()` method requires `snapshot.specsDirTreeSHA` to be non-null — the planner cache is only written when the SpecPoller has a non-null tree SHA (i.e., after a successful tree fetch). Calling `write()` with a null `specsDirTreeSHA` is a programming error — enforce with `tiny-invariant` at the top of `write()`.
+The `SpecPollerSnapshot` type is defined in `control-plane-engine-pollers.md` § Type Definitions. `PlannerCacheEntry` pairs the snapshot with the commit SHA from the `SpecPollerBatchResult` — `load()` returns both so the engine can seed the SpecPoller and build the Planner's enriched prompt. `write()` takes them as separate parameters since they come from different sources at dispatch time (snapshot from `getSnapshot()`, commitSHA from `SpecPollerBatchResult`).
+
+The `write()` method requires `snapshot.specsDirTreeSHA` to be non-null — the planner cache is only written when the SpecPoller has a non-null tree SHA (i.e., after a successful tree fetch). Calling `write()` with a null `specsDirTreeSHA` is a programming error — enforce with `tiny-invariant` at the top of `write()`.
 
 ## Acceptance Criteria
 
@@ -102,7 +110,7 @@ The `SpecPollerSnapshot` type is defined in `control-plane-engine-pollers.md` §
 - [ ] Given the engine starts with a valid `.agentic-workflow-cache.json` and one spec file has a different blob SHA, when the SpecPoller runs its first cycle, then only that one file is included in the Planner batch.
 - [ ] Given the engine starts with no `.agentic-workflow-cache.json` file, when the SpecPoller runs its first cycle, then all specs are treated as new (existing cold start behavior).
 - [ ] Given the engine starts with a corrupt or unreadable `.agentic-workflow-cache.json`, when the cache is loaded, then it is treated as a cold start and logged at `debug` level.
-- [ ] Given a Planner session completes successfully, when the `agentCompleted` event fires, then `.agentic-workflow-cache.json` is written with the `SpecPollerSnapshot` captured at dispatch time.
+- [ ] Given a Planner session completes successfully, when the `agentCompleted` event fires, then `.agentic-workflow-cache.json` is written with the `SpecPollerSnapshot` and `commitSHA` captured at dispatch time.
 - [ ] Given a Planner session fails, when the `agentFailed` event fires, then `.agentic-workflow-cache.json` is not updated.
 - [ ] Given changes were deferred during a Planner run, when the Planner completes and the cache is written, then the cached snapshot reflects the dispatch-time state, ensuring deferred changes are re-detected on restart.
 - [ ] Given the cache file cannot be written, when a write error occurs, then the error is logged at `error` level and the engine continues operating.

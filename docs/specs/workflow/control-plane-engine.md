@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine
-version: 0.9.0
-last_updated: 2026-02-09
+version: 0.10.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -105,7 +105,7 @@ The engine invokes the agent automatically with no user action.
 | `specChanged` | Planner | Spec frontmatter `status` is `approved` |
 | `issueStatusChanged` to `status:review` | Reviewer | No agent already running for this issue |
 
-The Planner is invoked once per SpecPoller cycle with all changed (and approved) spec paths batched into a single invocation. The Engine Core receives the full batch from the SpecPoller synchronously and passes approved paths to a single Planner dispatch.
+The Planner is invoked once per SpecPoller cycle with all changed (and approved) spec paths batched into a single invocation. The Engine Core receives the full batch from the SpecPoller synchronously and passes approved paths to a single Planner dispatch. Before dispatching, the Engine Core builds an enriched trigger prompt containing the full content of each changed spec, existing open task issues, and commit SHAs for diff support. See `control-plane-engine-agent-manager.md` § Planner Context Pre-computation for the prompt format and data sources.
 
 **Planner concurrency guard:** Only one Planner session may run at a time. If a SpecPoller cycle detects changes while a Planner is already running, the engine emits `agentSkipped` for the Planner and defers the batch. The Engine Core maintains a deferred paths buffer (a set of file paths, deduplicated) for this purpose. On each subsequent SpecPoller cycle, the Engine Core merges the deferred buffer with the new cycle's results (union, deduplicated). The approval filter (`status: approved`) is applied to the merged set at dispatch time — paths whose frontmatter status changed to non-approved since deferral are dropped. The deferred buffer is cleared when the Planner is successfully dispatched. If the Planner session fails, the Engine Core re-adds the dispatched spec paths to the deferred buffer so they are included in the next dispatch attempt rather than being lost until restart.
 
@@ -175,7 +175,7 @@ The engine accepts commands that trigger side effects.
 
 | Command | Parameters | Effect |
 |---------|-----------|--------|
-| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). |
+| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies). |
 | `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot or if the issue's status is not `review`. No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
 | `cancelAgent` | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, preserves the worktree. For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`). Emits `agentFailed` with a cancellation error. No-op if no agent is running. |
 | `cancelPlanner` | None | Cancels the running Planner session if one exists. Emits `agentFailed` with a cancellation error. No-op if no Planner is running. Note: `cancelPlanner` is not exposed in the TUI — there is no keybinding to cancel the Planner. A hung Planner can be stopped by quitting the control plane (which triggers the graceful shutdown sequence, which cancels all agents after `shutdownTimeout`) or by waiting for `maxAgentDuration` timeout. This is a known v1 limitation. |
@@ -616,7 +616,10 @@ See `control-plane-engine-pollers.md` for all poller acceptance criteria.
 - [ ] Given the SpecPoller returns N changed files, when the Engine Core processes the batch, then N individual `specChanged` events are emitted (one per file).
 - [ ] Given a spec's frontmatter status is `approved` and its blob SHA changed, when the Engine Core emits `specChanged`, then the Planner is auto-dispatched with that spec path.
 - [ ] Given a spec's frontmatter status is `draft` and its blob SHA changed, when the Engine Core emits `specChanged`, then the Planner is not dispatched for that spec.
-- [ ] Given multiple approved specs changed in the same SpecPoller cycle, when the Planner is dispatched, then it receives all changed spec paths in a single invocation.
+- [ ] Given multiple approved specs changed in the same SpecPoller cycle, when the Planner is dispatched, then it receives all changed spec paths in a single invocation with an enriched trigger prompt (spec content, existing issues, commit SHAs).
+- [ ] Given the `dispatchImplementor` command is received for an issue with a `complexity:simple` label, when the Implementor session is created, then `modelOverride: 'sonnet'` is passed to the `QueryFactory`.
+- [ ] Given the `dispatchImplementor` command is received for an issue with a `complexity:complex` label, when the Implementor session is created, then `modelOverride: 'opus'` is passed to the `QueryFactory`.
+- [ ] Given the `dispatchImplementor` command is received for an issue with no complexity label, when the Implementor session is created, then no `modelOverride` is passed (agent definition default applies).
 - [ ] Given an issue status changed to `status:review`, when the IssuePoller emits the change, then the Reviewer is auto-dispatched for that issue.
 - [ ] Given an issue is `status:pending`, when the change is first detected, then a `dispatchReady` event is emitted.
 - [ ] Given an issue status changes to `status:unblocked` or `status:needs-changes`, when the IssuePoller emits the change, then a `dispatchReady` event is emitted.
