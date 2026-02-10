@@ -3,7 +3,7 @@ import { vol } from 'memfs';
 import { expect, test, vi } from 'vitest';
 import type { SpecPollerSnapshot } from '../pollers/types.ts';
 import { createPlannerCache } from './create-planner-cache.ts';
-import type { PlannerCacheConfig } from './types.ts';
+import type { PlannerCacheConfig, PlannerCacheEntry } from './types.ts';
 
 // ---------------------------------------------------------------------------
 // Test utilities
@@ -18,6 +18,13 @@ function buildValidSnapshot(): SpecPollerSnapshot {
         frontmatterStatus: 'approved',
       },
     },
+  };
+}
+
+function buildValidCacheEntry(): PlannerCacheEntry {
+  return {
+    snapshot: buildValidSnapshot(),
+    commitSHA: 'commit-sha-1',
   };
 }
 
@@ -37,15 +44,15 @@ function setupTest(): { config: PlannerCacheConfig } {
 // load()
 // ---------------------------------------------------------------------------
 
-test('it returns a valid snapshot when the cache file exists and is valid', async () => {
+test('it returns a valid cache entry when the cache file exists and is valid', async () => {
   const { config } = setupTest();
-  const snapshot = buildValidSnapshot();
-  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(snapshot) });
+  const entry = buildValidCacheEntry();
+  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(entry) });
 
   const cache = createPlannerCache(config);
   const result = await cache.load();
 
-  expect(result).toStrictEqual(snapshot);
+  expect(result).toStrictEqual(entry);
 });
 
 test('it returns null when the cache file does not exist', async () => {
@@ -80,9 +87,55 @@ test('it returns null when the cache file has an invalid schema', async () => {
 test('it returns null when a file entry is missing required fields', async () => {
   const { config } = setupTest();
   const invalid = {
+    snapshot: {
+      specsDirTreeSHA: 'abc123',
+      files: {
+        'docs/specs/a.md': { blobSHA: 'def456' }, // missing frontmatterStatus
+      },
+    },
+    commitSHA: 'sha123',
+  };
+  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(invalid) });
+
+  const cache = createPlannerCache(config);
+  const result = await cache.load();
+
+  expect(result).toBeNull();
+});
+
+test('it returns null when the cache file uses the old flat format without a wrapper', async () => {
+  const { config } = setupTest();
+  const oldFormat: SpecPollerSnapshot = {
     specsDirTreeSHA: 'abc123',
     files: {
-      'docs/specs/a.md': { blobSHA: 'def456' }, // missing frontmatterStatus
+      'docs/specs/a.md': { blobSHA: 'def456', frontmatterStatus: 'approved' },
+    },
+  };
+  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(oldFormat) });
+
+  const cache = createPlannerCache(config);
+  const result = await cache.load();
+
+  expect(result).toBeNull();
+});
+
+test('it returns null when the snapshot field is missing', async () => {
+  const { config } = setupTest();
+  const invalid = { commitSHA: 'sha123' };
+  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(invalid) });
+
+  const cache = createPlannerCache(config);
+  const result = await cache.load();
+
+  expect(result).toBeNull();
+});
+
+test('it returns null when the commit SHA field is missing', async () => {
+  const { config } = setupTest();
+  const invalid = {
+    snapshot: {
+      specsDirTreeSHA: 'abc123',
+      files: {},
     },
   };
   vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(invalid) });
@@ -93,34 +146,22 @@ test('it returns null when a file entry is missing required fields', async () =>
   expect(result).toBeNull();
 });
 
-test('it accepts a snapshot with null tree SHA', async () => {
-  const { config } = setupTest();
-  const snapshot: SpecPollerSnapshot = {
-    specsDirTreeSHA: null,
-    files: {},
-  };
-  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(snapshot) });
-
-  const cache = createPlannerCache(config);
-  const result = await cache.load();
-
-  expect(result).toStrictEqual(snapshot);
-});
-
 // ---------------------------------------------------------------------------
 // write()
 // ---------------------------------------------------------------------------
 
-test('it writes the snapshot to the cache file atomically', async () => {
+test('it writes the snapshot and commit SHA to the cache file atomically', async () => {
   const { config } = setupTest();
   vol.mkdirSync('/repo', { recursive: true });
 
   const snapshot = buildValidSnapshot();
+  const commitSHA = 'commit-sha-1';
   const cache = createPlannerCache(config);
-  await cache.write(snapshot);
+  await cache.write(snapshot, commitSHA);
 
   const raw = await readFile('/repo/.agentic-workflow-cache.json', 'utf-8');
-  expect(JSON.parse(raw)).toStrictEqual(snapshot);
+  const written: PlannerCacheEntry = JSON.parse(raw);
+  expect(written).toStrictEqual({ snapshot, commitSHA });
 });
 
 test('it throws when writing a snapshot with null tree SHA', async () => {
@@ -133,7 +174,7 @@ test('it throws when writing a snapshot with null tree SHA', async () => {
   };
   const cache = createPlannerCache(config);
 
-  await expect(cache.write(snapshot)).rejects.toThrow(
+  await expect(cache.write(snapshot, 'sha123')).rejects.toThrow(
     'Planner cache write requires a non-null specsDirTreeSHA',
   );
 });
@@ -146,13 +187,13 @@ test('it does not crash when the write fails due to a filesystem error', async (
   const cache = createPlannerCache(config);
 
   // Should not throw -- write errors are non-fatal
-  await cache.write(snapshot);
+  await cache.write(snapshot, 'sha123');
 });
 
 test('it overwrites an existing cache file', async () => {
   const { config } = setupTest();
-  const oldSnapshot = buildValidSnapshot();
-  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(oldSnapshot) });
+  const oldEntry = buildValidCacheEntry();
+  vol.fromJSON({ '/repo/.agentic-workflow-cache.json': JSON.stringify(oldEntry) });
 
   const newSnapshot: SpecPollerSnapshot = {
     specsDirTreeSHA: 'new-sha',
@@ -163,10 +204,12 @@ test('it overwrites an existing cache file', async () => {
       },
     },
   };
+  const newCommitSHA = 'new-commit-sha';
 
   const cache = createPlannerCache(config);
-  await cache.write(newSnapshot);
+  await cache.write(newSnapshot, newCommitSHA);
 
   const raw = await readFile('/repo/.agentic-workflow-cache.json', 'utf-8');
-  expect(JSON.parse(raw)).toStrictEqual(newSnapshot);
+  const written: PlannerCacheEntry = JSON.parse(raw);
+  expect(written).toStrictEqual({ snapshot: newSnapshot, commitSHA: newCommitSHA });
 });
