@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
 import type { StartupResult } from '../types.ts';
-import { App } from './app.tsx';
+import { App, computePaneWidths } from './app.tsx';
 import { createMockEngine } from './test-utils/create-mock-engine.ts';
 
 interface DeferredStartResult {
@@ -459,4 +459,85 @@ test('it ignores Tab while the quit prompt is active', async () => {
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('Quit?');
   });
+});
+
+// ---------------------------------------------------------------------------
+// Border rendering
+// ---------------------------------------------------------------------------
+
+test('it renders box-drawing border characters around the panes', async () => {
+  const { lastFrame } = await setupStartedTest();
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('\u250c');
+  expect(frame).toContain('\u252c');
+  expect(frame).toContain('\u2510');
+  expect(frame).toContain('\u2502');
+  expect(frame).toContain('\u2514');
+  expect(frame).toContain('\u2534');
+  expect(frame).toContain('\u2518');
+  expect(frame).toContain('\u2500');
+});
+
+test('it embeds pane labels in full caps in the top border', async () => {
+  const { lastFrame } = await setupStartedTest();
+
+  const frame = lastFrame() ?? '';
+  const firstLine = frame.split('\n')[0] ?? '';
+  expect(firstLine).toContain('NOTIFICATIONS');
+  expect(firstLine).toContain('ISSUES');
+  expect(firstLine).toContain('DETAILS');
+});
+
+test('it renders labels with a gap after the corner or junction character', async () => {
+  const { lastFrame } = await setupStartedTest();
+
+  const frame = lastFrame() ?? '';
+  const firstLine = frame.split('\n')[0] ?? '';
+  expect(firstLine).toContain('\u250c NOTIFICATIONS');
+  expect(firstLine).toContain('\u252c ISSUES');
+  expect(firstLine).toContain('\u252c DETAILS');
+});
+
+test('it renders vertical dividers in the content area', async () => {
+  const { lastFrame } = await setupStartedTest();
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('\u2502');
+});
+
+test('it renders the bottom border with junction characters', async () => {
+  const { lastFrame } = await setupStartedTest();
+
+  const frame = lastFrame() ?? '';
+  const lines = frame.split('\n');
+  const lastLine = lines.at(-1) ?? '';
+  expect(lastLine).toContain('\u2514');
+  expect(lastLine).toContain('\u2534');
+  expect(lastLine).toContain('\u2518');
+});
+
+// ---------------------------------------------------------------------------
+// Pane width calculation
+// ---------------------------------------------------------------------------
+
+test('it computes equal pane widths when terminal width divides evenly', () => {
+  const widths = computePaneWidths(82);
+  expect(widths[0]).toBe(26);
+  expect(widths[1]).toBe(26);
+  expect(widths[2]).toBe(26);
+  expect(widths[0] + widths[1] + widths[2] + 4).toBe(82);
+});
+
+test('it allocates remainder columns to the rightmost pane', () => {
+  const widths = computePaneWidths(80);
+  expect(widths[0]).toBe(25);
+  expect(widths[1]).toBe(25);
+  expect(widths[2]).toBe(26);
+  expect(widths[0] + widths[1] + widths[2] + 4).toBe(80);
+});
+
+test('it accounts for exactly four border columns', () => {
+  const widths = computePaneWidths(120);
+  expect(widths[0] + widths[1] + widths[2] + 4).toBe(120);
 });
