@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI — Detail Pane
-version: 0.2.0
-last_updated: 2026-02-09
+version: 0.3.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -13,7 +13,7 @@ The detail pane displays context-aware content based on the currently selected i
 
 ## Constraints
 
-- Detail pane content must not exceed the terminal viewport. The visible row count is `stdout.rows - 2` (terminal height minus chrome).
+- Detail pane content must not exceed the terminal viewport. The visible row count is `stdout.rows - 2` (terminal height minus top and bottom border rows).
 - Lines exceeding the pane width are truncated with a trailing ellipsis — no line wrapping occurs.
 - Agent stream buffers are capped at 10,000 lines per issue (ring buffer).
 - Data fetching uses stale-while-revalidate caching — stale data is shown immediately while a background re-fetch updates it.
@@ -22,7 +22,7 @@ The detail pane displays context-aware content based on the currently selected i
 
 ### Pane Header
 
-Like list-based panes, the detail pane renders a full-caps label (`DETAILS`) followed by a full-width horizontal rule (`─`). The header has 1-character horizontal padding on each side. The header is fixed — it never scrolls off-screen. Chrome for the detail pane is exactly 2 rows (header line + rule line).
+Like list-based panes, the detail pane's label (`DETAILS`) is embedded in the top border line in full caps. The label is fixed — it never scrolls off-screen. Chrome for the detail pane is exactly 2 rows (top border line + bottom border line).
 
 ### Scroll Windowing
 

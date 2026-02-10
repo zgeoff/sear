@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI
-version: 0.5.0
-last_updated: 2026-02-09
+version: 0.6.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -38,22 +38,21 @@ flowchart LR
 ```
 
 ```
-┌──────────────────┬──────────────────┬──────────────────┐
-│   Notifications   │    Issue List    │   Detail Pane    │
-│                   │                  │                  │
-│   Scrollable      │   All tracked    │   Context-aware  │
-│   event history   │   issues,        │   content based  │
-│                   │   ordered by     │   on selected    │
-│   Interactive:    │   state +        │   issue          │
-│   Enter opens     │   priority       │                  │
-│   context in      │                  │                  │
-│   browser         │   Enter to act   │                  │
-│                   │   (dispatch,     │                  │
-│                   │   open, retry)   │                  │
-└──────────────────┴──────────────────┴──────────────────┘
+┌ NOTIFICATIONS ───┬ ISSUES ──────────┬ DETAILS ─────────┐
+│                   │                  │                   │
+│  Scrollable       │  All tracked     │  Context-aware    │
+│  event history    │  issues,         │  content based    │
+│                   │  ordered by      │  on selected      │
+│  Interactive:     │  state +         │  issue            │
+│  Enter opens      │  priority        │                   │
+│  context in       │                  │                   │
+│  browser          │  Enter to act    │                   │
+│                   │  (dispatch,      │                   │
+│                   │  open, retry)    │                   │
+└───────────────────┴──────────────────┴───────────────────┘
 ```
 
-The dashboard fills the terminal viewport exactly — its height is `stdout.rows` and its width is `stdout.columns`. The dashboard has no global chrome (no title bar, no status line) — each pane's total height is `stdout.rows`. No content extends beyond the viewport (no terminal scrolling). On terminal resize, the layout reflows to the new dimensions. Each pane's scrollable area is computed from `stdout.rows` minus that pane's chrome (header line + horizontal rule = 2 rows). The three panes divide horizontal space equally (each gets one-third of `stdout.columns`).
+The dashboard fills the terminal viewport exactly — its height is `stdout.rows` and its width is `stdout.columns`. The dashboard is enclosed in a single-line box border using Unicode box-drawing characters (`┌`, `─`, `┬`, `┐`, `│`, `└`, `┴`, `┘`). Vertical dividers (`│`) separate adjacent panes. Each pane's label renders in full caps, embedded in the top border line (e.g., `┌ NOTIFICATIONS ───┬ ISSUES ───...`). The focused pane's border segments (top, bottom, and side edges belonging to that pane) render with standard intensity; unfocused pane borders render dim. The border consumes 2 rows (top line + bottom line) and 4 columns (left edge + 2 dividers + right edge). No content extends beyond the viewport (no terminal scrolling). On terminal resize, the layout reflows to the new dimensions. Each pane's scrollable area is computed from `stdout.rows - 2` (top and bottom border rows). The three panes divide the available content width — `stdout.columns - 4` (total width minus border columns) — equally, with any remainder allocated to the rightmost pane.
 
 The issue list pane has focus by default on startup. The user navigates between panes and interacts with items using keyboard controls.
 
@@ -63,9 +62,9 @@ The issue list pane has focus by default on startup. The user navigates between 
 
 All list-based panes (notifications, issue list) share a common visual foundation implemented as reusable `List` and `ListItem` components.
 
-**Pane header:** The pane label renders in full caps (e.g., `NOTIFICATIONS`, `ISSUES`) followed by a full-width horizontal rule (`─`). The header is visually distinct from the scrollable list content below it. The header has 1-character horizontal padding on each side.
+**Pane header:** Each pane's label is embedded in the top border line, rendered in full caps with a 1-character gap after the corner or junction character (e.g., `┌ NOTIFICATIONS ───`). The remaining width is filled with `─` to complete the border segment. The label is visually distinct from the scrollable content below it.
 
-**Item padding:** Each list item has 1-character horizontal padding on each side, matching the header. This keeps content visually inset from the pane border.
+**Item padding:** Each list item has 1-character horizontal padding on each side, aligning with the label inset in the top border. This keeps content visually inset from the pane's vertical border edges.
 
 **Alternating row backgrounds:** Odd-indexed visible rows render with a dimmed background to visually distinguish adjacent items. Even-indexed rows use the terminal's default background. The index is based on visible position (after scroll windowing), not the item's index in the underlying data.
 
@@ -73,13 +72,13 @@ All list-based panes (notifications, issue list) share a common visual foundatio
 
 **Single-line truncation:** Each list item occupies exactly one terminal line. Content exceeding the available pane width is truncated with a trailing ellipsis (`…`).
 
-**Scroll windowing:** Chrome for list-based panes is exactly 2 rows (header line + rule line). The visible item count is `stdout.rows - 2`. The pane header and horizontal rule are fixed — they never scroll off-screen. The scrollable area begins below the rule and displays up to `visible item count` items. When items exceed visible rows, the list scrolls within this area via keyboard navigation (`↑`/`↓`/`j`/`k`) or mouse scroll wheel. The viewport uses scroll-by-one: it shifts by exactly one row when the selection moves outside the currently visible window. Mouse scroll moves the viewport without changing the selected item. If the user mouse-scrolls away from the selected item then presses a navigation key, the viewport snaps back to keep the selection visible before applying the navigation. On terminal resize, the visible item count is recomputed from the new `stdout.rows`.
+**Scroll windowing:** Chrome for list-based panes is exactly 2 rows (top border line + bottom border line). The visible item count is `stdout.rows - 2`. The top and bottom borders are fixed — they never scroll off-screen. The scrollable area begins below the top border and displays up to `visible item count` items. When items exceed visible rows, the list scrolls within this area via keyboard navigation (`↑`/`↓`/`j`/`k`) or mouse scroll wheel. The viewport uses scroll-by-one: it shifts by exactly one row when the selection moves outside the currently visible window. Mouse scroll moves the viewport without changing the selected item. If the user mouse-scrolls away from the selected item then presses a navigation key, the viewport snaps back to keep the selection visible before applying the navigation. On terminal resize, the visible item count is recomputed from the new `stdout.rows`.
 
 **Terminal hyperlinks:** Specific text elements render as clickable terminal hyperlinks via the OSC 8 protocol (`ink-link`). In terminals that do not support OSC 8, text renders normally without click behavior — no URL suffix is appended, since all linked resources are also accessible via keyboard actions (`Enter` to open in browser). Fallback is disabled (`fallback={false}`).
 
 #### Notifications Pane
 
-A scrollable, chronological event history that surfaces all engine events as user-readable entries. Newest notifications appear at the top. Uses the shared list primitives for header, alternating rows, selection highlighting, single-line truncation, and scroll windowing. See `control-plane-tui-notifications.md` for notification indicators, text formatting, semantic highlighting, context URL assignment, interaction, and type definitions.
+A scrollable, chronological event history that surfaces all engine events as user-readable entries. Newest notifications appear at the top, with auto-scroll pinning the viewport to the top unless the user has scrolled past one page (see `control-plane-tui-notifications.md` § Auto-Scroll Behavior). Uses the shared list primitives for header, alternating rows, selection highlighting, single-line truncation, and scroll windowing. See `control-plane-tui-notifications.md` for notification indicators, text formatting, semantic highlighting, context URL assignment, interaction, and type definitions.
 
 #### Issue List Pane
 
@@ -355,6 +354,8 @@ When the user presses `q`:
 - [ ] Given the terminal is at least 120 columns wide and 30 rows tall, when the TUI renders, then all three panes are visible without overlap or truncation.
 - [ ] Given the TUI is running, when the terminal is resized, then the layout reflows to fill the new dimensions without terminal scrolling.
 - [ ] Given the TUI is running, when content exceeds the available pane height, then the content scrolls within the pane — the overall dashboard never exceeds the terminal viewport.
+- [ ] Given the TUI renders, when the dashboard is displayed, then each pane is enclosed in a single-line box border using Unicode box-drawing characters with vertical dividers between panes.
+- [ ] Given a pane has focus, when the dashboard renders, then the focused pane's border segments render with standard intensity and unfocused pane borders render dim.
 
 ### Issue List
 
@@ -373,7 +374,7 @@ See `control-plane-tui-detail-pane.md` for all detail pane acceptance criteria.
 
 ### Shared List Primitives
 
-- [ ] Given any list-based pane renders, when the pane header is displayed, then the label is in full caps with a horizontal rule (`─`) separator below.
+- [ ] Given any list-based pane renders, when the pane header is displayed, then the label is in full caps embedded in the top border line.
 - [ ] Given a list has multiple items, when the list renders, then odd-indexed visible rows have a dimmed background and even-indexed rows have the default background.
 - [ ] Given a list item is selected in the focused pane, when the list renders, then the selected item is displayed with inverse video.
 - [ ] Given a list item's content exceeds the pane width, when the item renders, then the content is truncated with a trailing ellipsis (`…`).

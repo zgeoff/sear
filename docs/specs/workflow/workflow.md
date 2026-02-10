@@ -2,7 +2,7 @@
 title: Development Workflow
 version: 0.1.0
 last_updated: 2026-02-08
-status: draft
+status: approved
 ---
 
 # Development Workflow

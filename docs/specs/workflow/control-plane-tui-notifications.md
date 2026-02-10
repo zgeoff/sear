@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI — Notifications
-version: 0.2.0
-last_updated: 2026-02-09
+version: 0.3.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -33,6 +33,15 @@ The notifications pane uses the shared list primitives (see `control-plane-tui.m
 - **Timestamp** — Local wall-clock time in `[HH:MM]` format.
 - **Content** — Notification text with semantic highlighting (see rendering rules).
 - **Copy indicator** — ` [copy]` suffix, present only when the notification has a `clipboardCommand`.
+
+### Auto-Scroll Behavior
+
+When a new notification is prepended to the list, the pane's scroll behavior depends on how far the user has scrolled from the top:
+
+- **Within one page of the top** (scroll offset < visible item count): The viewport resets to offset 0. The newest notification is always visible.
+- **Past one page** (scroll offset ≥ visible item count): The viewport offset increments by 1 to hold the current logical position — the same items stay in view. The user is reading history and is not interrupted.
+
+This ensures the most recent notification is always visible by default, while preserving the user's scroll position when they have intentionally scrolled into history.
 
 ### Notification Indicators
 
@@ -246,6 +255,9 @@ type Notification =
 - [ ] Given a `startup` notification, when it renders, then the indicator is `✓` in green and the content includes the issue count and recoveries performed (recoveries clause omitted if zero).
 - [ ] Given a `notification` (`needs-refinement`) event, when the notification renders, then the content includes the resolution guidance text.
 - [ ] Given a `notification` (`blocked`) event, when the notification renders, then the content includes the resolution guidance text.
+- [ ] Given the notifications pane viewport is at the top (scroll offset 0), when a new notification arrives, then the viewport remains at offset 0 and the new notification is visible.
+- [ ] Given the notifications pane viewport is within one page of the top (scroll offset < visible item count), when a new notification arrives, then the viewport resets to offset 0.
+- [ ] Given the notifications pane viewport is past one page (scroll offset ≥ visible item count), when a new notification arrives, then the viewport offset increments by 1 and the same items remain visible.
 
 ## Dependencies
 
