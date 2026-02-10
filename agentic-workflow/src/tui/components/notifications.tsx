@@ -1,4 +1,5 @@
 import { Text } from 'ink';
+import Link from 'ink-link';
 import type { ReactNode } from 'react';
 import { match, P } from 'ts-pattern';
 import type { Notification } from '../types.ts';
@@ -8,6 +9,7 @@ import type { CopyToClipboard, NotificationsKeyState, OpenURL, SelectIndex } fro
 
 export interface NotificationsPaneProps {
   notifications: Notification[];
+  repository: string;
   focused: boolean;
   selectedIndex: number;
   paneWidth: number;
@@ -19,7 +21,7 @@ export interface NotificationsPaneProps {
 }
 
 export function NotificationsPane(props: NotificationsPaneProps): ReactNode {
-  const items = buildListItems(props.notifications);
+  const items = buildListItems(props.notifications, props.repository);
 
   return (
     <List
@@ -82,7 +84,7 @@ export function handleNotificationsInput(params: HandleNotificationsInputParams)
   }
 }
 
-function buildListItems(notifications: Notification[]): ListItemData[] {
+function buildListItems(notifications: Notification[], repository: string): ListItemData[] {
   if (notifications.length === 0) {
     return [{ key: 'empty', content: 'No notifications' }];
   }
@@ -95,18 +97,27 @@ function buildListItems(notifications: Notification[]): ListItemData[] {
     const copySuffix = notification.clipboardCommand ? ' [copy]' : '';
     const content = `${glyph} ${timestamp} ${body}${logSuffix}${copySuffix}`;
 
-    const richContent = renderRichContent(notification, timestamp);
+    const richContent = renderRichContent(notification, timestamp, repository);
 
     return { key: notification.id, content, richContent };
   });
 }
 
-function renderRichContent(notification: Notification, timestamp: string): ReactNode {
+function renderRichContent(
+  notification: Notification,
+  timestamp: string,
+  repository: string,
+): ReactNode {
   const indicatorColor = getIndicatorColor(notification);
   const isDimIndicator = isIndicatorDim(notification);
   const glyph = getIndicatorGlyph(notification);
-  const bodySegments = renderRichBody(notification);
-  const logSuffix = getLogFilePath(notification) ? <Text dimColor={true}> (logs)</Text> : null;
+  const bodySegments = renderRichBody(notification, repository);
+  const logFilePath = getLogFilePath(notification);
+  const logSuffix = logFilePath ? (
+    <Link url={`file://${logFilePath}`} fallback={false}>
+      <Text dimColor={true}> (logs)</Text>
+    </Link>
+  ) : null;
   const copySuffix = notification.clipboardCommand ? ' [copy]' : null;
   const indicatorColorProps = indicatorColor ? { color: indicatorColor } : {};
 
@@ -123,7 +134,7 @@ function renderRichContent(notification: Notification, timestamp: string): React
   );
 }
 
-function renderRichBody(notification: Notification): ReactNode {
+function renderRichBody(notification: Notification, repository: string): ReactNode {
   return match(notification)
     .with({ eventType: 'agentStarted', agentType: 'planner' }, (n) => {
       const specPart = 'specCount' in n ? `${n.specCount} specs` : 'specs';
@@ -140,9 +151,8 @@ function renderRichBody(notification: Notification): ReactNode {
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        started for
-        <Text bold={true}>#{n.issueNumber}</Text>
+        </Text>{' '}
+        started for {renderIssueLink(n.issueNumber, repository)}
       </>
     ))
     .with({ eventType: 'agentCompleted', agentType: 'planner' }, (n) => {
@@ -160,46 +170,40 @@ function renderRichBody(notification: Notification): ReactNode {
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        completed for
-        <Text bold={true}>#{n.issueNumber}</Text>
+        </Text>{' '}
+        completed for {renderIssueLink(n.issueNumber, repository)}
       </>
     ))
     .with({ eventType: 'agentFailed', agentType: 'planner' }, (n) => (
       <>
         <Text bold={true} color="cyan">
           Planner
-        </Text>
-        failed \u2014
-        <Text color="red">{n.error}</Text>
+        </Text>{' '}
+        failed — <Text color="red">{n.error}</Text>
       </>
     ))
     .with({ eventType: 'agentFailed' }, (n) => (
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        failed for
-        <Text bold={true}>#{n.issueNumber}</Text>
-        \u2014
-        <Text color="red">{n.error}</Text>
+        </Text>{' '}
+        failed for {renderIssueLink(n.issueNumber, repository)} — <Text color="red">{n.error}</Text>
       </>
     ))
     .with({ eventType: 'agentSkipped', agentType: 'planner' }, () => (
       <>
         <Text bold={true} color="cyan">
           Planner
-        </Text>
-        skipped \u2014 paths deferred
+        </Text>{' '}
+        skipped — paths deferred
       </>
     ))
     .with({ eventType: 'agentSkipped' }, (n) => (
       <>
         <Text bold={true} color="cyan">
           {formatAgentName(n.agentType)}
-        </Text>
-        skipped for
-        <Text bold={true}>#{n.issueNumber}</Text>
+        </Text>{' '}
+        skipped for {renderIssueLink(n.issueNumber, repository)}
       </>
     ))
     .with({ eventType: 'issueStatusChanged' }, (n) => {
@@ -210,11 +214,11 @@ function renderRichBody(notification: Notification): ReactNode {
       const newColorProps = newStyle.color ? { color: newStyle.color } : {};
       return (
         <>
-          <Text bold={true}>#{n.issueNumber}</Text>:
+          {renderIssueLink(n.issueNumber, repository)}:{' '}
           <Text {...oldColorProps} dimColor={oldStyle.dimColor}>
             {oldStatusText}
-          </Text>
-          \u2192
+          </Text>{' '}
+          →{' '}
           <Text {...newColorProps} dimColor={newStyle.dimColor}>
             {n.newStatus}
           </Text>
@@ -223,20 +227,23 @@ function renderRichBody(notification: Notification): ReactNode {
     })
     .with({ eventType: 'specChanged' }, (n) => (
       <>
-        Spec changed:
-        <Text color="magenta">{n.specFileName}</Text>
+        Spec changed:{' '}
+        {n.contextURL ? (
+          <Link url={n.contextURL} fallback={false}>
+            <Text color="magenta">{n.specFileName}</Text>
+          </Link>
+        ) : (
+          <Text color="magenta">{n.specFileName}</Text>
+        )}
       </>
     ))
     .with({ eventType: 'recoveryPerformed' }, (n) => (
-      <>
-        <Text bold={true}>#{n.issueNumber}</Text>
-        recovered from stale
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} recovered from stale</>
     ))
     .with({ eventType: 'notification', notificationType: 'approved' }, (n) => (
       <>
-        <Text bold={true}>#{n.issueNumber}</Text> <Text color="green">approved</Text>
-        \u2014 ready to merge
+        {renderIssueLink(n.issueNumber, repository)} <Text color="green">approved</Text> — ready to
+        merge
       </>
     ))
     .with(
@@ -248,7 +255,7 @@ function renderRichBody(notification: Notification): ReactNode {
         const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
         return (
           <>
-            <Text bold={true}>#{n.issueNumber}</Text>{' '}
+            {renderIssueLink(n.issueNumber, repository)}{' '}
             <Text {...labelColorProps} dimColor={labelStyle.dimColor}>
               {label}
             </Text>
@@ -258,22 +265,13 @@ function renderRichBody(notification: Notification): ReactNode {
       },
     )
     .with({ eventType: 'dispatchReady' }, (n) => (
-      <>
-        <Text bold={true}>#{n.issueNumber}</Text>
-        ready for dispatch
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} ready for dispatch</>
     ))
     .with({ eventType: 'notificationDismissed' }, (n) => (
-      <>
-        <Text bold={true}>#{n.issueNumber}</Text>
-        dismissed
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} dismissed</>
     ))
     .with({ eventType: 'issueRemoved' }, (n) => (
-      <>
-        <Text bold={true}>#{n.issueNumber}</Text>
-        removed
-      </>
+      <>{renderIssueLink(n.issueNumber, repository)} removed</>
     ))
     .with({ eventType: 'startup' }, (n) => {
       const base = `Startup complete: ${n.issueCount} issues tracked`;
@@ -439,4 +437,16 @@ function getLogFilePath(notification: Notification): string | undefined {
     return notification.logFilePath;
   }
   return;
+}
+
+function renderIssueLink(issueNumber: number | undefined, repository: string): ReactNode {
+  if (issueNumber === undefined) {
+    return null;
+  }
+  const url = `https://github.com/${repository}/issues/${issueNumber}`;
+  return (
+    <Link url={url} fallback={false}>
+      <Text bold={true}>#{issueNumber}</Text>
+    </Link>
+  );
 }
