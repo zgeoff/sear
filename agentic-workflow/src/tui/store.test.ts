@@ -3,6 +3,7 @@ import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentStartedEvent,
+  EngineCommand,
   IssueRemovedEvent,
   IssueStatusChangedEvent,
   NotificationEvent,
@@ -1033,6 +1034,25 @@ test('it enters shutdown mode and tells the engine to shut down', () => {
 
   expect(sentCommands).toContainEqual({ command: 'shutdown' });
   expect(store.getState().shuttingDown).toBe(true);
+});
+
+test('it sets the shutting down flag before sending the shutdown command to the engine', () => {
+  const { engine } = createMockEngine();
+
+  let wasShuttingDownWhenCommandSent = false;
+  const originalSend = engine.send.bind(engine);
+  engine.send = (command: EngineCommand): void => {
+    if (command.command === 'shutdown') {
+      wasShuttingDownWhenCommandSent = store.getState().shuttingDown;
+    }
+    originalSend(command);
+  };
+
+  const store = createEngineStore({ engine, repository: 'owner/repo' });
+
+  store.getState().shutdown();
+
+  expect(wasShuttingDownWhenCommandSent).toBe(true);
 });
 
 test('it advances focus to the next pane when cycling forward', () => {
