@@ -5,5 +5,8 @@ export default defineConfig({
   test: {
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     setupFiles: ['./vitest.setup.ts'],
+    env: {
+      FORCE_HYPERLINK: '1',
+    },
   },
 });

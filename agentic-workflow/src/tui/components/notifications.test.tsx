@@ -726,10 +726,11 @@ test('it renders log file paths as terminal hyperlinks to the local file', () =>
   const { lastFrame } = setupRenderTest({ notifications: [notifWithLog] });
 
   const frame = lastFrame() ?? '';
-  expect(frame).toContain(
-    // biome-ignore lint/security/noSecrets: OSC 8 escape sequence test fixture
-    '\x1b]8;;file:///tmp/agent-session.log\x07(logs)\x1b]8;;\x07',
-  );
+  // The log link wraps (logs) with dimColor styling, so ANSI codes appear between
+  // the OSC 8 URL terminator and the text. Assert the URL and text separately.
+  expect(frame).toContain('\x1b]8;;file:///tmp/agent-session.log\x07');
+  expect(frame).toContain('(logs)');
+  expect(frame).toContain('\x1b]8;;\x07');
 });
 
 test('it renders log file paths for failed agent notifications as terminal hyperlinks', () => {
@@ -743,10 +744,9 @@ test('it renders log file paths for failed agent notifications as terminal hyper
   const { lastFrame } = setupRenderTest({ notifications: [notifWithLog] });
 
   const frame = lastFrame() ?? '';
-  expect(frame).toContain(
-    // biome-ignore lint/security/noSecrets: OSC 8 escape sequence test fixture
-    '\x1b]8;;file:///logs/reviewer.log\x07(logs)\x1b]8;;\x07',
-  );
+  expect(frame).toContain('\x1b]8;;file:///logs/reviewer.log\x07');
+  expect(frame).toContain('(logs)');
+  expect(frame).toContain('\x1b]8;;\x07');
 });
 
 test('it renders issue references as hyperlinks in status change notifications', () => {
