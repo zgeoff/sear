@@ -19,7 +19,6 @@ function setupListTest(overrides?: Partial<ListProps>): {
   props: ListProps;
 } {
   const props: ListProps = {
-    label: 'Issues',
     items: buildItems(3),
     selectedIndex: 0,
     focused: true,
@@ -68,51 +67,32 @@ function setupListItemTest(overrides?: Partial<ListItemProps>): {
 }
 
 // ---------------------------------------------------------------------------
-// List — Pane header
+// List — No header or rule rendering
 // ---------------------------------------------------------------------------
 
-test('it renders the pane label in uppercase', () => {
-  const { instance } = setupListTest({ label: 'notifications' });
+test('it does not render a header label or horizontal rule', () => {
+  const { instance } = setupListTest({ items: buildItems(3) });
   const frame = instance.lastFrame() ?? '';
 
-  expect(frame).toContain('NOTIFICATIONS');
-});
-
-test('it renders a horizontal rule below the pane label', () => {
-  const { instance } = setupListTest({ paneWidth: 20 });
-  const frame = instance.lastFrame() ?? '';
-
-  // Rule should be paneWidth - 2 (1-char padding each side) = 18 chars
-  const expectedRule = '\u2500'.repeat(18);
-  expect(frame).toContain(expectedRule);
-});
-
-test('it renders exactly two chrome rows before list items', () => {
-  const items = buildItems(3);
-  const { instance } = setupListTest({ items, paneHeight: 10 });
-  const frame = instance.lastFrame() ?? '';
+  // The List should not render any header or rule — dashboard owns the border
+  expect(frame).not.toContain('\u2500');
   const lines = frame.split('\n');
-
-  // First line: label, second line: rule, then items
-  expect(lines.length).toBeGreaterThanOrEqual(5); // 2 chrome + 3 items
-  expect(lines[0]).toContain('ISSUES');
-  expect(lines[1]).toContain('\u2500');
-  expect(lines[2]).toContain('Item 0');
+  expect(lines[0]).toContain('Item 0');
 });
 
 // ---------------------------------------------------------------------------
 // List — Visible item count
 // ---------------------------------------------------------------------------
 
-test('it renders at most pane-height-minus-two items', () => {
+test('it renders at most pane-height items', () => {
   const items = buildItems(20);
   const { instance } = setupListTest({ items, paneHeight: 7 });
   const frame = instance.lastFrame() ?? '';
 
-  // paneHeight 7 - 2 chrome = 5 visible items
+  // visibleItemCount = paneHeight = 7
   expect(frame).toContain('Item 0');
-  expect(frame).toContain('Item 4');
-  expect(frame).not.toContain('Item 5');
+  expect(frame).toContain('Item 6');
+  expect(frame).not.toContain('Item 7');
 });
 
 test('it renders all items when the list fits within the visible area', () => {
@@ -131,17 +111,16 @@ test('it renders all items when the list fits within the visible area', () => {
 
 test('it scrolls to keep the selected item visible when navigating past the viewport', () => {
   const items = buildItems(10);
-  // paneHeight 5 - 2 chrome = 3 visible items
   const { instance } = setupListTest({
     items,
     paneHeight: 5,
-    selectedIndex: 4,
+    selectedIndex: 6,
     viewportOffset: 0,
   });
   const frame = instance.lastFrame() ?? '';
 
-  // With selectedIndex 4, viewport should shift so item 4 is visible
-  expect(frame).toContain('Item 4');
+  // With selectedIndex 6 and visibleCount 5, viewport should shift so item 6 is visible
+  expect(frame).toContain('Item 6');
 });
 
 test('it scrolls backward when the selected item is above the viewport', () => {
@@ -204,7 +183,7 @@ test('it clamps the viewport offset to prevent showing empty space at the bottom
   const items = buildItems(5);
   const { instance } = setupListTest({
     items,
-    paneHeight: 5,
+    paneHeight: 3,
     selectedIndex: 0,
     viewportOffset: 10,
     mouseScrolled: true,
@@ -366,38 +345,22 @@ test('it renders a selected odd-indexed row in a focused pane with its content',
 // List — Empty state
 // ---------------------------------------------------------------------------
 
-test('it renders the header even when the item list is empty', () => {
-  const { instance } = setupListTest({ items: [], label: 'Issues' });
+test('it renders no output when the item list is empty', () => {
+  const { instance } = setupListTest({ items: [] });
   const frame = instance.lastFrame() ?? '';
 
-  expect(frame).toContain('ISSUES');
-  expect(frame).toContain('\u2500');
+  // No header, no rule, no items — empty list produces no visible content
+  expect(frame.trim()).toBe('');
 });
 
 // ---------------------------------------------------------------------------
-// List — Horizontal rule width
+// List — Zero pane height
 // ---------------------------------------------------------------------------
 
-test('it adjusts the horizontal rule width to match the pane width minus padding', () => {
-  const { instance } = setupListTest({ paneWidth: 30, items: [] });
-  const frame = instance.lastFrame() ?? '';
-
-  // 30 - 2 padding = 28 rule chars
-  const expectedRule = '\u2500'.repeat(28);
-  expect(frame).toContain(expectedRule);
-});
-
-// ---------------------------------------------------------------------------
-// List — Zero/small pane height
-// ---------------------------------------------------------------------------
-
-test('it renders only chrome when the pane height equals the chrome rows', () => {
+test('it renders no items when the pane height is zero', () => {
   const items = buildItems(5);
-  const { instance } = setupListTest({ items, paneHeight: 2 });
+  const { instance } = setupListTest({ items, paneHeight: 0 });
   const frame = instance.lastFrame() ?? '';
 
-  expect(frame).toContain('ISSUES');
-  expect(frame).toContain('\u2500');
-  // No items should be visible (visibleItemCount = 0)
   expect(frame).not.toContain('Item');
 });

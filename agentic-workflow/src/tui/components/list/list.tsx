@@ -1,10 +1,9 @@
-import { Box, Text } from 'ink';
+import { Box } from 'ink';
 import type { ReactNode } from 'react';
 import { ListItem } from './list-item.tsx';
 import type { ListItemData } from './types.ts';
 
 export interface ListProps {
-  label: string;
   items: readonly ListItemData[];
   selectedIndex: number;
   focused: boolean;
@@ -16,13 +15,8 @@ export interface ListProps {
   onMouseScrolledChange: (scrolled: boolean) => void;
 }
 
-const CHROME_ROWS = 2;
-const HORIZONTAL_PADDING = 1;
-
 export function List(props: ListProps): ReactNode {
-  const visibleItemCount = Math.max(0, props.paneHeight - CHROME_ROWS);
-  const ruleWidth = Math.max(0, props.paneWidth - HORIZONTAL_PADDING * 2);
-  const rule = '\u2500'.repeat(ruleWidth);
+  const visibleItemCount = Math.max(0, props.paneHeight);
 
   const viewportStart = computeViewportStart({
     selectedIndex: props.selectedIndex,
@@ -36,12 +30,6 @@ export function List(props: ListProps): ReactNode {
 
   return (
     <Box flexDirection="column">
-      <Box paddingLeft={HORIZONTAL_PADDING} paddingRight={HORIZONTAL_PADDING}>
-        <Text bold={true}>{props.label.toUpperCase()}</Text>
-      </Box>
-      <Box paddingLeft={HORIZONTAL_PADDING} paddingRight={HORIZONTAL_PADDING}>
-        <Text>{rule}</Text>
-      </Box>
       {visibleItems.map((item, index) => (
         <ListItem
           key={item.key}
