@@ -313,9 +313,9 @@ function getIndicatorGlyph(notification: Notification): string {
     .exhaustive();
 }
 
-type InkColor = 'green' | 'blue' | 'red' | 'yellow' | 'cyan' | 'magenta' | undefined;
+export type InkColor = 'green' | 'blue' | 'red' | 'yellow' | 'cyan' | 'magenta' | undefined;
 
-function getIndicatorColor(notification: Notification): InkColor {
+export function getIndicatorColor(notification: Notification): InkColor {
   return match<Notification, InkColor>(notification)
     .with({ eventType: 'dispatchReady' }, () => 'green')
     .with({ eventType: 'agentStarted' }, () => 'blue')
@@ -336,18 +336,18 @@ function getIndicatorColor(notification: Notification): InkColor {
     .exhaustive();
 }
 
-function isIndicatorDim(notification: Notification): boolean {
+export function isIndicatorDim(notification: Notification): boolean {
   return (
     notification.eventType === 'notificationDismissed' || notification.eventType === 'issueRemoved'
   );
 }
 
-interface StatusStyle {
+export interface StatusStyle {
   color: InkColor;
   dimColor: boolean;
 }
 
-function getStatusStyle(status: string): StatusStyle {
+export function getStatusStyle(status: string): StatusStyle {
   const STATUS_COLORS: Record<string, InkColor> = {
     'in-progress': 'blue',
     review: 'cyan',
