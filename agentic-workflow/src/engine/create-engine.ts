@@ -83,9 +83,14 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   // valid cache exists, the specPoller is re-created with the cached snapshot.
   let specPoller = buildSpecPoller(resolved, octokit, logger);
 
-  // Holds the SpecPoller snapshot captured at Planner dispatch time. Written to
-  // the cache file when the Planner completes successfully.
+  // Holds the SpecPoller snapshot and commitSHA captured at Planner dispatch time.
+  // Written to the cache file when the Planner completes successfully.
   let pendingCacheSnapshot: SpecPollerSnapshot | null = null;
+  let pendingCacheCommitSHA: string | null = null;
+
+  // Tracks the commitSHA from the latest SpecPollerBatchResult. Captured into
+  // pendingCacheCommitSHA when the Planner is dispatched.
+  let latestSpecCommitSHA = '';
 
   const agentManager = createAgentManager({
     emitter,
@@ -113,6 +118,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     {
       dispatchPlanner: (specPaths: string[]): void => {
         pendingCacheSnapshot = specPoller.getSnapshot();
+        pendingCacheCommitSHA = latestSpecCommitSHA;
         void agentManager.dispatchPlanner({ specPaths });
       },
       dispatchReviewer: (issueNumber: number): void => {
@@ -165,17 +171,20 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
         dispatch,
         plannerCache,
         getPendingCacheSnapshot: (): SpecPollerSnapshot | null => pendingCacheSnapshot,
-        clearPendingCacheSnapshot: (): void => {
+        getPendingCacheCommitSHA: (): string | null => pendingCacheCommitSHA,
+        clearPendingCache: (): void => {
           pendingCacheSnapshot = null;
+          pendingCacheCommitSHA = null;
         },
         logger,
       });
       emitter.on(eventHandler);
 
       // Step 2: Load planner cache (before recovery and before pollers)
-      const cachedSnapshot = await plannerCache.load();
-      if (cachedSnapshot) {
-        specPoller = buildSpecPoller(resolved, octokit, logger, cachedSnapshot);
+      const cachedEntry = await plannerCache.load();
+      if (cachedEntry) {
+        specPoller = buildSpecPoller(resolved, octokit, logger, cachedEntry.snapshot);
+        latestSpecCommitSHA = cachedEntry.commitSHA;
       }
 
       // Step 3: Startup recovery
@@ -186,6 +195,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 
       // Step 5: First SpecPoller cycle
       const specResult = await specPoller.poll();
+      latestSpecCommitSHA = specResult.commitSHA;
       dispatch.handleSpecPollerResult(specResult);
 
       // Step 6: Start recurring poll timers
@@ -197,6 +207,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       pollerTimers.specTimer = setInterval(() => {
         logger.debug('SpecPoller cycle starting');
         void specPoller.poll().then((result) => {
+          latestSpecCommitSHA = result.commitSHA;
           dispatch.handleSpecPollerResult(result);
         });
       }, resolved.specPoller.pollInterval * SECONDS_TO_MS);
@@ -247,7 +258,8 @@ interface EventHandlerDeps {
   dispatch: Dispatch;
   plannerCache: PlannerCache;
   getPendingCacheSnapshot: () => SpecPollerSnapshot | null;
-  clearPendingCacheSnapshot: () => void;
+  getPendingCacheCommitSHA: () => string | null;
+  clearPendingCache: () => void;
   logger: Logger;
 }
 
@@ -266,7 +278,7 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
     }
 
     if (event.type === 'agentFailed' && event.agentType === 'planner') {
-      deps.clearPendingCacheSnapshot();
+      deps.clearPendingCache();
     }
 
     if (
@@ -301,13 +313,14 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
 
 function handlePlannerCompleted(deps: EventHandlerDeps): void {
   const snapshot = deps.getPendingCacheSnapshot();
-  deps.clearPendingCacheSnapshot();
+  const commitSHA = deps.getPendingCacheCommitSHA();
+  deps.clearPendingCache();
 
-  if (!snapshot) {
+  if (!(snapshot && commitSHA)) {
     return;
   }
 
-  deps.plannerCache.write(snapshot).catch((error) => {
+  deps.plannerCache.write(snapshot, commitSHA).catch((error) => {
     deps.logger.error('Failed to write planner cache', {
       error: String(error),
     });

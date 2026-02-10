@@ -14,7 +14,7 @@ import type {
 import type { AgentQuery, QueryFactory, QueryFactoryParams } from './agent-manager/types.ts';
 import { createEngine } from './create-engine.ts';
 import type { GitHubClient } from './github-client/types.ts';
-import type { SpecPollerSnapshot } from './pollers/types.ts';
+import type { PlannerCacheEntry } from './planner-cache/types.ts';
 import type { WorktreeManager } from './worktree-manager/types.ts';
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -839,28 +839,31 @@ test('it resolves the repository root via git when none is provided', () => {
 // Planner Cache integration
 // ---------------------------------------------------------------------------
 
-function buildCacheSnapshot(): SpecPollerSnapshot {
+function buildCacheEntry(): PlannerCacheEntry {
   return {
-    specsDirTreeSHA: 'tree-sha-1',
-    files: {
-      'docs/specs/workflow/control-plane.md': {
-        blobSHA: 'blob-sha-1',
-        frontmatterStatus: 'approved',
+    snapshot: {
+      specsDirTreeSHA: 'tree-sha-1',
+      files: {
+        'docs/specs/workflow/control-plane.md': {
+          blobSHA: 'blob-sha-1',
+          frontmatterStatus: 'approved',
+        },
       },
     },
+    commitSHA: 'cached-commit-sha',
   };
 }
 
 function setupCacheTest(
-  options: SetupOptions & { cacheSnapshot?: SpecPollerSnapshot } = {},
+  options: SetupOptions & { cacheEntry?: PlannerCacheEntry } = {},
 ): ReturnType<typeof setupTest> {
   vol.reset();
   vol.mkdirSync('/tmp/test-repo', { recursive: true });
 
-  if (options.cacheSnapshot) {
+  if (options.cacheEntry) {
     vol.writeFileSync(
       '/tmp/test-repo/.agentic-workflow-cache.json',
-      JSON.stringify(options.cacheSnapshot),
+      JSON.stringify(options.cacheEntry),
     );
   }
 
@@ -868,8 +871,8 @@ function setupCacheTest(
 }
 
 test('it does not dispatch the planner when the cache matches the current tree', async () => {
-  const cacheSnapshot = buildCacheSnapshot();
-  const { engine, mockQueries, octokit } = setupCacheTest({ cacheSnapshot });
+  const cacheEntry = buildCacheEntry();
+  const { engine, mockQueries, octokit } = setupCacheTest({ cacheEntry });
 
   // SpecPoller returns tree-sha-1, matching the cache
   vi.mocked(octokit.git.getTree).mockResolvedValue({
@@ -884,17 +887,20 @@ test('it does not dispatch the planner when the cache matches the current tree',
 });
 
 test('it reports only changed files when the cache has a different tree', async () => {
-  const cacheSnapshot: SpecPollerSnapshot = {
-    specsDirTreeSHA: 'old-tree-sha',
-    files: {
-      'docs/specs/control-plane.md': {
-        blobSHA: 'blob-sha-1',
-        frontmatterStatus: 'approved',
+  const cacheEntry: PlannerCacheEntry = {
+    snapshot: {
+      specsDirTreeSHA: 'old-tree-sha',
+      files: {
+        'docs/specs/control-plane.md': {
+          blobSHA: 'blob-sha-1',
+          frontmatterStatus: 'approved',
+        },
       },
     },
+    commitSHA: 'old-commit-sha',
   };
   const { engine, events, octokit } = setupCacheTest({
-    cacheSnapshot,
+    cacheEntry,
     autoComplete: true,
   });
 
@@ -986,10 +992,13 @@ test('it writes the cache file when the planner completes successfully', async (
   );
   expect(completed.length).toBe(1);
 
-  // Verify cache file was written
+  // Verify cache file was written with PlannerCacheEntry format
   const raw = await readFile('/tmp/test-repo/.agentic-workflow-cache.json', 'utf-8');
-  const cached = JSON.parse(raw) as SpecPollerSnapshot;
-  expect(cached.specsDirTreeSHA).toBe('tree-sha-new');
+  const cached: unknown = JSON.parse(raw);
+  expect(cached).toMatchObject({
+    snapshot: { specsDirTreeSHA: 'tree-sha-new' },
+    commitSHA: 'commit-sha-1',
+  });
 });
 
 test('it does not write the cache file when the planner fails', async () => {

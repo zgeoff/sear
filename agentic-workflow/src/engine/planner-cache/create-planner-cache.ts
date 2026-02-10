@@ -2,7 +2,7 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import invariant from 'tiny-invariant';
 import type { SpecPollerFileEntry, SpecPollerSnapshot } from '../pollers/types.ts';
-import type { PlannerCache, PlannerCacheConfig } from './types.ts';
+import type { PlannerCache, PlannerCacheConfig, PlannerCacheEntry } from './types.ts';
 
 const CACHE_FILENAME = '.agentic-workflow-cache.json';
 
@@ -11,11 +11,11 @@ export function createPlannerCache(config: PlannerCacheConfig): PlannerCache {
   const tempPath = `${cachePath}.tmp`;
 
   return {
-    async load(): Promise<SpecPollerSnapshot | null> {
+    async load(): Promise<PlannerCacheEntry | null> {
       try {
         const raw = await readFile(cachePath, 'utf-8');
         const parsed: unknown = JSON.parse(raw);
-        return validateSnapshot(parsed);
+        return validateCacheEntry(parsed);
       } catch (error) {
         config.logger.debug('Planner cache not loaded, starting cold', {
           path: cachePath,
@@ -25,14 +25,15 @@ export function createPlannerCache(config: PlannerCacheConfig): PlannerCache {
       }
     },
 
-    async write(snapshot: SpecPollerSnapshot): Promise<void> {
+    async write(snapshot: SpecPollerSnapshot, commitSHA: string): Promise<void> {
       invariant(
         snapshot.specsDirTreeSHA !== null,
         'Planner cache write requires a non-null specsDirTreeSHA',
       );
 
       try {
-        const json = JSON.stringify(snapshot);
+        const entry: PlannerCacheEntry = { snapshot, commitSHA };
+        const json = JSON.stringify(entry);
         await writeFile(tempPath, json, 'utf-8');
         await rename(tempPath, cachePath);
       } catch (error) {
@@ -43,6 +44,25 @@ export function createPlannerCache(config: PlannerCacheConfig): PlannerCache {
       }
     },
   };
+}
+
+function validateCacheEntry(value: unknown): PlannerCacheEntry | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const obj = value as Record<string, unknown>;
+
+  if (typeof obj.commitSHA !== 'string') {
+    return null;
+  }
+
+  const snapshot = validateSnapshot(obj.snapshot);
+  if (!snapshot) {
+    return null;
+  }
+
+  return { snapshot, commitSHA: obj.commitSHA };
 }
 
 function validateSnapshot(value: unknown): SpecPollerSnapshot | null {
