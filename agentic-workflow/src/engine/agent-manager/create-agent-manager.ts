@@ -394,19 +394,17 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     for (const block of content) {
       if (typeof block !== 'object' || block === null || !('type' in block)) {
         // Skip non-object or untyped blocks
-      } else if (block.type === 'text') {
-        const textBlock = block as TextBlock;
+      } else if (block.type === 'text' && isTextBlock(block)) {
         lines.push(`[${timestamp}] ASSISTANT`);
-        const indented = textBlock.text
+        const indented = block.text
           .split('\n')
           .map((line) => `  ${line}`)
           .join('\n');
         lines.push(indented);
         lines.push('');
-      } else if (block.type === 'tool_use') {
-        const toolBlock = block as ToolUseBlock;
+      } else if (block.type === 'tool_use' && isToolUseBlock(block)) {
         lines.push(`[${timestamp}] ASSISTANT`);
-        lines.push(`  [tool_use] ${toolBlock.name}`);
+        lines.push(`  [tool_use] ${block.name}`);
         lines.push('');
       }
     }
@@ -457,8 +455,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       return;
     }
 
-    const msg = message as { type?: string };
-    const type = msg.type ?? 'unknown';
+    const type = isTypedMessage(message) ? String(message.type) : 'unknown';
     const timestamp = formatUtcTime(new Date());
 
     const lines: string[] = [];
@@ -523,6 +520,42 @@ interface TextBlock {
 interface ToolUseBlock {
   type: 'tool_use';
   name: string;
+}
+
+function isTextBlock(block: object): block is TextBlock {
+  return (
+    'type' in block && block.type === 'text' && 'text' in block && typeof block.text === 'string'
+  );
+}
+
+function isToolUseBlock(block: object): block is ToolUseBlock {
+  return (
+    'type' in block &&
+    block.type === 'tool_use' &&
+    'name' in block &&
+    typeof block.name === 'string'
+  );
+}
+
+function isTypedMessage(value: unknown): value is { type: string } {
+  return typeof value === 'object' && value !== null && 'type' in value;
+}
+
+function isToolEntry(value: unknown): value is { name: string } {
+  return (
+    typeof value === 'object' && value !== null && 'name' in value && typeof value.name === 'string'
+  );
+}
+
+function isUsage(value: unknown): value is ResultMessageUsage {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'input_tokens' in value &&
+    typeof value.input_tokens === 'number' &&
+    'output_tokens' in value &&
+    typeof value.output_tokens === 'number'
+  );
 }
 
 interface AssistantMessageContent {
@@ -604,9 +637,8 @@ function extractTextFromAssistantMessage(message: { content: unknown }): string 
 
   const textParts: string[] = [];
   for (const block of content) {
-    if (typeof block === 'object' && block !== null && 'type' in block && block.type === 'text') {
-      const textBlock = block as { text: string };
-      textParts.push(textBlock.text);
+    if (typeof block === 'object' && block !== null && isTextBlock(block)) {
+      textParts.push(block.text);
     }
   }
 
@@ -713,7 +745,7 @@ function buildSessionHeader(tracker: AgentSessionTracker, initMessage: InitMessa
         if (typeof t === 'string') {
           return t;
         }
-        if (typeof t === 'object' && t !== null && 'name' in t && typeof t.name === 'string') {
+        if (isToolEntry(t)) {
           return t.name;
         }
         return '';
@@ -742,11 +774,8 @@ function extractResultMetadata(message: Record<string, unknown>): ResultMessageS
   }
 
   const usage = message.usage;
-  if (typeof usage === 'object' && usage !== null) {
-    const u = usage as Record<string, unknown>;
-    if (typeof u.input_tokens === 'number' && typeof u.output_tokens === 'number') {
-      result.usage = { input_tokens: u.input_tokens, output_tokens: u.output_tokens };
-    }
+  if (isUsage(usage)) {
+    result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
   }
 
   return result;

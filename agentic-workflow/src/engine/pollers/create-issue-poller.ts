@@ -102,7 +102,11 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
     return snapshot;
   }
 
-  return { poll, getSnapshot };
+  function getSnapshotMap(): Map<number, IssueSnapshot> {
+    return snapshot;
+  }
+
+  return { poll, getSnapshot, getSnapshotMap };
 }
 
 // ---------------------------------------------------------------------------

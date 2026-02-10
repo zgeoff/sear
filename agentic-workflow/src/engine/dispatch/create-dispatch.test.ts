@@ -188,7 +188,7 @@ test('it emits agentSkipped and defers paths when Planner is already running', (
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
   const skippedEvents = events.filter((e) => e.type === 'agentSkipped');
   expect(skippedEvents).toHaveLength(1);
-  expect(skippedEvents[0]).toEqual({
+  expect(skippedEvents[0]).toStrictEqual({
     type: 'agentSkipped',
     agentType: 'planner',
     specPaths: ['docs/specs/workflow/test.md'],
@@ -396,7 +396,7 @@ test('it emits dispatchReady when an issue enters pending status', () => {
 
   const readyEvents = events.filter((e) => e.type === 'dispatchReady');
   expect(readyEvents).toHaveLength(1);
-  expect(readyEvents[0]).toEqual({
+  expect(readyEvents[0]).toStrictEqual({
     type: 'dispatchReady',
     issueNumber: 10,
     statusLabel: 'status:pending',
@@ -412,7 +412,7 @@ test('it emits dispatchReady when an issue enters unblocked status', () => {
 
   const readyEvents = events.filter((e) => e.type === 'dispatchReady');
   expect(readyEvents).toHaveLength(1);
-  expect(readyEvents[0]).toEqual({
+  expect(readyEvents[0]).toStrictEqual({
     type: 'dispatchReady',
     issueNumber: 11,
     statusLabel: 'status:unblocked',
@@ -428,7 +428,7 @@ test('it emits dispatchReady when an issue enters needs-changes status', () => {
 
   const readyEvents = events.filter((e) => e.type === 'dispatchReady');
   expect(readyEvents).toHaveLength(1);
-  expect(readyEvents[0]).toEqual({
+  expect(readyEvents[0]).toStrictEqual({
     type: 'dispatchReady',
     issueNumber: 12,
     statusLabel: 'status:needs-changes',
@@ -448,7 +448,7 @@ test('it emits a notification with clipboard command for needs-refinement status
 
   const notifications = events.filter((e) => e.type === 'notification');
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]).toEqual({
+  expect(notifications[0]).toStrictEqual({
     type: 'notification',
     issueNumber: 7,
     statusLabel: 'status:needs-refinement',
@@ -488,7 +488,7 @@ test('it emits a notification with issue URL and resolution guidance for blocked
 
   const notifications = events.filter((e) => e.type === 'notification');
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]).toEqual({
+  expect(notifications[0]).toStrictEqual({
     type: 'notification',
     issueNumber: 8,
     statusLabel: 'status:blocked',
@@ -510,7 +510,7 @@ test('it emits a notification with issue URL for approved status', () => {
 
   const notifications = events.filter((e) => e.type === 'notification');
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]).toEqual({
+  expect(notifications[0]).toStrictEqual({
     type: 'notification',
     issueNumber: 9,
     statusLabel: 'status:approved',
@@ -541,7 +541,7 @@ test('it emits notificationDismissed when a notified issue changes status', () =
 
   const dismissedEvents = events.filter((e) => e.type === 'notificationDismissed');
   expect(dismissedEvents).toHaveLength(1);
-  expect(dismissedEvents[0]).toEqual({
+  expect(dismissedEvents[0]).toStrictEqual({
     type: 'notificationDismissed',
     issueNumber: 20,
   });
@@ -576,7 +576,7 @@ test('it dismisses a blocked notification when the issue status changes', () => 
 
   const dismissedEvents = events.filter((e) => e.type === 'notificationDismissed');
   expect(dismissedEvents).toHaveLength(1);
-  expect(dismissedEvents[0]).toEqual({
+  expect(dismissedEvents[0]).toStrictEqual({
     type: 'notificationDismissed',
     issueNumber: 21,
   });

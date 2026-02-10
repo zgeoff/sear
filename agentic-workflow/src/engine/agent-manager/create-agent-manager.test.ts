@@ -1,7 +1,7 @@
 import { vol } from 'memfs';
 import invariant from 'tiny-invariant';
 import { expect, test, vi } from 'vitest';
-import type { AgentCompletedEvent, AgentFailedEvent, EngineEvent } from '../../types.ts';
+import type { EngineEvent } from '../../types.ts';
 import { createEventEmitter } from '../event-emitter/create-event-emitter.ts';
 import type { WorktreeManager } from '../worktree-manager/types.ts';
 import { createAgentManager } from './create-agent-manager.ts';
@@ -324,7 +324,7 @@ test('it emits agentSkipped when dispatching an implementor for an issue with a 
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toEqual({
+  expect(skipped).toStrictEqual({
     type: 'agentSkipped',
     agentType: 'implementor',
     issueNumber: 42,
@@ -339,7 +339,7 @@ test('it emits agentStarted with session ID when the init message is received', 
   await drain();
 
   const started = ctx.events.find((e) => e.type === 'agentStarted');
-  expect(started).toEqual({
+  expect(started).toStrictEqual({
     type: 'agentStarted',
     agentType: 'implementor',
     issueNumber: 42,
@@ -369,7 +369,7 @@ test('it emits agentCompleted and removes worktree when an implementor session s
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted');
-  expect(completed).toEqual({
+  expect(completed).toStrictEqual({
     type: 'agentCompleted',
     agentType: 'implementor',
     issueNumber: 42,
@@ -391,7 +391,7 @@ test('it emits agentFailed with worktree path and preserves worktree when an imp
   await drain();
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
-  expect(failed).toEqual({
+  expect(failed).toStrictEqual({
     type: 'agentFailed',
     agentType: 'implementor',
     issueNumber: 42,
@@ -429,7 +429,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toEqual({
+  expect(skipped).toStrictEqual({
     type: 'agentSkipped',
     agentType: 'reviewer',
     issueNumber: 10,
@@ -458,7 +458,7 @@ test('it emits agentCompleted and does not remove worktree for reviewer sessions
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted');
-  expect(completed).toEqual({
+  expect(completed).toStrictEqual({
     type: 'agentCompleted',
     agentType: 'reviewer',
     issueNumber: 10,
@@ -503,7 +503,7 @@ test('it emits agentSkipped with deferred paths when a planner is already runnin
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toEqual({
+  expect(skipped).toStrictEqual({
     type: 'agentSkipped',
     agentType: 'planner',
     specPaths: ['docs/specs/b.md'],
@@ -522,7 +522,7 @@ test('it emits agentCompleted for planner sessions', async () => {
   await drain();
 
   const completed = ctx.events.find((e) => e.type === 'agentCompleted');
-  expect(completed).toEqual({
+  expect(completed).toStrictEqual({
     type: 'agentCompleted',
     agentType: 'planner',
     specPaths: ['docs/specs/a.md'],
@@ -689,7 +689,7 @@ test('it yields buffered and live chunks through the async iterable', async () =
   await drain();
   await readPromise;
 
-  expect(chunks).toEqual(['Chunk 1', 'Chunk 2']);
+  expect(chunks).toStrictEqual(['Chunk 1', 'Chunk 2']);
 });
 
 // ---------------------------------------------------------------------------
@@ -718,7 +718,9 @@ test('it cancels a session that exceeds the max duration', async () => {
     issueNumber: 42,
     sessionID: 'session-1',
   });
-  expect((failed as { error: string }).error).toContain('exceeded max duration');
+  expect(failed).toMatchObject({
+    error: expect.stringContaining('exceeded max duration'),
+  });
   expect(ctx.manager.isRunning(42)).toBe(false);
 
   vi.useRealTimers();
@@ -886,7 +888,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
   await ctx.manager.dispatchReviewer({ issueNumber: 5 });
 
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toEqual({
+  expect(skipped).toStrictEqual({
     type: 'agentSkipped',
     agentType: 'reviewer',
     issueNumber: 5,
@@ -940,7 +942,7 @@ test('it only yields text content from assistant messages and filters out tool u
   await readPromise;
 
   // The text should be concatenated, tool_use blocks filtered out
-  expect(chunks).toEqual(['Let me check that file.']);
+  expect(chunks).toStrictEqual(['Let me check that file.']);
 });
 
 // ---------------------------------------------------------------------------
@@ -981,15 +983,18 @@ function setupLoggingTest(overrides?: Partial<SetupOverrides>): SetupContext {
 
 function readLogFiles(): string[] {
   try {
-    const dir = vol.readdirSync('/test-logs') as string[];
-    return dir.filter((f) => f.endsWith('.log')).sort();
+    const dir = vol.readdirSync('/test-logs');
+    return dir
+      .map(String)
+      .filter((f) => f.endsWith('.log'))
+      .sort();
   } catch {
     return [];
   }
 }
 
 function readLogContent(fileName: string): string {
-  return vol.readFileSync(`/test-logs/${fileName}`, 'utf-8') as string;
+  return String(vol.readFileSync(`/test-logs/${fileName}`, 'utf-8'));
 }
 
 // ---------------------------------------------------------------------------
@@ -1053,7 +1058,7 @@ test('it creates the logs directory automatically when it does not exist', async
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await drain();
 
-  const dir = vol.readdirSync('/new-logs-dir') as string[];
+  const dir = vol.readdirSync('/new-logs-dir');
   expect(dir.length).toBeGreaterThan(0);
 });
 
@@ -1144,8 +1149,12 @@ test('it writes a completed footer and includes logFilePath in the completed eve
   expect(content).toContain('Outcome:  completed');
   expect(content).toContain('Finished:');
 
-  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
-  expect(completed.logFilePath).toBe(`/test-logs/${files[0]}`);
+  expect(ctx.events).toContainEqual(
+    expect.objectContaining({
+      type: 'agentCompleted',
+      logFilePath: `/test-logs/${files[0]}`,
+    }),
+  );
 });
 
 test('it writes a failed footer and includes logFilePath in the failed event', async () => {
@@ -1164,8 +1173,12 @@ test('it writes a failed footer and includes logFilePath in the failed event', a
   const content = readLogContent(files[0]);
   expect(content).toContain('Outcome:  failed');
 
-  const failed = ctx.events.find((e) => e.type === 'agentFailed') as AgentFailedEvent;
-  expect(failed.logFilePath).toBe(`/test-logs/${files[0]}`);
+  expect(ctx.events).toContainEqual(
+    expect.objectContaining({
+      type: 'agentFailed',
+      logFilePath: `/test-logs/${files[0]}`,
+    }),
+  );
 });
 
 test('it writes a cancelled footer when an agent session is cancelled', async () => {
@@ -1183,8 +1196,12 @@ test('it writes a cancelled footer when an agent session is cancelled', async ()
   const content = readLogContent(files[0]);
   expect(content).toContain('Outcome:  cancelled');
 
-  const failed = ctx.events.find((e) => e.type === 'agentFailed') as AgentFailedEvent;
-  expect(failed.logFilePath).toBe(`/test-logs/${files[0]}`);
+  expect(ctx.events).toContainEqual(
+    expect.objectContaining({
+      type: 'agentFailed',
+      logFilePath: `/test-logs/${files[0]}`,
+    }),
+  );
 });
 
 test('it does not include logFilePath in events when logging is disabled', async () => {
@@ -1199,7 +1216,7 @@ test('it does not include logFilePath in events when logging is disabled', async
   ctx.mockQueries[0]?.end();
   await drain();
 
-  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
+  const completed = ctx.events.find((e) => e.type === 'agentCompleted');
   expect(completed).not.toHaveProperty('logFilePath');
 });
 
@@ -1290,7 +1307,7 @@ test('it continues the agent session when the log file cannot be created', async
   await drain();
 
   // Agent should still complete normally
-  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
+  const completed = ctx.events.find((e) => e.type === 'agentCompleted');
   expect(completed).toBeDefined();
   expect(completed).not.toHaveProperty('logFilePath');
 });
@@ -1320,10 +1337,12 @@ test('it includes logFilePath pointing to the partial file when a write fails mi
   ctx.mockQueries[0]?.end();
   await drain();
 
-  const completed = ctx.events.find((e) => e.type === 'agentCompleted') as AgentCompletedEvent;
-  expect(completed).toBeDefined();
-  // logFilePath should still point to the partial file path even though it's now a directory
-  expect(completed.logFilePath).toBe(logPath);
+  expect(ctx.events).toContainEqual(
+    expect.objectContaining({
+      type: 'agentCompleted',
+      logFilePath: logPath,
+    }),
+  );
 });
 
 // ---------------------------------------------------------------------------

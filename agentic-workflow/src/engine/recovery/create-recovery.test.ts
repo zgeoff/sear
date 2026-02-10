@@ -102,7 +102,7 @@ test('it emits recoveryPerformed for each issue reset during startup', async () 
   await recovery.performStartupRecovery();
 
   const recoveryEvents = events.filter((e) => e.type === 'recoveryPerformed');
-  expect(recoveryEvents).toEqual([
+  expect(recoveryEvents).toStrictEqual([
     {
       type: 'recoveryPerformed',
       issueNumber: 10,
@@ -136,7 +136,7 @@ test('it emits synthetic issueStatusChanged with isRecovery true during startup'
   await recovery.performStartupRecovery();
 
   const statusEvents = events.filter((e) => e.type === 'issueStatusChanged');
-  expect(statusEvents).toEqual([
+  expect(statusEvents).toStrictEqual([
     {
       type: 'issueStatusChanged',
       issueNumber: 10,
@@ -362,7 +362,7 @@ test('it emits recoveryPerformed and synthetic issueStatusChanged after crash re
     snapshot,
   });
 
-  expect(events).toEqual([
+  expect(events).toStrictEqual([
     {
       type: 'recoveryPerformed',
       issueNumber: 10,

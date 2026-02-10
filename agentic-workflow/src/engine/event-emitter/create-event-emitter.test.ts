@@ -115,7 +115,7 @@ test('it invokes handlers synchronously in subscription order', () => {
   emitter.emit(event);
 
   // If handlers were async, this would not be populated yet
-  expect(callOrder).toEqual([1, 2]);
+  expect(callOrder).toStrictEqual([1, 2]);
 });
 
 test('it accepts and delivers all engine event types', () => {

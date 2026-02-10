@@ -33,7 +33,7 @@ import { createPlannerCache } from './planner-cache/create-planner-cache.ts';
 import type { PlannerCache } from './planner-cache/types.ts';
 import { createIssuePoller } from './pollers/create-issue-poller.ts';
 import { createSpecPoller } from './pollers/create-spec-poller.ts';
-import type { IssuePoller, IssueSnapshot, SpecPollerSnapshot } from './pollers/types.ts';
+import type { IssuePoller, SpecPollerSnapshot } from './pollers/types.ts';
 import { getIssueDetails } from './queries/get-issue-details.ts';
 import { getPRForIssue } from './queries/get-pr-for-issue.ts';
 import type { QueriesConfig } from './queries/types.ts';
@@ -331,19 +331,16 @@ function handlePlannerCompleted(deps: EventHandlerDeps): void {
 // Snapshot adapter
 // ---------------------------------------------------------------------------
 
-// The IssuePoller exposes getSnapshot() returning ReadonlyMap, but the Recovery
-// module needs IssuePollerSnapshot with get/set. The underlying JS Map supports
-// set at runtime -- ReadonlyMap is a TypeScript-only restriction. This adapter
-// bridges the two interfaces. The type assertion is necessary because the
-// IssuePoller API (out of scope for this task) only exposes ReadonlyMap.
+// The IssuePoller exposes getSnapshot() returning ReadonlyMap for read-only
+// consumers. The Recovery module needs IssuePollerSnapshot with get/set, so this
+// adapter uses getSnapshotMap() which returns the underlying mutable Map.
 function buildSnapshotAdapter(issuePoller: IssuePoller): IssuePollerSnapshot {
   return {
     get(issueNumber: number): IssueSnapshotEntry | undefined {
       return issuePoller.getSnapshot().get(issueNumber);
     },
     set(issueNumber: number, entry: IssueSnapshotEntry): void {
-      const mutableSnapshot = issuePoller.getSnapshot() as Map<number, IssueSnapshot>;
-      mutableSnapshot.set(issueNumber, entry);
+      issuePoller.getSnapshotMap().set(issueNumber, entry);
     },
   };
 }

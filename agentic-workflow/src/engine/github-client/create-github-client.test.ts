@@ -189,7 +189,7 @@ test('it delegates adding labels and returns the result', async () => {
   const result = await client.issues.addLabels(params);
 
   expect(mockOctokit.issues.addLabels).toHaveBeenCalledWith(params);
-  expect(result.data).toEqual({ id: 1 });
+  expect(result.data).toStrictEqual({ id: 1 });
 });
 
 test('it delegates removing a label and returns the result', async () => {
@@ -201,7 +201,7 @@ test('it delegates removing a label and returns the result', async () => {
   const result = await client.issues.removeLabel(params);
 
   expect(mockOctokit.issues.removeLabel).toHaveBeenCalledWith(params);
-  expect(result.data).toEqual([]);
+  expect(result.data).toStrictEqual([]);
 });
 
 // ---------------------------------------------------------------------------
