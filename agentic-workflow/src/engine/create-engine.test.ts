@@ -250,7 +250,9 @@ function setupTest(
   });
 
   const events: EngineEvent[] = [];
-  engine.on((event) => events.push(event));
+  engine.on((event) => {
+    events.push(event);
+  });
 
   return { engine, events, octokit, queryFactory, mockQueries, config, worktreeManager };
 }
@@ -307,7 +309,9 @@ test('it performs startup recovery for in-progress issues', async () => {
   });
 
   const events: EngineEvent[] = [];
-  engine.on((event) => events.push(event));
+  engine.on((event) => {
+    events.push(event);
+  });
 
   const result = await engine.start();
 
@@ -358,7 +362,9 @@ test('it returns an unsubscribe function from the event emitter', async () => {
   const { engine } = setupTest();
 
   const laterEvents: EngineEvent[] = [];
-  const unsub = engine.on((event) => laterEvents.push(event));
+  const unsub = engine.on((event) => {
+    laterEvents.push(event);
+  });
 
   unsub();
 
@@ -759,7 +765,9 @@ test('it cancels a running agent when its issue is removed from the poller snaps
   });
 
   const events: EngineEvent[] = [];
-  engine.on((event) => events.push(event));
+  engine.on((event) => {
+    events.push(event);
+  });
 
   await engine.start();
 
@@ -1161,7 +1169,9 @@ function setupPlannerContextTest(options: PlannerContextSetupOptions): {
   });
 
   const events: EngineEvent[] = [];
-  engine.on((event) => events.push(event));
+  engine.on((event) => {
+    events.push(event);
+  });
 
   return { engine, events, octokit, capturedPrompts };
 }
@@ -1388,7 +1398,9 @@ test('it re-adds spec paths to the deferred buffer when spec content fetch fails
   });
 
   const events: EngineEvent[] = [];
-  engine.on((event) => events.push(event));
+  engine.on((event) => {
+    events.push(event);
+  });
 
   await engine.start();
 

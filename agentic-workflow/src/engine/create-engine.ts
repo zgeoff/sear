@@ -171,11 +171,22 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     dispatchReviewer(command: DispatchReviewerCommand): void {
       handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
     },
-    cancelAgent(command: CancelAgentCommand): void {
-      agentManager.cancelAgent(command.issueNumber);
+    async cancelAgent(command: CancelAgentCommand): Promise<void> {
+      try {
+        await agentManager.cancelAgent(command.issueNumber);
+      } catch (error) {
+        logger.error('Failed to cancel agent', {
+          issueNumber: command.issueNumber,
+          error: String(error),
+        });
+      }
     },
-    cancelPlanner(_command: CancelPlannerCommand): void {
-      agentManager.cancelPlanner();
+    async cancelPlanner(_command: CancelPlannerCommand): Promise<void> {
+      try {
+        await agentManager.cancelPlanner();
+      } catch (error) {
+        logger.error('Failed to cancel planner', { error: String(error) });
+      }
     },
     shutdown(_command: ShutdownCommand): void {
       initiateShutdown(resolved, logger, agentManager, pollerTimers);
@@ -304,7 +315,7 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => Prom
     }
 
     if (event.type === 'issueRemoved' && deps.agentManager.isRunning(event.issueNumber)) {
-      deps.agentManager.cancelAgent(event.issueNumber);
+      await deps.agentManager.cancelAgent(event.issueNumber);
     }
 
     if (event.type === 'agentCompleted' && event.agentType === 'planner') {
@@ -466,9 +477,13 @@ function initiateShutdown(
     return;
   }
 
-  const shutdownTimer = setTimeout(() => {
+  const shutdownTimer = setTimeout(async () => {
     clearInterval(checkInterval);
-    agentManager.cancelAll();
+    try {
+      await agentManager.cancelAll();
+    } catch (error) {
+      logger.error('Failed to cancel all agents during shutdown', { error: String(error) });
+    }
     logger.info('Shutdown complete', { agentsTerminated: runningCount });
   }, config.shutdownTimeout * SECONDS_TO_MS);
 

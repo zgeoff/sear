@@ -235,7 +235,7 @@ export interface StartupResult {
 
 export interface Engine {
   start: () => Promise<StartupResult>; // resolves after startup recovery + first IssuePoller and SpecPoller cycles complete
-  on: (handler: (event: EngineEvent) => void) => () => void; // returns unsubscribe function
+  on: (handler: (event: EngineEvent) => void | Promise<void>) => () => void; // returns unsubscribe function
   send: (command: EngineCommand) => void;
   getIssueDetails: (issueNumber: number) => Promise<IssueDetailsResult>;
   getPRForIssue: (issueNumber: number) => Promise<PRDetailsResult>;

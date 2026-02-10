@@ -89,10 +89,12 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       }
     },
 
-    selectIssue(issueNumber: number): void {
+    async selectIssue(issueNumber: number): Promise<void> {
       set({ selectedIssue: issueNumber });
-      fetchIssueDetailsIfNeeded(issueNumber);
-      fetchPrDetailsIfNeeded(issueNumber);
+      await Promise.all([
+        fetchIssueDetailsIfNeeded(issueNumber),
+        fetchPrDetailsIfNeeded(issueNumber),
+      ]);
     },
 
     handleStartup(result: StartupResult): void {
@@ -108,12 +110,12 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     },
   }));
 
-  engine.on((event) => {
-    handleEngineEvent(event);
+  engine.on(async (event) => {
+    await handleEngineEvent(event);
   });
 
-  function handleEngineEvent(event: EngineEvent): void {
-    match(event)
+  async function handleEngineEvent(event: EngineEvent): Promise<void> {
+    await match(event)
       .with({ type: 'issueStatusChanged' }, (e) => {
         const state = store.getState();
         const issues = new Map(state.issues);
@@ -162,7 +164,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           notifications: [notification, ...state.notifications],
         });
       })
-      .with({ type: 'agentStarted' }, (e) => {
+      .with({ type: 'agentStarted' }, async (e) => {
         const state = store.getState();
 
         if (e.agentType === 'planner') {
@@ -218,9 +220,9 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           notifications: [notification, ...state.notifications],
         });
 
-        subscribeToAgentStream(issueNumber);
+        await subscribeToAgentStream(issueNumber);
       })
-      .with({ type: 'agentCompleted' }, (e) => {
+      .with({ type: 'agentCompleted' }, async (e) => {
         const state = store.getState();
 
         if (e.agentType === 'planner') {
@@ -280,7 +282,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
         store.setState(updates);
 
         if (e.agentType === 'implementor') {
-          updateNotificationWithPrurl(notification.id, issueNumber);
+          await updateNotificationWithPrurl(notification.id, issueNumber);
         }
       })
       .with({ type: 'agentFailed' }, (e) => {
@@ -384,7 +386,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           notifications: [notification, ...state.notifications],
         });
       })
-      .with({ type: 'notification' }, (e) => {
+      .with({ type: 'notification' }, async (e) => {
         const state = store.getState();
 
         const { notificationType, summary } = match(e.statusLabel)
@@ -432,7 +434,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
         store.setState(updates);
 
         if (e.statusLabel === 'approved') {
-          updateNotificationWithPrurl(notification.id, e.issueNumber);
+          await updateNotificationWithPrurl(notification.id, e.issueNumber);
         }
       })
       .with({ type: 'notificationDismissed' }, (e) => {
@@ -524,20 +526,22 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     };
   }
 
-  function subscribeToAgentStream(issueNumber: number): void {
+  async function subscribeToAgentStream(issueNumber: number): Promise<void> {
     const stream = engine.getAgentStream(issueNumber);
     if (!stream) {
       return;
     }
 
-    void (async () => {
+    try {
       for await (const chunk of stream) {
         const lines = splitChunkIntoLines(chunk);
         if (lines.length > 0) {
           appendStreamLines(issueNumber, lines);
         }
       }
-    })();
+    } catch {
+      // Stream consumption failure is non-fatal
+    }
   }
 
   function appendStreamLines(issueNumber: number, lines: string[]): void {
@@ -564,7 +568,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     store.setState(updates);
   }
 
-  function fetchIssueDetailsIfNeeded(issueNumber: number): void {
+  async function fetchIssueDetailsIfNeeded(issueNumber: number): Promise<void> {
     const state = store.getState();
     const cached = state.issueDetails.get(issueNumber);
 
@@ -572,38 +576,22 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       return;
     }
 
-    if (!cached) {
-      void engine.getIssueDetails(issueNumber).then((result) => {
-        const current = store.getState();
-        const issueDetails = new Map(current.issueDetails);
-        issueDetails.set(issueNumber, {
-          body: result.body,
-          labels: result.labels,
-          stale: false,
-        });
-        store.setState({ issueDetails });
+    try {
+      const result = await engine.getIssueDetails(issueNumber);
+      const current = store.getState();
+      const issueDetails = new Map(current.issueDetails);
+      issueDetails.set(issueNumber, {
+        body: result.body,
+        labels: result.labels,
+        stale: false,
       });
-      return;
+      store.setState({ issueDetails });
+    } catch {
+      // Fetch failure is non-fatal; cache remains empty or stale for next retry
     }
-
-    void engine
-      .getIssueDetails(issueNumber)
-      .then((result) => {
-        const current = store.getState();
-        const issueDetails = new Map(current.issueDetails);
-        issueDetails.set(issueNumber, {
-          body: result.body,
-          labels: result.labels,
-          stale: false,
-        });
-        store.setState({ issueDetails });
-      })
-      .catch(() => {
-        // Retain stale data on fetch failure; cache remains stale for next retry
-      });
   }
 
-  function fetchPrDetailsIfNeeded(issueNumber: number): void {
+  async function fetchPrDetailsIfNeeded(issueNumber: number): Promise<void> {
     const state = store.getState();
     const cached = state.prDetails.get(issueNumber);
 
@@ -611,37 +599,26 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       return;
     }
 
-    if (!cached) {
-      void engine.getPRForIssue(issueNumber).then((result) => {
-        if (!result) {
-          return;
-        }
-        const current = store.getState();
-        const prDetails = new Map(current.prDetails);
-        prDetails.set(issueNumber, { ...result, stale: false });
-        store.setState({ prDetails });
-      });
-      return;
+    try {
+      const result = await engine.getPRForIssue(issueNumber);
+      if (!result) {
+        return;
+      }
+      const current = store.getState();
+      const prDetails = new Map(current.prDetails);
+      prDetails.set(issueNumber, { ...result, stale: false });
+      store.setState({ prDetails });
+    } catch {
+      // Fetch failure is non-fatal; cache remains empty or stale for next retry
     }
-
-    void engine
-      .getPRForIssue(issueNumber)
-      .then((result) => {
-        if (!result) {
-          return;
-        }
-        const current = store.getState();
-        const prDetails = new Map(current.prDetails);
-        prDetails.set(issueNumber, { ...result, stale: false });
-        store.setState({ prDetails });
-      })
-      .catch(() => {
-        // Retain stale data on fetch failure; cache remains stale for next retry
-      });
   }
 
-  function updateNotificationWithPrurl(notificationId: string, issueNumber: number): void {
-    void engine.getPRForIssue(issueNumber).then((result) => {
+  async function updateNotificationWithPrurl(
+    notificationId: string,
+    issueNumber: number,
+  ): Promise<void> {
+    try {
+      const result = await engine.getPRForIssue(issueNumber);
       if (!result) {
         return;
       }
@@ -659,7 +636,9 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       const notifications = [...state.notifications];
       notifications[index] = { ...existing, contextURL: result.url };
       store.setState({ notifications });
-    });
+    } catch {
+      // PR URL enrichment failure is non-fatal
+    }
   }
 
   return store;

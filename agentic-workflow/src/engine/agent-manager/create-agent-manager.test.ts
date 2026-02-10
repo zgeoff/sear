@@ -556,7 +556,7 @@ test('it cancels a running agent session and emits agentFailed', async () => {
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.manager.cancelAgent(42);
+  await ctx.manager.cancelAgent(42);
   await drain();
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
@@ -571,10 +571,10 @@ test('it cancels a running agent session and emits agentFailed', async () => {
   expect(ctx.manager.isRunning(42)).toBe(false);
 });
 
-test('it is a no-op when cancelling an agent for an issue with no running session', () => {
+test('it is a no-op when cancelling an agent for an issue with no running session', async () => {
   const ctx = setupTest();
 
-  ctx.manager.cancelAgent(99);
+  await ctx.manager.cancelAgent(99);
 
   expect(ctx.events).toHaveLength(0);
 });
@@ -586,7 +586,7 @@ test('it cancels a running planner session and emits agentFailed', async () => {
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
   await drain();
 
-  ctx.manager.cancelPlanner();
+  await ctx.manager.cancelPlanner();
   await drain();
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
@@ -600,10 +600,10 @@ test('it cancels a running planner session and emits agentFailed', async () => {
   expect(ctx.manager.isPlannerRunning()).toBe(false);
 });
 
-test('it is a no-op when cancelling the planner with no running session', () => {
+test('it is a no-op when cancelling the planner with no running session', async () => {
   const ctx = setupTest();
 
-  ctx.manager.cancelPlanner();
+  await ctx.manager.cancelPlanner();
 
   expect(ctx.events).toHaveLength(0);
 });
@@ -629,7 +629,7 @@ test('it completes the async iterable when an agent session is cancelled', async
 
   await drain();
 
-  ctx.manager.cancelAgent(42);
+  await ctx.manager.cancelAgent(42);
   await drain();
   await streamPromise;
 
@@ -811,7 +811,7 @@ test('it cancels all running sessions when cancelAll is called', async () => {
   ctx.mockQueries[2]?.pushMessage(buildInitMessage('session-3'));
   await drain();
 
-  ctx.manager.cancelAll();
+  await ctx.manager.cancelAll();
   await drain();
 
   const failures = ctx.events.filter((e) => e.type === 'agentFailed');
@@ -1190,7 +1190,7 @@ test('it writes a cancelled footer when an agent session is cancelled', async ()
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await drain();
 
-  ctx.manager.cancelAgent(42);
+  await ctx.manager.cancelAgent(42);
   await drain();
 
   const files = readLogFiles();

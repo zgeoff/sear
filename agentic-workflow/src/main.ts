@@ -12,4 +12,4 @@ async function main(): Promise<void> {
   await waitUntilExit();
 }
 
-void main();
+await main();

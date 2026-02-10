@@ -120,21 +120,21 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       });
     },
 
-    cancelAgent(issueNumber: number): void {
+    async cancelAgent(issueNumber: number): Promise<void> {
       const tracker = issueAgents.get(issueNumber);
       if (!tracker) {
         return;
       }
 
-      void cancelSession(tracker, 'Cancelled by user');
+      await cancelSession(tracker, 'Cancelled by user');
     },
 
-    cancelPlanner(): void {
+    async cancelPlanner(): Promise<void> {
       if (!plannerSession) {
         return;
       }
 
-      void cancelSession(plannerSession, 'Cancelled by user');
+      await cancelSession(plannerSession, 'Cancelled by user');
     },
 
     getAgentStream(issueNumber: number): AgentStream {
@@ -165,13 +165,15 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       return ids;
     },
 
-    cancelAll(): void {
+    async cancelAll(): Promise<void> {
+      const cancellations: Promise<void>[] = [];
       for (const tracker of issueAgents.values()) {
-        void cancelSession(tracker, 'Shutdown');
+        cancellations.push(cancelSession(tracker, 'Shutdown'));
       }
       if (plannerSession) {
-        void cancelSession(plannerSession, 'Shutdown');
+        cancellations.push(cancelSession(plannerSession, 'Shutdown'));
       }
+      await Promise.all(cancellations);
     },
   };
 
@@ -190,8 +192,12 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       sessionID: '', // populated from init message
       query: queryHandle,
       abortController,
-      timer: setTimeout(() => {
-        void cancelSession(tracker, `Agent exceeded max duration of ${maxAgentDuration}s`);
+      timer: setTimeout(async () => {
+        try {
+          await cancelSession(tracker, `Agent exceeded max duration of ${maxAgentDuration}s`);
+        } catch (error) {
+          logError('Timeout cancel failed', error);
+        }
       }, maxAgentDuration * SECONDS_TO_MS),
       outputChunks: [],
       outputListeners: new Set(),

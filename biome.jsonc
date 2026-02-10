@@ -80,7 +80,7 @@
         "noUselessThisAlias": "error",
         "noUselessTypeConstraint": "error",
         "noUselessUndefinedInitialization": "error",
-        "noVoid": "off",
+        "noVoid": "error",
         "useArrowFunction": "error",
         "useDateNow": "error",
         "useFlatMap": "error",

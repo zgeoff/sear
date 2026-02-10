@@ -10,8 +10,8 @@ import type {
 export interface CommandHandlers {
   dispatchImplementor: (command: DispatchImplementorCommand) => void;
   dispatchReviewer: (command: DispatchReviewerCommand) => void;
-  cancelAgent: (command: CancelAgentCommand) => void;
-  cancelPlanner: (command: CancelPlannerCommand) => void;
+  cancelAgent: (command: CancelAgentCommand) => void | Promise<void>;
+  cancelPlanner: (command: CancelPlannerCommand) => void | Promise<void>;
   shutdown: (command: ShutdownCommand) => void;
 }
 

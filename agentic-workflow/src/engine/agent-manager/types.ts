@@ -72,11 +72,11 @@ export interface AgentManager {
   dispatchImplementor: (params: DispatchImplementorParams) => Promise<void>;
   dispatchReviewer: (params: DispatchReviewerParams) => Promise<void>;
   dispatchPlanner: (params: DispatchPlannerParams) => Promise<void>;
-  cancelAgent: (issueNumber: number) => void;
-  cancelPlanner: () => void;
+  cancelAgent: (issueNumber: number) => Promise<void>;
+  cancelPlanner: () => Promise<void>;
   getAgentStream: (issueNumber: number) => AgentStream;
   isRunning: (issueNumber: number) => boolean;
   isPlannerRunning: () => boolean;
   getRunningSessionIDs: () => string[];
-  cancelAll: () => void;
+  cancelAll: () => Promise<void>;
 }

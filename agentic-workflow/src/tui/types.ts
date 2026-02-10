@@ -161,7 +161,7 @@ export interface EngineStoreActions {
   cancelAgent: (issueNumber: number) => void;
   shutdown: () => void;
   cycleFocus: (direction: 'forward' | 'backward') => void;
-  selectIssue: (issueNumber: number) => void;
+  selectIssue: (issueNumber: number) => Promise<void>;
   handleStartup: (result: StartupResult) => void;
 }
 
