@@ -474,6 +474,41 @@ test('it shows the log file path when a failure includes session log information
   });
 });
 
+test('it renders the log file path as a clickable terminal hyperlink', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Failed task',
+    oldStatus: null,
+    newStatus: 'in-progress',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, {
+      ...issue,
+      lastFailure: {
+        agentType: 'implementor',
+        error: 'process crashed',
+        sessionID: 'sess-abc-123',
+        logFilePath: '/logs/agent.log',
+      },
+    });
+  }
+  store.setState({ issues, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // OSC 8 hyperlink format: \x1b]8;;<url>\x07<text>\x1b]8;;\x07
+    expect(frame).toContain('\x1b]8;;file:///logs/agent.log\x07/logs/agent.log\x1b]8;;\x07');
+  });
+});
+
 test('it does not show a log file path when a failure has no session log information', async () => {
   const { store, emit, lastFrame } = setupTest();
 

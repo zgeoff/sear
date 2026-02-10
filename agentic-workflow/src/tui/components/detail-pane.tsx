@@ -38,8 +38,8 @@ interface ResolveIssueStateParams {
 
 const SCROLL_STEP = 1;
 const ELLIPSIS = '\u2026';
-// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences use control characters by definition
-const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI/OSC escape sequences use control characters by definition
+const ANSI_REGEX = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x07]*\x07/g;
 
 export function DetailPane(props: DetailPaneProps): ReactNode {
   const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
@@ -173,7 +173,7 @@ function buildFailureLines(issue: TrackedIssue, failure: LastFailure): string[] 
     lines.push(`Worktree: ${failure.worktreePath}`);
   }
   if (failure.logFilePath) {
-    lines.push(`Log: ${failure.logFilePath}`);
+    lines.push(`Log: ${buildOSC8Link(`file://${failure.logFilePath}`, failure.logFilePath)}`);
   }
   lines.push('Press Enter in the issue list to retry.');
   return lines;
@@ -321,9 +321,15 @@ function stripAndTruncate(text: string, maxVisibleChars: number): string {
       const end = text.indexOf('m', i);
       if (end !== -1) {
         i = end + 1;
-        // Skip ANSI sequence, don't count towards visible width
       } else {
-        // Malformed escape — treat rest as visible
+        visibleCount += 1;
+        i += 1;
+      }
+    } else if (text[i] === '\x1b' && text[i + 1] === ']') {
+      const end = text.indexOf('\x07', i);
+      if (end !== -1) {
+        i = end + 1;
+      } else {
         visibleCount += 1;
         i += 1;
       }
@@ -333,4 +339,8 @@ function stripAndTruncate(text: string, maxVisibleChars: number): string {
     }
   }
   return text.slice(0, i);
+}
+
+function buildOSC8Link(url: string, displayText: string): string {
+  return `\x1b]8;;${url}\x07${displayText}\x1b]8;;\x07`;
 }
