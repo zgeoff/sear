@@ -30,11 +30,9 @@ yarn install
 - `agentic-workflow/` - Agentic workflow control plane (`@sear/agentic-workflow`)
 - `docs/` - Technical specs and design documents
 
-### Package Namespace
+### Packages
 
 All packages use the `@sear/` npm scope.
-
-### Packages
 
 | Package | Description | Status |
 |---------|-------------|--------|
@@ -106,7 +104,6 @@ yarn workspace @sear/agentic-workflow add -D vitest --exact
 
 Turborepo handles task orchestration with caching:
 - Build artifacts are cached in `.turbo/`
-- Remote caching can be enabled for CI
 - Filter by package: `yarn turbo run build --filter=<package-name>`
 
 ### Biome
@@ -144,12 +141,6 @@ All commits must follow the conventional commits format:
 - Scope is optional but encouraged
 
 **Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
-
-**Examples:**
-- `feat(auth): add login functionality`
-- `fix(api): handle null response from server`
-- `chore: update dependencies`
-- `refactor(core): simplify error handling logic`
 
 ## Code Style
 
@@ -226,24 +217,6 @@ export interface ListProps { label: string; items: ListItem[]; focused: boolean 
 export function List(props: ListProps) { ... }
 ```
 
-```ts
-// recovery/types.ts — the module's public API types
-export interface RecoveryConfig { octokit: GitHubClient; owner: string; repo: string }
-export interface StartupRecoveryResult { snapshot: IssuePollerSnapshot }
-export interface Recovery {
-  performStartupRecovery: () => Promise<StartupRecoveryResult>;
-  performCrashRecovery: (params: CrashRecoveryParams) => Promise<void>;
-}
-
-// recovery/create-recovery.ts — imports types, keeps internals private
-import type { RecoveryConfig, Recovery } from './types';
-
-// Internal-only type — fine to keep here, not exported
-type SnapshotCache = Map<number, IssueSnapshotEntry>;
-
-export function createRecovery(config: RecoveryConfig): Recovery { ... }
-```
-
 When a file contains **only type definitions** and no runtime code, it should be a `types.ts` inside a module directory — not a standalone file in a parent directory:
 
 ```
@@ -263,27 +236,13 @@ Unexported types and constants that configure the primary export may appear befo
 ```ts
 // create-spec-poller.ts
 
-// Types and constants — OK above primary export
-type SpecSnapshot = { treeSHA: string | null };
-const EMPTY_RESULT: SpecPollerBatchResult = { changes: [], commitSHA: '' };
+type SpecSnapshot = { ... };              // unexported types/constants OK above
+const EMPTY_RESULT: SpecPollerBatchResult = { ... };
 
-// Primary export — first function in the file
-export function createSpecPoller(config: SpecPollerConfig): SpecPoller {
-  const snapshot = initSnapshot();
-  async function poll(): Promise<SpecPollerBatchResult> {
-    const treeSHA = await getSpecsDirTreeSHA(config);
-    // ...
-  }
-  return { poll };
-}
+export function createSpecPoller(config: SpecPollerConfig): SpecPoller { ... }
 
-// Higher-level helper
-async function getSpecsDirTreeSHA(config: SpecPollerConfig): Promise<string | null> {
-  const tree = await fetchTree(config);
-  return findEntry(tree);
-}
-
-// Lowest-level helpers
+// helpers: highest-level first, lowest-level last
+async function getSpecsDirTreeSHA(config: SpecPollerConfig): Promise<string | null> { ... }
 async function fetchTree(config: SpecPollerConfig) { ... }
 function findEntry(tree: TreeEntry[]) { ... }
 ```
@@ -295,20 +254,8 @@ Always export inline at the declaration site. Never collect exports at the botto
 ```ts
 // Correct — inline exports
 export type EventHandler = (event: EngineEvent) => void;
-
-export interface EventEmitter {
-  on: (handler: EventHandler) => Unsubscribe;
-  emit: (event: EngineEvent) => void;
-}
-
-export function createEventEmitter(): EventEmitter {
-  // ...
-}
-
-// Wrong — barrel exports at the bottom
-function createEventEmitter(): EventEmitter { ... }
-export { createEventEmitter };
-export type { EventEmitter, EventHandler };
+export interface EventEmitter { ... }
+export function createEventEmitter(): EventEmitter { ... }
 ```
 
 ### Naming
@@ -344,40 +291,6 @@ shouldScrubKey(key)             // policy decision / heuristic gate
 transformQueryParams(params)    // structural input -> output mapping (pure)
 scrubQueryString(url)           // remove/replace sensitive values (privacy/security)
 serializeRunConfig(runConfig)   // convert structured -> string/JSON (format transform)
-```
-
-### Prefer `interface` over `type` for object shapes
-
-Use `interface` for any standalone object type definition. Reserve `type` for unions, intersections, mapped types, and type aliases for primitives/tuples. Biome enforces this via `useConsistentTypeDefinitions`.
-
-```ts
-// Correct
-interface PollerConfig { interval: number; octokit: GitHubClient }
-
-// Wrong — use interface instead
-type PollerConfig = { interval: number; octokit: GitHubClient };
-
-// Correct — type for unions/intersections (can't be interface)
-type AgentQuery = AsyncIterable<unknown> & { interrupt: () => Promise<void> };
-type EngineEvent = IssueStatusChangedEvent | AgentCompletedEvent | AgentFailedEvent;
-```
-
-### Property-style method signatures
-
-In interfaces and type literals, use property-style (`method: () => Type`) instead of method-style (`method(): Type`). Biome enforces this via `useConsistentMethodSignatures`.
-
-```ts
-// Correct — property-style
-interface EventEmitter {
-  on: (handler: EventHandler) => Unsubscribe;
-  emit: (event: EngineEvent) => void;
-}
-
-// Wrong — method-style
-interface EventEmitter {
-  on(handler: EventHandler): Unsubscribe;
-  emit(event: EngineEvent): void;
-}
 ```
 
 ### No inline types
@@ -443,31 +356,11 @@ When narrowing `unknown` or loosely-typed values (e.g., SDK responses, parsed JS
 
 ```ts
 // Wrong — inline narrowing chain
-if (
-  typeof usage === 'object' &&
-  usage !== null &&
-  'input_tokens' in usage &&
-  typeof usage.input_tokens === 'number' &&
-  'output_tokens' in usage &&
-  typeof usage.output_tokens === 'number'
-) {
-  result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
-}
+if (typeof usage === 'object' && usage !== null && 'input_tokens' in usage && ...) { ... }
 
 // Correct — named type guard
 function isUsage(value: unknown): value is Usage {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'input_tokens' in value &&
-    typeof value.input_tokens === 'number' &&
-    'output_tokens' in value &&
-    typeof value.output_tokens === 'number'
-  );
-}
-
-if (isUsage(usage)) {
-  result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
+  return typeof value === 'object' && value !== null && 'input_tokens' in value && ...;
 }
 ```
 
@@ -535,27 +428,19 @@ function processItem(item: Item): Result {
 
 ### Prefer `async`/`await` over raw `Promise` chains
 
-Always use `async`/`await` instead of `Promise.resolve()`, `Promise.reject()`, or `.then()` chains. This applies to both production code and tests (including mock implementations).
+Always use `async`/`await` instead of `Promise.resolve()`, `Promise.reject()`, or `.then()` chains. This applies to both production code and test mocks.
 
 ```ts
 // Wrong — raw Promise construction
-function fetchData(): Promise<Data> {
-  return Promise.resolve({ id: 1 });
-}
-
-mockFn.mockImplementation((params) => {
-  return Promise.resolve({ data: [] });
-});
+function fetchData(): Promise<Data> { return Promise.resolve({ id: 1 }); }
 
 // Correct — async/await
-async function fetchData(): Promise<Data> {
-  return { id: 1 };
-}
-
-mockFn.mockImplementation(async (params) => {
-  return { data: [] };
-});
+async function fetchData(): Promise<Data> { return { id: 1 }; }
 ```
+
+### Spec pseudocode is sync for readability
+
+Code examples in specifications omit `async`/`await`/`Promise<>` notation for brevity. When implementing, adapt signatures to be asynchronous wherever the implementation involves I/O or other async operations. Never use `void` to discard a `Promise` — if a call is async, the enclosing signature must reflect that.
 
 ### No decorative comment banners
 
