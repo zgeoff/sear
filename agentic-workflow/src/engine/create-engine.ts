@@ -165,11 +165,11 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   };
 
   const commandDispatcher = createCommandDispatcher({
-    dispatchImplementor(command: DispatchImplementorCommand): void {
-      handleDispatchImplementor(command.issueNumber, issuePoller, agentManager, logger);
+    async dispatchImplementor(command: DispatchImplementorCommand): Promise<void> {
+      await handleDispatchImplementor(command.issueNumber, issuePoller, agentManager, logger);
     },
-    dispatchReviewer(command: DispatchReviewerCommand): void {
-      handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
+    async dispatchReviewer(command: DispatchReviewerCommand): Promise<void> {
+      await handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
     },
     async cancelAgent(command: CancelAgentCommand): Promise<void> {
       try {
@@ -404,12 +404,12 @@ const COMPLEXITY_MODEL_OVERRIDES: Record<string, 'sonnet' | 'opus'> = {
   'complexity:complex': 'opus',
 };
 
-function handleDispatchImplementor(
+async function handleDispatchImplementor(
   issueNumber: number,
   issuePoller: IssuePoller,
   agentManager: AgentManager,
   logger: Logger,
-): void {
+): Promise<void> {
   const issue = issuePoller.getSnapshot().get(issueNumber);
 
   if (!issue) {
@@ -425,22 +425,25 @@ function handleDispatchImplementor(
 
   const modelOverride = COMPLEXITY_MODEL_OVERRIDES[issue.complexityLabel];
 
-  agentManager
-    .dispatchImplementor({ issueNumber, ...(modelOverride !== undefined && { modelOverride }) })
-    .catch((error) => {
-      logger.error('Failed to dispatch implementor', {
-        issueNumber,
-        error: String(error),
-      });
+  try {
+    await agentManager.dispatchImplementor({
+      issueNumber,
+      ...(modelOverride !== undefined && { modelOverride }),
     });
+  } catch (error) {
+    logger.error('Failed to dispatch implementor', {
+      issueNumber,
+      error: String(error),
+    });
+  }
 }
 
-function handleDispatchReviewer(
+async function handleDispatchReviewer(
   issueNumber: number,
   issuePoller: IssuePoller,
   agentManager: AgentManager,
   logger: Logger,
-): void {
+): Promise<void> {
   const issue = issuePoller.getSnapshot().get(issueNumber);
 
   if (!issue) {
@@ -450,12 +453,14 @@ function handleDispatchReviewer(
     return;
   }
 
-  agentManager.dispatchReviewer({ issueNumber }).catch((error) => {
+  try {
+    await agentManager.dispatchReviewer({ issueNumber });
+  } catch (error) {
     logger.error('Failed to dispatch reviewer', {
       issueNumber,
       error: String(error),
     });
-  });
+  }
 }
 
 // ---------------------------------------------------------------------------
