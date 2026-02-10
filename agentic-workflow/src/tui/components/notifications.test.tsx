@@ -24,6 +24,7 @@ interface PartialKeyState {
 function setupRenderTest(overrides?: Partial<NotificationsPaneProps>): ReturnType<typeof render> {
   const props: NotificationsPaneProps = {
     notifications: [],
+    repository: 'test-owner/test-repo',
     focused: false,
     selectedIndex: 0,
     paneWidth: 80,
@@ -645,6 +646,138 @@ test('it does not show a logs suffix for non-agent notification types', () => {
   const { lastFrame } = setupRenderTest({ notifications: [notification] });
 
   expect(lastFrame()).not.toContain('(logs)');
+});
+
+// ---------------------------------------------------------------------------
+// Terminal hyperlinks (OSC 8)
+// ---------------------------------------------------------------------------
+
+test('it renders issue references as terminal hyperlinks to the issue URL', () => {
+  const notification = buildTypedNotification('dispatchReady', 'notif-link', {
+    issueNumber: 42,
+  });
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  // OSC 8 hyperlink format: \x1b]8;;<url>\x07<text>\x1b]8;;\x07
+  expect(frame).toContain(
+    '\x1b]8;;https://github.com/test-owner/test-repo/issues/42\x07#42\x1b]8;;\x07',
+  );
+});
+
+test('it renders issue references with the correct repository in the URL', () => {
+  const notification = buildTypedNotification('recoveryPerformed', 'notif-repo-link', {
+    issueNumber: 7,
+  });
+
+  const { lastFrame } = setupRenderTest({
+    notifications: [notification],
+    repository: 'acme/widgets',
+  });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain(
+    '\x1b]8;;https://github.com/acme/widgets/issues/7\x07#7\x1b]8;;\x07',
+  );
+});
+
+test('it renders spec filenames as terminal hyperlinks to the commit diff URL', () => {
+  const notification: Notification = {
+    id: 'notif-spec-link',
+    timestamp: '2026-02-08T10:30:45.000Z',
+    eventType: 'specChanged',
+    specFileName: 'control-plane.md',
+    summary: 'Spec changed: control-plane.md',
+    contextURL: 'https://github.com/test-owner/test-repo/commit/abc123',
+  };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain(
+    '\x1b]8;;https://github.com/test-owner/test-repo/commit/abc123\x07control-plane.md\x1b]8;;\x07',
+  );
+});
+
+test('it renders spec filenames without a hyperlink when no context URL is present', () => {
+  const notification: Notification = {
+    id: 'notif-spec-no-link',
+    timestamp: '2026-02-08T10:30:45.000Z',
+    eventType: 'specChanged',
+    specFileName: 'orphan-spec.md',
+    summary: 'Spec changed: orphan-spec.md',
+  };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('orphan-spec.md');
+  expect(frame).not.toContain('\x1b]8;;');
+});
+
+test('it renders log file paths as terminal hyperlinks to the local file', () => {
+  const notification = buildTypedNotification('agentCompleted', 'notif-log-link', {
+    agentType: 'implementor',
+    issueNumber: 10,
+  });
+  const notifWithLog = { ...notification, logFilePath: '/tmp/agent-session.log' };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notifWithLog] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain(
+    '\x1b]8;;file:///tmp/agent-session.log\x07(logs)\x1b]8;;\x07',
+  );
+});
+
+test('it renders log file paths for failed agent notifications as terminal hyperlinks', () => {
+  const notification = buildTypedNotification('agentFailed', 'notif-fail-log-link', {
+    agentType: 'reviewer',
+    issueNumber: 5,
+    error: 'crashed',
+  });
+  const notifWithLog = { ...notification, logFilePath: '/logs/reviewer.log' };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notifWithLog] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain(
+    '\x1b]8;;file:///logs/reviewer.log\x07(logs)\x1b]8;;\x07',
+  );
+});
+
+test('it renders issue references as hyperlinks in status change notifications', () => {
+  const notification: Notification = {
+    id: 'notif-status-link',
+    timestamp: '2026-02-08T10:30:45.000Z',
+    eventType: 'issueStatusChanged',
+    issueNumber: 99,
+    oldStatus: 'pending',
+    newStatus: 'in-progress',
+    summary: '#99: pending -> in-progress',
+  };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain(
+    '\x1b]8;;https://github.com/test-owner/test-repo/issues/99\x07#99\x1b]8;;\x07',
+  );
+});
+
+test('it renders issue references as hyperlinks in approved notifications', () => {
+  const notification = buildTypedNotification('notification', 'notif-approved-link', {
+    notificationType: 'approved',
+    issueNumber: 25,
+  });
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain(
+    '\x1b]8;;https://github.com/test-owner/test-repo/issues/25\x07#25\x1b]8;;\x07',
+  );
 });
 
 // ---------------------------------------------------------------------------
