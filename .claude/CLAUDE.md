@@ -437,6 +437,42 @@ const VALID: Record<string, MyUnion> = { a: 'a', b: 'b', c: 'c' };
 return VALID[value] ?? defaultValue;
 ```
 
+### Custom type guards for complex narrowing
+
+When narrowing `unknown` or loosely-typed values (e.g., SDK responses, parsed JSON, message payloads), extract the narrowing logic into a named type guard function. Inline chains of `typeof x === 'object' && x !== null && 'field' in x && typeof x.field === 'number'` are hard to read and easy to get wrong. A type guard encapsulates the check, names the intent, and narrows the type in one step.
+
+```ts
+// Wrong — inline narrowing chain
+if (
+  typeof usage === 'object' &&
+  usage !== null &&
+  'input_tokens' in usage &&
+  typeof usage.input_tokens === 'number' &&
+  'output_tokens' in usage &&
+  typeof usage.output_tokens === 'number'
+) {
+  result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
+}
+
+// Correct — named type guard
+function isUsage(value: unknown): value is Usage {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'input_tokens' in value &&
+    typeof value.input_tokens === 'number' &&
+    'output_tokens' in value &&
+    typeof value.output_tokens === 'number'
+  );
+}
+
+if (isUsage(usage)) {
+  result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
+}
+```
+
+Type guards should be placed as unexported helpers below the primary export, following the standard function ordering rules.
+
 ### No non-null assertions — use `tiny-invariant`
 
 Biome enforces `noNonNullAssertion`. When you need to narrow a nullable type, use `tiny-invariant` — it crashes with a meaningful message and narrows the type:
