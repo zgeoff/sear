@@ -124,7 +124,9 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
   const mockQueries: MockQuery[] = [];
   const queryParams: QueryFactoryParams[] = [];
 
-  emitter.on((event) => events.push(event));
+  emitter.on((event) => {
+    events.push(event);
+  });
 
   const queryFactory: (params: QueryFactoryParams) => Promise<MockQuery> = async (
     params: QueryFactoryParams,

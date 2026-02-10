@@ -2,7 +2,7 @@ import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types
 
 export interface AgentManagerDelegate {
   dispatchPlanner: (specPaths: string[]) => Promise<void>;
-  dispatchReviewer: (issueNumber: number) => void;
+  dispatchReviewer: (issueNumber: number) => Promise<void>;
   isPlannerRunning: () => boolean;
 }
 
@@ -11,7 +11,7 @@ export interface DispatchConfig {
 }
 
 export interface Dispatch {
-  handleSpecPollerResult: (result: SpecPollerBatchResult) => void;
-  handleIssueStatusChanged: (event: IssueStatusChangedEvent) => void;
+  handleSpecPollerResult: (result: SpecPollerBatchResult) => Promise<void>;
+  handleIssueStatusChanged: (event: IssueStatusChangedEvent) => Promise<void>;
   handlePlannerFailed: (specPaths: string[]) => void;
 }

@@ -149,8 +149,8 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
           dispatch.handlePlannerFailed(specPaths);
         }
       },
-      dispatchReviewer: (issueNumber: number): void => {
-        void agentManager.dispatchReviewer({ issueNumber });
+      dispatchReviewer: async (issueNumber: number): Promise<void> => {
+        await agentManager.dispatchReviewer({ issueNumber });
       },
       isPlannerRunning: (): boolean => agentManager.isPlannerRunning(),
     },
@@ -229,7 +229,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       const specResult = await specPoller.poll();
       latestSpecCommitSHA = specResult.commitSHA;
       trackSpecChangeTypes(specResult.changes, latestSpecChangeTypes);
-      dispatch.handleSpecPollerResult(specResult);
+      await dispatch.handleSpecPollerResult(specResult);
 
       // Step 6: Start recurring poll timers
       pollerTimers.issueTimer = setInterval(async () => {
@@ -242,7 +242,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
         const result = await specPoller.poll();
         latestSpecCommitSHA = result.commitSHA;
         trackSpecChangeTypes(result.changes, latestSpecChangeTypes);
-        dispatch.handleSpecPollerResult(result);
+        await dispatch.handleSpecPollerResult(result);
       }, resolved.specPoller.pollInterval * SECONDS_TO_MS);
 
       const issueCount = issuePoller.getSnapshot().size;
@@ -297,10 +297,10 @@ interface EventHandlerDeps {
   logger: Logger;
 }
 
-function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void {
-  return (event: EngineEvent): void => {
+function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => Promise<void> {
+  return async (event: EngineEvent): Promise<void> => {
     if (event.type === 'issueStatusChanged') {
-      deps.dispatch.handleIssueStatusChanged(event);
+      await deps.dispatch.handleIssueStatusChanged(event);
     }
 
     if (event.type === 'issueRemoved' && deps.agentManager.isRunning(event.issueNumber)) {
@@ -308,7 +308,7 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
     }
 
     if (event.type === 'agentCompleted' && event.agentType === 'planner') {
-      void handlePlannerCompleted(deps);
+      await handlePlannerCompleted(deps);
     }
 
     if (event.type === 'agentFailed' && event.agentType === 'planner') {
@@ -329,18 +329,18 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => void
     ) {
       const snapshotAdapter = buildSnapshotAdapter(deps.issuePoller);
 
-      deps.recovery
-        .performCrashRecovery({
+      try {
+        await deps.recovery.performCrashRecovery({
           agentType: event.agentType,
           issueNumber: event.issueNumber,
           snapshot: snapshotAdapter,
-        })
-        .catch((error) => {
-          deps.logger.error('Crash recovery failed', {
-            issueNumber: event.issueNumber,
-            error: String(error),
-          });
         });
+      } catch (error) {
+        deps.logger.error('Crash recovery failed', {
+          issueNumber: event.issueNumber,
+          error: String(error),
+        });
+      }
     }
   };
 }

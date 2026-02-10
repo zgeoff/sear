@@ -33,7 +33,9 @@ function setupTest(options: SetupOptions = {}): {
   const octokit = createMockGitHubClient();
   const emitter = createEventEmitter();
   const events: EngineEvent[] = [];
-  emitter.on((event) => events.push(event));
+  emitter.on((event) => {
+    events.push(event);
+  });
 
   vi.mocked(octokit.issues.listForRepo).mockResolvedValue({
     data: options.issues ?? [],

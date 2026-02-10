@@ -21,11 +21,13 @@ function setupTest(options: SetupTestOptions = {}): {
 } {
   const emitter = createEventEmitter();
   const events: EngineEvent[] = [];
-  emitter.on((event) => events.push(event));
+  emitter.on((event) => {
+    events.push(event);
+  });
 
   const agentManager: AgentManagerDelegate = {
     dispatchPlanner: vi.fn().mockResolvedValue(undefined),
-    dispatchReviewer: vi.fn(),
+    dispatchReviewer: vi.fn().mockResolvedValue(undefined),
     isPlannerRunning: vi.fn().mockReturnValue(options.isPlannerRunning ?? false),
   };
 
@@ -64,7 +66,7 @@ function buildSpecPollerResult(
 // SpecPoller result handling — auto-dispatch Planner
 // ---------------------------------------------------------------------------
 
-test('it triggers Planner auto-dispatch when an approved spec changes', () => {
+test('it triggers Planner auto-dispatch when an approved spec changes', async () => {
   const { dispatch, agentManager } = setupTest();
 
   const result = buildSpecPollerResult({
@@ -77,12 +79,12 @@ test('it triggers Planner auto-dispatch when an approved spec changes', () => {
     ],
   });
 
-  dispatch.handleSpecPollerResult(result);
+  await dispatch.handleSpecPollerResult(result);
 
   expect(agentManager.dispatchPlanner).toHaveBeenCalledWith(['docs/specs/workflow/test.md']);
 });
 
-test('it does not dispatch the Planner for a spec with draft status', () => {
+test('it does not dispatch the Planner for a spec with draft status', async () => {
   const { dispatch, agentManager } = setupTest();
 
   const result = buildSpecPollerResult({
@@ -95,12 +97,12 @@ test('it does not dispatch the Planner for a spec with draft status', () => {
     ],
   });
 
-  dispatch.handleSpecPollerResult(result);
+  await dispatch.handleSpecPollerResult(result);
 
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 });
 
-test('it batches multiple approved specs into a single Planner invocation', () => {
+test('it batches multiple approved specs into a single Planner invocation', async () => {
   const { dispatch, agentManager } = setupTest();
 
   const result = buildSpecPollerResult({
@@ -115,7 +117,7 @@ test('it batches multiple approved specs into a single Planner invocation', () =
     ],
   });
 
-  dispatch.handleSpecPollerResult(result);
+  await dispatch.handleSpecPollerResult(result);
 
   expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
   expect(agentManager.dispatchPlanner).toHaveBeenCalledWith([
@@ -125,7 +127,7 @@ test('it batches multiple approved specs into a single Planner invocation', () =
   ]);
 });
 
-test('it emits specChanged events for each change regardless of frontmatter status', () => {
+test('it emits specChanged events for each change regardless of frontmatter status', async () => {
   const { dispatch, events } = setupTest();
 
   const result = buildSpecPollerResult({
@@ -136,7 +138,7 @@ test('it emits specChanged events for each change regardless of frontmatter stat
     commitSHA: 'sha456',
   });
 
-  dispatch.handleSpecPollerResult(result);
+  await dispatch.handleSpecPollerResult(result);
 
   const specChangedEvents = events.filter((e) => e.type === 'specChanged');
   expect(specChangedEvents).toHaveLength(2);
@@ -156,12 +158,12 @@ test('it emits specChanged events for each change regardless of frontmatter stat
   });
 });
 
-test('it does not dispatch the Planner when there are no changes', () => {
+test('it does not dispatch the Planner when there are no changes', async () => {
   const { dispatch, agentManager } = setupTest();
 
   const result = buildSpecPollerResult({ changes: [] });
 
-  dispatch.handleSpecPollerResult(result);
+  await dispatch.handleSpecPollerResult(result);
 
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 });
@@ -170,7 +172,7 @@ test('it does not dispatch the Planner when there are no changes', () => {
 // Planner concurrency guard
 // ---------------------------------------------------------------------------
 
-test('it emits agentSkipped and defers paths when Planner is already running', () => {
+test('it emits agentSkipped and defers paths when Planner is already running', async () => {
   const { dispatch, agentManager, events } = setupTest({ isPlannerRunning: true });
 
   const result = buildSpecPollerResult({
@@ -183,7 +185,7 @@ test('it emits agentSkipped and defers paths when Planner is already running', (
     ],
   });
 
-  dispatch.handleSpecPollerResult(result);
+  await dispatch.handleSpecPollerResult(result);
 
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
   const skippedEvents = events.filter((e) => e.type === 'agentSkipped');
@@ -195,11 +197,11 @@ test('it emits agentSkipped and defers paths when Planner is already running', (
   });
 });
 
-test('it merges deferred paths with new cycle results when Planner is no longer running', () => {
+test('it merges deferred paths with new cycle results when Planner is no longer running', async () => {
   const { dispatch, agentManager } = setupTest({ isPlannerRunning: true });
 
   // First cycle -- Planner running, paths deferred
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -216,7 +218,7 @@ test('it merges deferred paths with new cycle results when Planner is no longer 
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(false);
 
   // Second cycle -- new changes + deferred paths merged
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -237,11 +239,11 @@ test('it merges deferred paths with new cycle results when Planner is no longer 
   expect(callArgs?.[0]).toHaveLength(2);
 });
 
-test('it deduplicates paths when the same spec changes across deferred and new cycles', () => {
+test('it deduplicates paths when the same spec changes across deferred and new cycles', async () => {
   const { dispatch, agentManager } = setupTest({ isPlannerRunning: true });
 
   // First cycle -- Planner running, path deferred
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -257,7 +259,7 @@ test('it deduplicates paths when the same spec changes across deferred and new c
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(false);
 
   // Second cycle -- same path changed again
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -273,11 +275,11 @@ test('it deduplicates paths when the same spec changes across deferred and new c
   expect(agentManager.dispatchPlanner).toHaveBeenCalledWith(['docs/specs/workflow/a.md']);
 });
 
-test('it drops deferred paths whose status changed to non-approved since deferral', () => {
+test('it drops deferred paths whose status changed to non-approved since deferral', async () => {
   const { dispatch, agentManager } = setupTest({ isPlannerRunning: true });
 
   // First cycle -- approved spec deferred
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -293,7 +295,7 @@ test('it drops deferred paths whose status changed to non-approved since deferra
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(false);
 
   // Second cycle -- same spec now has draft status
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -308,11 +310,11 @@ test('it drops deferred paths whose status changed to non-approved since deferra
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 });
 
-test('it clears the deferred buffer after successful Planner dispatch', () => {
+test('it clears the deferred buffer after successful Planner dispatch', async () => {
   const { dispatch, agentManager } = setupTest({ isPlannerRunning: true });
 
   // First cycle -- deferred
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -328,7 +330,7 @@ test('it clears the deferred buffer after successful Planner dispatch', () => {
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(false);
 
   // Second cycle -- dispatches deferred + new
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -346,7 +348,7 @@ test('it clears the deferred buffer after successful Planner dispatch', () => {
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(true);
 
   // Third cycle -- new change, deferred again (buffer was cleared)
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -365,7 +367,7 @@ test('it clears the deferred buffer after successful Planner dispatch', () => {
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(false);
 
   // Fourth cycle -- only c.md should be dispatched (a.md and b.md were cleared)
-  dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
+  await dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
 
   expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(2);
   expect(agentManager.dispatchPlanner).toHaveBeenLastCalledWith(['docs/specs/workflow/c.md']);
@@ -375,10 +377,10 @@ test('it clears the deferred buffer after successful Planner dispatch', () => {
 // Issue status changed — auto-dispatch Reviewer
 // ---------------------------------------------------------------------------
 
-test('it auto-dispatches the Reviewer when an issue enters review status', () => {
+test('it auto-dispatches the Reviewer when an issue enters review status', async () => {
   const { dispatch, agentManager } = setupTest();
 
-  dispatch.handleIssueStatusChanged(buildIssueStatusChanged({ newStatus: 'review' }));
+  await dispatch.handleIssueStatusChanged(buildIssueStatusChanged({ newStatus: 'review' }));
 
   expect(agentManager.dispatchReviewer).toHaveBeenCalledWith(42);
 });
@@ -387,10 +389,10 @@ test('it auto-dispatches the Reviewer when an issue enters review status', () =>
 // Issue status changed — user-dispatch (dispatchReady)
 // ---------------------------------------------------------------------------
 
-test('it emits dispatchReady when an issue enters pending status', () => {
+test('it emits dispatchReady when an issue enters pending status', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'pending', issueNumber: 10 }),
   );
 
@@ -403,10 +405,10 @@ test('it emits dispatchReady when an issue enters pending status', () => {
   });
 });
 
-test('it emits dispatchReady when an issue enters unblocked status', () => {
+test('it emits dispatchReady when an issue enters unblocked status', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'unblocked', issueNumber: 11 }),
   );
 
@@ -419,10 +421,10 @@ test('it emits dispatchReady when an issue enters unblocked status', () => {
   });
 });
 
-test('it emits dispatchReady when an issue enters needs-changes status', () => {
+test('it emits dispatchReady when an issue enters needs-changes status', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'needs-changes', issueNumber: 12 }),
   );
 
@@ -439,10 +441,10 @@ test('it emits dispatchReady when an issue enters needs-changes status', () => {
 // Issue status changed — notify-only (needs-refinement)
 // ---------------------------------------------------------------------------
 
-test('it emits a notification with clipboard command for needs-refinement status', () => {
+test('it emits a notification with clipboard command for needs-refinement status', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'needs-refinement', issueNumber: 7 }),
   );
 
@@ -459,10 +461,10 @@ test('it emits a notification with clipboard command for needs-refinement status
   });
 });
 
-test('it uses the correct clipboard command format for needs-refinement', () => {
+test('it uses the correct clipboard command format for needs-refinement', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'needs-refinement', issueNumber: 15 }),
   );
 
@@ -479,10 +481,10 @@ test('it uses the correct clipboard command format for needs-refinement', () => 
 // Issue status changed — notify-only (blocked)
 // ---------------------------------------------------------------------------
 
-test('it emits a notification with issue URL and resolution guidance for blocked status', () => {
+test('it emits a notification with issue URL and resolution guidance for blocked status', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'blocked', issueNumber: 8 }),
   );
 
@@ -501,10 +503,10 @@ test('it emits a notification with issue URL and resolution guidance for blocked
 // Issue status changed — notify-only (approved)
 // ---------------------------------------------------------------------------
 
-test('it emits a notification with issue URL for approved status', () => {
+test('it emits a notification with issue URL for approved status', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'approved', issueNumber: 9 }),
   );
 
@@ -522,16 +524,16 @@ test('it emits a notification with issue URL for approved status', () => {
 // Issue status changed — notification dismissal
 // ---------------------------------------------------------------------------
 
-test('it emits notificationDismissed when a notified issue changes status', () => {
+test('it emits notificationDismissed when a notified issue changes status', async () => {
   const { dispatch, events } = setupTest();
 
   // First: issue enters needs-refinement -> notification emitted
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'needs-refinement', issueNumber: 20 }),
   );
 
   // Second: issue status changes to unblocked -> notification dismissed
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({
       newStatus: 'unblocked',
       issueNumber: 20,
@@ -547,11 +549,11 @@ test('it emits notificationDismissed when a notified issue changes status', () =
   });
 });
 
-test('it does not emit notificationDismissed when no notification is active for the issue', () => {
+test('it does not emit notificationDismissed when no notification is active for the issue', async () => {
   const { dispatch, events } = setupTest();
 
   // Issue enters pending -- no notification was active
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'pending', issueNumber: 30 }),
   );
 
@@ -559,14 +561,14 @@ test('it does not emit notificationDismissed when no notification is active for 
   expect(dismissedEvents).toHaveLength(0);
 });
 
-test('it dismisses a blocked notification when the issue status changes', () => {
+test('it dismisses a blocked notification when the issue status changes', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'blocked', issueNumber: 21 }),
   );
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({
       newStatus: 'unblocked',
       issueNumber: 21,
@@ -582,14 +584,14 @@ test('it dismisses a blocked notification when the issue status changes', () => 
   });
 });
 
-test('it dismisses an approved notification when the issue status changes', () => {
+test('it dismisses an approved notification when the issue status changes', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'approved', issueNumber: 22 }),
   );
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({
       newStatus: 'pending',
       issueNumber: 22,
@@ -601,15 +603,15 @@ test('it dismisses an approved notification when the issue status changes', () =
   expect(dismissedEvents).toHaveLength(1);
 });
 
-test('it does not emit notificationDismissed twice for the same issue without a new notification', () => {
+test('it does not emit notificationDismissed twice for the same issue without a new notification', async () => {
   const { dispatch, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'blocked', issueNumber: 23 }),
   );
 
   // First status change dismisses
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({
       newStatus: 'unblocked',
       issueNumber: 23,
@@ -618,7 +620,7 @@ test('it does not emit notificationDismissed twice for the same issue without a 
   );
 
   // Second status change -- no active notification
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({
       newStatus: 'pending',
       issueNumber: 23,
@@ -634,10 +636,10 @@ test('it does not emit notificationDismissed twice for the same issue without a 
 // Issue status changed — fallthrough (in-progress)
 // ---------------------------------------------------------------------------
 
-test('it triggers no dispatch action for in-progress status', () => {
+test('it triggers no dispatch action for in-progress status', async () => {
   const { dispatch, agentManager, events } = setupTest();
 
-  dispatch.handleIssueStatusChanged(
+  await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'in-progress', issueNumber: 50 }),
   );
 
@@ -654,11 +656,11 @@ test('it triggers no dispatch action for in-progress status', () => {
 // Planner failure — re-deferral of spec paths
 // ---------------------------------------------------------------------------
 
-test('it re-adds dispatched spec paths to the deferred buffer when Planner fails', () => {
+test('it re-adds dispatched spec paths to the deferred buffer when Planner fails', async () => {
   const { dispatch, agentManager } = setupTest();
 
   // Dispatch Planner with approved spec
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -676,17 +678,17 @@ test('it re-adds dispatched spec paths to the deferred buffer when Planner fails
 
   // Next cycle with no new changes -- deferred path dispatched
   vi.mocked(agentManager.dispatchPlanner).mockClear();
-  dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
+  await dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
 
   expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
   expect(agentManager.dispatchPlanner).toHaveBeenCalledWith(['docs/specs/workflow/a.md']);
 });
 
-test('it merges re-deferred paths with new spec changes on the next cycle', () => {
+test('it merges re-deferred paths with new spec changes on the next cycle', async () => {
   const { dispatch, agentManager } = setupTest();
 
   // Dispatch Planner
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -704,7 +706,7 @@ test('it merges re-deferred paths with new spec changes on the next cycle', () =
 
   // Next cycle with new changes -- merged
   vi.mocked(agentManager.dispatchPlanner).mockClear();
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -724,11 +726,11 @@ test('it merges re-deferred paths with new spec changes on the next cycle', () =
   expect(callArgs?.[0]).toHaveLength(2);
 });
 
-test('it drops re-deferred paths whose frontmatter status changed to non-approved', () => {
+test('it drops re-deferred paths whose frontmatter status changed to non-approved', async () => {
   const { dispatch, agentManager } = setupTest();
 
   // Dispatch Planner
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -746,7 +748,7 @@ test('it drops re-deferred paths whose frontmatter status changed to non-approve
 
   // Next cycle -- spec status changed to draft
   vi.mocked(agentManager.dispatchPlanner).mockClear();
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -761,11 +763,11 @@ test('it drops re-deferred paths whose frontmatter status changed to non-approve
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 });
 
-test('it deduplicates re-deferred paths with existing deferred paths', () => {
+test('it deduplicates re-deferred paths with existing deferred paths', async () => {
   const { dispatch, agentManager } = setupTest({ isPlannerRunning: true });
 
   // First cycle -- Planner running, path deferred
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -781,7 +783,7 @@ test('it deduplicates re-deferred paths with existing deferred paths', () => {
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(false);
 
   // Second cycle -- dispatches deferred
-  dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
+  await dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
   expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
 
   // Planner fails -- re-add a.md
@@ -791,7 +793,7 @@ test('it deduplicates re-deferred paths with existing deferred paths', () => {
   vi.mocked(agentManager.isPlannerRunning).mockReturnValue(true);
 
   // Third cycle -- a.md deferred again, plus new a.md from spec changes (duplicate)
-  dispatch.handleSpecPollerResult(
+  await dispatch.handleSpecPollerResult(
     buildSpecPollerResult({
       changes: [
         {
@@ -808,7 +810,7 @@ test('it deduplicates re-deferred paths with existing deferred paths', () => {
 
   // Fourth cycle -- should dispatch exactly one copy of a.md
   vi.mocked(agentManager.dispatchPlanner).mockClear();
-  dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
+  await dispatch.handleSpecPollerResult(buildSpecPollerResult({ changes: [] }));
 
   expect(agentManager.dispatchPlanner).toHaveBeenCalledTimes(1);
   expect(agentManager.dispatchPlanner).toHaveBeenCalledWith(['docs/specs/workflow/a.md']);
@@ -818,7 +820,7 @@ test('it deduplicates re-deferred paths with existing deferred paths', () => {
 // Mixed batch: approved and non-approved specs
 // ---------------------------------------------------------------------------
 
-test('it only includes approved specs in the Planner dispatch from a mixed batch', () => {
+test('it only includes approved specs in the Planner dispatch from a mixed batch', async () => {
   const { dispatch, agentManager } = setupTest();
 
   const result = buildSpecPollerResult({
@@ -829,7 +831,7 @@ test('it only includes approved specs in the Planner dispatch from a mixed batch
     ],
   });
 
-  dispatch.handleSpecPollerResult(result);
+  await dispatch.handleSpecPollerResult(result);
 
   expect(agentManager.dispatchPlanner).toHaveBeenCalledWith([
     'docs/specs/workflow/a.md',
