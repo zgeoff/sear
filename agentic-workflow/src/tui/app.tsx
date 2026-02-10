@@ -23,6 +23,10 @@ type PromptState = { type: 'none' } | { type: 'quit'; previousPane: FocusedPane 
 const DEFAULT_TERMINAL_WIDTH = 80;
 const DEFAULT_TERMINAL_HEIGHT = 24;
 const PANE_COUNT = 3;
+const BORDER_COLUMNS = 4;
+const BORDER_ROWS = 2;
+
+const PANE_LABELS: readonly string[] = ['NOTIFICATIONS', 'ISSUES', 'DETAILS'];
 
 export function App(props: AppProps): ReactNode {
   const engineStore = useEngine({ engine: props.engine, repository: props.repository });
@@ -46,7 +50,8 @@ export function App(props: AppProps): ReactNode {
 
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
-  const paneWidth = Math.floor(terminalWidth / PANE_COUNT);
+  const paneWidths = computePaneWidths(terminalWidth);
+  const contentHeight = terminalHeight - BORDER_ROWS;
 
   const anyPromptActive = prompt.type !== 'none' || issueListPromptMessage !== null;
   const activePromptMessage =
@@ -187,36 +192,49 @@ export function App(props: AppProps): ReactNode {
   }
 
   const startupNotification = buildStartupNotification(startupResult);
+  const panesFocused = getPaneFocusStates(focusedPane);
 
   return (
-    <Box width={terminalWidth} height={terminalHeight} flexDirection="row">
-      <Box width={paneWidth} height={terminalHeight} flexDirection="column">
-        <NotificationsPane
-          notifications={notifications}
-          focused={focusedPane === 'notifications'}
-          selectedIndex={selectedNotificationIndex}
-          paneWidth={paneWidth}
-          paneHeight={terminalHeight}
-          viewportOffset={notificationViewportOffset}
-          onViewportOffsetChange={setNotificationViewportOffset}
-          mouseScrolled={notificationMouseScrolled}
-          onMouseScrolledChange={setNotificationMouseScrolled}
-        />
-        {startupNotification !== '' ? <Text>{startupNotification}</Text> : null}
+    <Box width={terminalWidth} height={terminalHeight} flexDirection="column">
+      <Box>
+        <TopBorder paneWidths={paneWidths} panesFocused={panesFocused} />
       </Box>
-      <Box width={paneWidth} height={terminalHeight} flexDirection="column">
-        <IssueList
-          store={engineStore}
-          focused={focusedPane === 'issueList'}
-          onOpenURL={openUrl}
-          repository={props.repository}
-          height={terminalHeight}
-          promptActive={prompt.type !== 'none'}
-          onPromptChange={handleIssueListPromptChange}
-        />
+      <Box flexDirection="row" height={contentHeight}>
+        <Text dimColor={!panesFocused[0]}>│</Text>
+        <Box width={paneWidths[0]} height={contentHeight} flexDirection="column">
+          <NotificationsPane
+            notifications={notifications}
+            focused={focusedPane === 'notifications'}
+            selectedIndex={selectedNotificationIndex}
+            paneWidth={paneWidths[0]}
+            paneHeight={contentHeight}
+            viewportOffset={notificationViewportOffset}
+            onViewportOffsetChange={setNotificationViewportOffset}
+            mouseScrolled={notificationMouseScrolled}
+            onMouseScrolledChange={setNotificationMouseScrolled}
+          />
+          {startupNotification !== '' ? <Text>{startupNotification}</Text> : null}
+        </Box>
+        <Text dimColor={!(panesFocused[0] || panesFocused[1])}>│</Text>
+        <Box width={paneWidths[1]} height={contentHeight} flexDirection="column">
+          <IssueList
+            store={engineStore}
+            focused={focusedPane === 'issueList'}
+            onOpenURL={openUrl}
+            repository={props.repository}
+            height={contentHeight}
+            promptActive={prompt.type !== 'none'}
+            onPromptChange={handleIssueListPromptChange}
+          />
+        </Box>
+        <Text dimColor={!(panesFocused[1] || panesFocused[2])}>│</Text>
+        <Box width={paneWidths[2]} height={contentHeight} flexDirection="column">
+          <DetailPane store={engineStore} />
+        </Box>
+        <Text dimColor={!panesFocused[2]}>│</Text>
       </Box>
-      <Box width={paneWidth} height={terminalHeight} flexDirection="column">
-        <DetailPane store={engineStore} />
+      <Box>
+        <BottomBorder paneWidths={paneWidths} panesFocused={panesFocused} />
       </Box>
       {anyPromptActive && activePromptMessage !== null ? (
         <ConfirmationPrompt
@@ -227,6 +245,74 @@ export function App(props: AppProps): ReactNode {
       ) : null}
     </Box>
   );
+}
+
+export function computePaneWidths(terminalWidth: number): readonly [number, number, number] {
+  const contentWidth = terminalWidth - BORDER_COLUMNS;
+  const baseWidth = Math.floor(contentWidth / PANE_COUNT);
+  const remainder = contentWidth - baseWidth * PANE_COUNT;
+  return [baseWidth, baseWidth, baseWidth + remainder];
+}
+
+interface TopBorderProps {
+  paneWidths: readonly [number, number, number];
+  panesFocused: readonly [boolean, boolean, boolean];
+}
+
+function TopBorder(props: TopBorderProps): ReactNode {
+  return (
+    <Text>
+      <Text dimColor={!props.panesFocused[0]}>
+        {`\u250c${buildTopSegment(PANE_LABELS[0] ?? '', props.paneWidths[0])}`}
+      </Text>
+      <Text dimColor={!(props.panesFocused[0] || props.panesFocused[1])}>┬</Text>
+      <Text dimColor={!props.panesFocused[1]}>
+        {buildTopSegment(PANE_LABELS[1] ?? '', props.paneWidths[1])}
+      </Text>
+      <Text dimColor={!(props.panesFocused[1] || props.panesFocused[2])}>┬</Text>
+      <Text dimColor={!props.panesFocused[2]}>
+        {`${buildTopSegment(PANE_LABELS[2] ?? '', props.paneWidths[2])}\u2510`}
+      </Text>
+    </Text>
+  );
+}
+
+interface BottomBorderProps {
+  paneWidths: readonly [number, number, number];
+  panesFocused: readonly [boolean, boolean, boolean];
+}
+
+function BottomBorder(props: BottomBorderProps): ReactNode {
+  return (
+    <Text>
+      <Text dimColor={!props.panesFocused[0]}>
+        {`\u2514${'\u2500'.repeat(props.paneWidths[0])}`}
+      </Text>
+      <Text dimColor={!(props.panesFocused[0] || props.panesFocused[1])}>┴</Text>
+      <Text dimColor={!props.panesFocused[1]}>{'\u2500'.repeat(props.paneWidths[1])}</Text>
+      <Text dimColor={!(props.panesFocused[1] || props.panesFocused[2])}>┴</Text>
+      <Text dimColor={!props.panesFocused[2]}>
+        {`${'\u2500'.repeat(props.paneWidths[2])}\u2518`}
+      </Text>
+    </Text>
+  );
+}
+
+function buildTopSegment(label: string, width: number): string {
+  const prefix = ` ${label} `;
+  const fillLength = width - prefix.length;
+  if (fillLength <= 0) {
+    return prefix.slice(0, width);
+  }
+  return prefix + '\u2500'.repeat(fillLength);
+}
+
+function getPaneFocusStates(focusedPane: FocusedPane): readonly [boolean, boolean, boolean] {
+  return [
+    focusedPane === 'notifications',
+    focusedPane === 'issueList',
+    focusedPane === 'detailPane',
+  ];
 }
 
 function buildStartupNotification(result: StartupResult): string {
