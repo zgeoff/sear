@@ -313,5 +313,25 @@
     "command": "git commit -m \"kill orphan timers\" && git push",
     "expected": "allow",
     "description": "Quote masking: blocklist word in quotes with chained commands outside quotes"
+  },
+  {
+    "command": "echo \"say \\\"kill\\\" process\"",
+    "expected": "allow",
+    "description": "Quote masking: escaped quotes inside double-quoted string with blocklist word"
+  },
+  {
+    "command": "echo \"fix: eval the \\\"expression\\\"\"",
+    "expected": "allow",
+    "description": "Quote masking: escaped quotes inside double-quoted string with blocklist word 'eval'"
+  },
+  {
+    "command": "echo unquoted sudo here",
+    "expected": "block",
+    "description": "Quote masking: blocklist word outside any quoted string is not masked"
+  },
+  {
+    "command": "echo 'pkill pattern' ; pkill node",
+    "expected": "block",
+    "description": "Quote masking: blocklist word masked in quotes but unmasked outside quotes still blocks"
   }
 ]
