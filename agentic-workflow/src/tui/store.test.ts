@@ -1331,6 +1331,59 @@ test('it produces a notification for every type of engine event', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Startup notification
+// ---------------------------------------------------------------------------
+
+test('it creates a startup notification with the correct issue count and recovery count', () => {
+  const { store } = setupTest();
+
+  store.getState().handleStartup({ issueCount: 5, recoveriesPerformed: 2 });
+
+  const notifications = store.getState().notifications;
+  expect(notifications).toHaveLength(1);
+
+  expect(notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'startup',
+      issueCount: 5,
+      recoveriesPerformed: 2,
+      summary: 'Startup complete: 5 issues tracked, 2 recoveries performed',
+    }),
+  );
+});
+
+test('it omits the recovery clause in the startup summary when no recoveries were performed', () => {
+  const { store } = setupTest();
+
+  store.getState().handleStartup({ issueCount: 3, recoveriesPerformed: 0 });
+
+  const notifications = store.getState().notifications;
+  expect(notifications).toHaveLength(1);
+
+  expect(notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'startup',
+      issueCount: 3,
+      recoveriesPerformed: 0,
+      summary: 'Startup complete: 3 issues tracked',
+    }),
+  );
+});
+
+test('it prepends the startup notification before any existing notifications', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
+
+  store.getState().handleStartup({ issueCount: 1, recoveriesPerformed: 0 });
+
+  const notifications = store.getState().notifications;
+  expect(notifications).toHaveLength(2);
+  expect(notifications[0]).toMatchObject({ eventType: 'startup' });
+  expect(notifications[1]).toMatchObject({ eventType: 'issueStatusChanged' });
+});
+
+// ---------------------------------------------------------------------------
 // Notification prepend order
 // ---------------------------------------------------------------------------
 

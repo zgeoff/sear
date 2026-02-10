@@ -1,4 +1,4 @@
-import type { Engine } from '../types.ts';
+import type { Engine, StartupResult } from '../types.ts';
 
 export type TaskAgentType = 'implementor' | 'reviewer';
 
@@ -162,6 +162,7 @@ export interface EngineStoreActions {
   shutdown: () => void;
   cycleFocus: (direction: 'forward' | 'backward') => void;
   selectIssue: (issueNumber: number) => void;
+  handleStartup: (result: StartupResult) => void;
 }
 
 export type EngineStore = EngineStoreState & EngineStoreActions;

@@ -82,11 +82,11 @@ test('it renders the three-pane layout after startup completes', async () => {
     const frame = lastFrame();
     expect(frame).toContain('No issues tracked');
     expect(frame).toContain('No issue selected');
-    expect(frame).toContain('Startup complete: 5 issues');
+    expect(frame).toContain('Startup complete');
   });
 });
 
-test('it displays a startup summary notification after startup completes', async () => {
+test('it displays a startup notification in the notifications pane after startup completes', async () => {
   const { lastFrame, resolveStart, waitForStartCalled } = setupTest();
 
   await waitForStartCalled();
@@ -94,22 +94,7 @@ test('it displays a startup summary notification after startup completes', async
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Startup complete: 3 issues');
-    expect(frame).toContain('1 recoveries performed');
-  });
-});
-
-test('it omits the recovery count in the startup summary when none were performed', async () => {
-  const { lastFrame, resolveStart, waitForStartCalled } = setupTest();
-
-  await waitForStartCalled();
-  resolveStart({ issueCount: 7, recoveriesPerformed: 0 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('Startup complete: 7 issues');
-    expect(frame).toContain('tracked');
-    expect(frame).not.toContain('recoveries performed');
+    expect(frame).toContain('Startup complete');
   });
 });
 
