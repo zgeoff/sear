@@ -1,7 +1,7 @@
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { createStore } from 'zustand/vanilla';
-import type { AgentType, EngineEvent } from '../types.ts';
+import type { AgentType, EngineEvent, StartupResult } from '../types.ts';
 import type {
   AgentCompletedNotification,
   AgentFailedNotification,
@@ -21,6 +21,7 @@ import type {
   RecoveryPerformedNotification,
   Repository,
   SpecChangedNotification,
+  StartupNotification,
   TaskAgentType,
   TrackedIssue,
 } from './types.ts';
@@ -92,6 +93,18 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       set({ selectedIssue: issueNumber });
       fetchIssueDetailsIfNeeded(issueNumber);
       fetchPrDetailsIfNeeded(issueNumber);
+    },
+
+    handleStartup(result: StartupResult): void {
+      const state = get();
+      const notification: StartupNotification = {
+        ...buildBaseNotification(),
+        eventType: 'startup',
+        issueCount: result.issueCount,
+        recoveriesPerformed: result.recoveriesPerformed,
+        summary: buildStartupSummary(result),
+      };
+      set({ notifications: [notification, ...state.notifications] });
     },
   }));
 
@@ -754,6 +767,14 @@ function splitChunkIntoLines(chunk: string): string[] {
     parts.pop();
   }
   return parts;
+}
+
+function buildStartupSummary(result: StartupResult): string {
+  const parts = [`Startup complete: ${result.issueCount} issues tracked`];
+  if (result.recoveriesPerformed > 0) {
+    parts.push(`${result.recoveriesPerformed} recoveries performed`);
+  }
+  return parts.join(', ');
 }
 
 export function selectRunningAgentCount(state: EngineStoreState): number {

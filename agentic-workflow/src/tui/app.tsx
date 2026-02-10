@@ -4,7 +4,7 @@ import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
-import type { Engine, StartupResult } from '../types.ts';
+import type { Engine } from '../types.ts';
 import { ConfirmationPrompt } from './components/confirmation-prompt.tsx';
 import { DetailPane } from './components/detail-pane.tsx';
 import { IssueList } from './components/issue-list.tsx';
@@ -30,7 +30,7 @@ const PANE_LABELS: readonly string[] = ['NOTIFICATIONS', 'ISSUES', 'DETAILS'];
 
 export function App(props: AppProps): ReactNode {
   const engineStore = useEngine({ engine: props.engine, repository: props.repository });
-  const [startupResult, setStartupResult] = useState<StartupResult | null>(null);
+  const [started, setStarted] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
   const [issueListPromptMessage, setIssueListPromptMessage] = useState<string | null>(null);
@@ -44,6 +44,7 @@ export function App(props: AppProps): ReactNode {
   const notifications = useStore(engineStore, (s) => s.notifications);
   const cycleFocus = useStore(engineStore, (s) => s.cycleFocus);
   const shutdown = useStore(engineStore, (s) => s.shutdown);
+  const handleStartup = useStore(engineStore, (s) => s.handleStartup);
 
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -74,12 +75,13 @@ export function App(props: AppProps): ReactNode {
     props.engine
       .start()
       .then((result) => {
-        setStartupResult(result);
+        handleStartup(result);
+        setStarted(true);
       })
       .catch((error) => {
         setStartupError(error instanceof Error ? error.message : String(error));
       });
-  }, [props.engine]);
+  }, [props.engine, handleStartup]);
 
   useEffect(() => {
     if (!shuttingDown) {
@@ -178,7 +180,7 @@ export function App(props: AppProps): ReactNode {
     );
   }
 
-  if (!startupResult) {
+  if (!started) {
     return (
       <Box
         width={terminalWidth}
@@ -191,7 +193,6 @@ export function App(props: AppProps): ReactNode {
     );
   }
 
-  const startupNotification = buildStartupNotification(startupResult);
   const panesFocused = getPaneFocusStates(focusedPane);
 
   return (
@@ -213,7 +214,6 @@ export function App(props: AppProps): ReactNode {
             mouseScrolled={notificationMouseScrolled}
             onMouseScrolledChange={setNotificationMouseScrolled}
           />
-          {startupNotification !== '' ? <Text>{startupNotification}</Text> : null}
         </Box>
         <Text dimColor={!(panesFocused[0] || panesFocused[1])}>│</Text>
         <Box width={paneWidths[1]} height={contentHeight} flexDirection="column">
@@ -313,14 +313,6 @@ function getPaneFocusStates(focusedPane: FocusedPane): readonly [boolean, boolea
     focusedPane === 'issueList',
     focusedPane === 'detailPane',
   ];
-}
-
-function buildStartupNotification(result: StartupResult): string {
-  const parts = [`Startup complete: ${result.issueCount} issues tracked`];
-  if (result.recoveriesPerformed > 0) {
-    parts.push(`${result.recoveriesPerformed} recoveries performed`);
-  }
-  return parts.join(', ');
 }
 
 function buildQuitMessage(runningAgentCount: number): string {
