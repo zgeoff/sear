@@ -28,7 +28,7 @@ The engine does not prevent re-dispatch for the same spec (e.g., a whitespace-on
 
 ## GitHub Operations
 
-Use the **github-workflow** skill for the **mechanics** of all GitHub operations -- command syntax, authentication (`scripts/workflow/gh.sh`), issue body templates, label swap rules, and query patterns. The workflow steps in this document define **when** to perform those operations; the skill defines **how**. Do not improvise `gh` command syntax -- use the skill's patterns for command structure, flags, and output formats.
+Use `scripts/workflow/gh.sh` for all GitHub CLI operations. This authenticated wrapper handles token generation and caching. The workflow steps in this document define **when** to perform GitHub operations. `docs/specs/workflow/skill-github-workflow.md` is a reference for issue body templates, label swap rules, and query patterns (not loaded at runtime).
 
 ## Workflow
 
@@ -40,7 +40,7 @@ Before producing any output, read all of the following:
 
 1. **Spec file(s):** Read the full content of each input spec file including YAML frontmatter, acceptance criteria, and dependencies.
 2. **Spec diffs:** For each input spec, run `git log -2 --format="%H" -- <spec-path>` to find the two most recent commits touching the spec, then `git diff <older> <newer> -- <spec-path>` to see what changed. If only one commit exists (new spec), treat the entire spec as new content.
-3. **Existing GitHub Issues:** Fetch all open `task:implement` and `task:refinement` issues once (using the github-workflow skill's "All open tasks" and "Refinement tasks" query patterns), then filter client-side to identify issues that reference any of the input specs. GitHub search doesn't support clean multi-path OR queries, so a single broad query with client-side filtering is the expected approach. **Pagination:** The skill's query patterns use `--limit 100`. If a query returns exactly 100 results, paginate by re-fetching with `--limit 100` and an increasing `--json` offset (or by piping through `gh api` with pagination) until fewer than 100 results are returned. Missing issues due to truncation would violate idempotency.
+3. **Existing GitHub Issues:** Fetch all open `task:implement` and `task:refinement` issues once (using `scripts/workflow/gh.sh` with query patterns documented in `skill-github-workflow.md`), then filter client-side to identify issues that reference any of the input specs. GitHub search doesn't support clean multi-path OR queries, so a single broad query with client-side filtering is the expected approach. **Pagination:** Query patterns use `--limit 100`. If a query returns exactly 100 results, paginate by re-fetching with `--limit 100` and an increasing `--json` offset (or by piping through `gh api` with pagination) until fewer than 100 results are returned. Missing issues due to truncation would violate idempotency.
 4. **Codebase state:** Read files referenced by the specs' scope to assess what work is already done.
 
 ### Pre-Planning: Validate Entry Criteria
@@ -75,8 +75,8 @@ Before creating new issues, review all open issues that reference any of the inp
 
 Identify and act on:
 
-1. **Irrelevant tasks:** Issues whose referenced spec section has been removed or whose work is no longer needed due to spec changes. Close these using the github-workflow skill's close operation and add a comment explaining why (e.g., "Closed: spec section removed in latest update").
-2. **Stale tasks:** Issues whose scope or acceptance criteria no longer match the updated spec. Update them in place using the github-workflow skill's update operation to revise body, labels, and acceptance criteria.
+1. **Irrelevant tasks:** Issues whose referenced spec section has been removed or whose work is no longer needed due to spec changes. Close these using `scripts/workflow/gh.sh` and add a comment explaining why (e.g., "Closed: spec section removed in latest update").
+2. **Stale tasks:** Issues whose scope or acceptance criteria no longer match the updated spec. Update them in place using `scripts/workflow/gh.sh` to revise body, labels, and acceptance criteria.
 
 Comment on every issue you close or modify, explaining the reason and referencing the spec change.
 
@@ -115,11 +115,11 @@ Cross-spec dependencies are detected during aggregate decomposition (e.g., Task 
 
 ### Phase 4: Create GitHub Issues
 
-Create each task issue using the github-workflow skill's issue create operation. Use the **Issue Body Template** defined in the skill's templates reference -- it contains the required sections: Objective, Spec Reference, Scope (In Scope / Out of Scope), Acceptance Criteria, Context, Constraints.
+Create each task issue using `scripts/workflow/gh.sh`. Use the **Issue Body Template** documented in `skill-github-workflow.md` -- it contains the required sections: Objective, Spec Reference, Scope (In Scope / Out of Scope), Acceptance Criteria, Context, Constraints.
 
 #### Labels
 
-Every issue gets exactly three labels (one per mutually exclusive category as defined by the github-workflow skill's label rules):
+Every issue gets exactly three labels (one per mutually exclusive category as documented in `skill-github-workflow.md`):
 
 - **Type:** `task:implement` (or `task:refinement` for spec clarification)
 - **Status:** `status:pending`
@@ -181,7 +181,7 @@ After all issues are created/updated/closed, output this summary. When multiple 
 If you encounter ambiguity, contradiction, or a gap in the spec:
 
 1. Do NOT guess or interpret.
-2. Create a `task:refinement` issue using the **Refinement Issue Body Template** from the github-workflow skill's templates reference.
+2. Create a `task:refinement` issue using the **Refinement Issue Body Template** documented in `skill-github-workflow.md`.
 3. Label refinement issues: `task:refinement`, `status:pending`, and a priority label.
 4. Default refinement priority to `priority:high` (they block task creation). Use `priority:medium` only if the ambiguous section does not block critical-path work.
 5. Do NOT create tasks that depend on the ambiguous section until the spec is clarified.
@@ -195,4 +195,4 @@ If you encounter ambiguity, contradiction, or a gap in the spec:
 - NEVER make interpretive decisions about spec intent.
 - NEVER reprioritize tasks from previous planning runs unless the spec has changed.
 - Always review existing issues before creating new ones to avoid duplicates.
-- ALWAYS use the github-workflow skill for GitHub operation mechanics (command syntax, authentication, label rules, templates). The workflow steps in this document are the authority for **when** to perform operations.
+- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations (command syntax, authentication, label rules, and templates are documented in this file and in `skill-github-workflow.md` as a reference). The workflow steps in this document are the authority for **when** to perform operations.

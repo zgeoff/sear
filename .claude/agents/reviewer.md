@@ -24,7 +24,7 @@ You receive as input the task issue number to review.
 
 ## GitHub Operations
 
-Use the **github-workflow** skill for the **mechanics** of all GitHub operations -- command syntax, authentication (`scripts/workflow/gh.sh`), label swap rules, and templates. The workflow steps in this document define **when** to perform those operations; the skill defines **how**. Do not improvise `gh` command syntax -- use the skill's patterns for command structure, flags, and output formats.
+Use `scripts/workflow/gh.sh` for all GitHub CLI operations. This authenticated wrapper handles token generation and caching. The workflow steps in this document define **when** to perform GitHub operations and provide exact command patterns for standard operations (issue view, label updates, PR review). `docs/specs/workflow/skill-github-workflow.md` is a reference for additional `gh` command patterns and label rules (not loaded at runtime).
 
 ## Workflow
 
@@ -34,12 +34,12 @@ Execute these phases in order. Stop immediately if any input validation check fa
 
 Read all of the following before proceeding:
 
-1. **Task issue:** `gh issue view <number> --json number,title,body,labels,state,assignees,comments` -- extract Objective, Spec Reference, Scope (In Scope / Out of Scope), Acceptance Criteria, and Constraints.
-2. **Linked PR:** Find the PR via `gh pr list --search "Closes #<N>" --json number,title,headRefName,url`. Then read its metadata: `gh pr view <number> --json number,title,body,state,isDraft,mergeable,headRefName,baseRefName,files,reviewDecision,statusCheckRollup,reviews`.
-3. **PR diff:** `gh pr diff <number>` to see all changed files.
+1. **Task issue:** `scripts/workflow/gh.sh issue view <number> --json number,title,body,labels,state,assignees,comments` -- extract Objective, Spec Reference, Scope (In Scope / Out of Scope), Acceptance Criteria, and Constraints.
+2. **Linked PR:** Find the PR via `scripts/workflow/gh.sh pr list --search "Closes #<N>" --json number,title,headRefName,url`. Then read its metadata: `scripts/workflow/gh.sh pr view <number> --json number,title,body,state,isDraft,mergeable,headRefName,baseRefName,files,reviewDecision,statusCheckRollup,reviews`.
+3. **PR diff:** `scripts/workflow/gh.sh pr diff <number>` to see all changed files.
 4. **Referenced spec sections:** Read the spec file(s) and section(s) listed in the task's "Spec Reference" field.
-5. **CI status:** `gh pr checks <number> --json name,state,conclusion`.
-6. **PR review comments:** Read all review comments on the PR from the PR metadata (reviews field) and `gh pr view <number> --json comments,reviews`.
+5. **CI status:** `scripts/workflow/gh.sh pr checks <number> --json name,state,conclusion`.
+6. **PR review comments:** Read all review comments on the PR from the PR metadata (reviews field) and `scripts/workflow/gh.sh pr view <number> --json comments,reviews`.
 7. **CLAUDE.md:** Read the project's `CLAUDE.md` for code style, naming conventions, and patterns.
 
 ### Phase 2: Input Validation
@@ -72,7 +72,7 @@ Run ALL 7 steps on every review. Individual failures do NOT short-circuit remain
 
 #### Step 1: CI Results
 
-- Check CI pipeline results via `gh pr checks <number> --json name,state,conclusion`.
+- Check CI pipeline results via `scripts/workflow/gh.sh pr checks <number> --json name,state,conclusion`.
 - If any checks fail, record the failing check names, states, and conclusions as a finding.
 - CI failure guarantees rejection but does not stop the review -- continue to remaining steps.
 
@@ -132,23 +132,23 @@ Compare the list of files modified in the PR diff against the task issue's scope
 
 #### Approval (all checklist steps pass -- no findings)
 
-1. Submit a PR review comment via the github-workflow skill:
-   `gh pr review <number> --comment --body "<summary>"`
+1. Submit a PR review comment:
+   `scripts/workflow/gh.sh pr review <number> --comment --body "<summary>"`
    The summary should confirm what was verified across all 7 checklist steps.
 2. Update the task issue label from `status:review` to `status:approved`:
-   `gh issue edit <number> --remove-label "status:review" --add-label "status:approved"`
+   `scripts/workflow/gh.sh issue edit <number> --remove-label "status:review" --add-label "status:approved"`
 
 #### Rejection (one or more checklist steps have findings)
 
-1. Submit a PR review comment via the github-workflow skill:
-   `gh pr review <number> --comment --body "<feedback>"`
+1. Submit a PR review comment:
+   `scripts/workflow/gh.sh pr review <number> --comment --body "<feedback>"`
    Structure the feedback by checklist category. Only include categories that have findings.
 2. Each piece of feedback MUST include:
    - **What is wrong:** Specific file, line, or criterion.
    - **Why it is wrong:** Reference to spec, convention, or criterion.
    - **What needs to change:** Concrete, actionable guidance.
 3. Update the task issue label from `status:review` to `status:needs-changes`:
-   `gh issue edit <number> --remove-label "status:review" --add-label "status:needs-changes"`
+   `scripts/workflow/gh.sh issue edit <number> --remove-label "status:review" --add-label "status:needs-changes"`
 
 ### Phase 5: Completion Summary
 
@@ -172,4 +172,4 @@ Brief description of the review result. For approvals, confirm what was verified
 - NEVER reject without providing actionable feedback explaining what needs to change and why.
 - NEVER short-circuit the review checklist. All 7 steps run on every review, even if early steps fail.
 - NEVER perform status transitions other than `status:review` → `status:approved` or `status:review` → `status:needs-changes`.
-- ALWAYS use the github-workflow skill for GitHub operation mechanics (command syntax, authentication, label rules, templates). The workflow steps in this document are the authority for **when** to perform operations.
+- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations (command syntax, authentication, and label rules are documented in this file and in `skill-github-workflow.md` as a reference). The workflow steps in this document are the authority for **when** to perform operations.
