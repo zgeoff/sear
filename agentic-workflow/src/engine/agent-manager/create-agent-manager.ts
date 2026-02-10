@@ -455,10 +455,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       return;
     }
 
-    const type =
-      typeof message === 'object' && message !== null && 'type' in message
-        ? String(message.type)
-        : 'unknown';
+    const type = isTypedMessage(message) ? String(message.type) : 'unknown';
     const timestamp = formatUtcTime(new Date());
 
     const lines: string[] = [];
@@ -526,11 +523,39 @@ interface ToolUseBlock {
 }
 
 function isTextBlock(block: object): block is TextBlock {
-  return 'text' in block && typeof block.text === 'string';
+  return (
+    'type' in block && block.type === 'text' && 'text' in block && typeof block.text === 'string'
+  );
 }
 
 function isToolUseBlock(block: object): block is ToolUseBlock {
-  return 'name' in block && typeof block.name === 'string';
+  return (
+    'type' in block &&
+    block.type === 'tool_use' &&
+    'name' in block &&
+    typeof block.name === 'string'
+  );
+}
+
+function isTypedMessage(value: unknown): value is { type: string } {
+  return typeof value === 'object' && value !== null && 'type' in value;
+}
+
+function isToolEntry(value: unknown): value is { name: string } {
+  return (
+    typeof value === 'object' && value !== null && 'name' in value && typeof value.name === 'string'
+  );
+}
+
+function isUsage(value: unknown): value is ResultMessageUsage {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'input_tokens' in value &&
+    typeof value.input_tokens === 'number' &&
+    'output_tokens' in value &&
+    typeof value.output_tokens === 'number'
+  );
 }
 
 interface AssistantMessageContent {
@@ -612,13 +637,7 @@ function extractTextFromAssistantMessage(message: { content: unknown }): string 
 
   const textParts: string[] = [];
   for (const block of content) {
-    if (
-      typeof block === 'object' &&
-      block !== null &&
-      'type' in block &&
-      block.type === 'text' &&
-      isTextBlock(block)
-    ) {
+    if (typeof block === 'object' && block !== null && isTextBlock(block)) {
       textParts.push(block.text);
     }
   }
@@ -726,7 +745,7 @@ function buildSessionHeader(tracker: AgentSessionTracker, initMessage: InitMessa
         if (typeof t === 'string') {
           return t;
         }
-        if (typeof t === 'object' && t !== null && 'name' in t && typeof t.name === 'string') {
+        if (isToolEntry(t)) {
           return t.name;
         }
         return '';
@@ -755,14 +774,7 @@ function extractResultMetadata(message: Record<string, unknown>): ResultMessageS
   }
 
   const usage = message.usage;
-  if (
-    typeof usage === 'object' &&
-    usage !== null &&
-    'input_tokens' in usage &&
-    typeof usage.input_tokens === 'number' &&
-    'output_tokens' in usage &&
-    typeof usage.output_tokens === 'number'
-  ) {
+  if (isUsage(usage)) {
     result.usage = { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens };
   }
 
