@@ -229,7 +229,7 @@ export function App(props: AppProps): ReactNode {
         </Box>
         <Text dimColor={!(panesFocused[1] || panesFocused[2])}>│</Text>
         <Box width={paneWidths[2]} height={contentHeight} flexDirection="column">
-          <DetailPane store={engineStore} />
+          <DetailPane store={engineStore} paneWidth={paneWidths[2]} paneHeight={contentHeight} />
         </Box>
         <Text dimColor={!panesFocused[2]}>│</Text>
       </Box>

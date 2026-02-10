@@ -5,16 +5,23 @@ import { createEngineStore } from '../store.ts';
 import { createMockEngine } from '../test-utils/create-mock-engine.ts';
 import { DetailPane } from './detail-pane.tsx';
 
-function setupTest(): ReturnType<typeof render> & {
+interface SetupTestOptions {
+  paneWidth?: number;
+  paneHeight?: number;
+}
+
+function setupTest(options?: SetupTestOptions): ReturnType<typeof render> & {
   store: ReturnType<typeof createEngineStore>;
   engine: ReturnType<typeof createMockEngine>['engine'];
   emit: ReturnType<typeof createMockEngine>['emit'];
 } {
+  const paneWidth = options?.paneWidth ?? 80;
+  const paneHeight = options?.paneHeight ?? 20;
   const { engine, emit } = createMockEngine();
   const store = createEngineStore({ engine, repository: 'owner/repo' });
   const instance = render(
     <Box flexDirection="column">
-      <DetailPane store={store} />
+      <DetailPane store={store} paneWidth={paneWidth} paneHeight={paneHeight} />
     </Box>,
   );
   return { store, engine, emit, ...instance };
@@ -671,5 +678,403 @@ test('it displays issue details for a needs-changes issue', async () => {
     const frame = lastFrame();
     expect(frame).toContain('#1 Needs changes task');
     expect(frame).toContain('Reviewer requested changes');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scroll windowing — only visible rows rendered
+// ---------------------------------------------------------------------------
+
+test('it only renders the visible window of lines when content exceeds the pane height', async () => {
+  // paneHeight=3 means only 3 lines visible at a time.
+  // Issue details: header + labels + blank + body lines = at least 4 lines.
+  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Long issue',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issueDetails = new Map(store.getState().issueDetails);
+  issueDetails.set(1, {
+    body: 'Body line 1\nBody line 2\nBody line 3\nBody line 4\nBody line 5',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ issueDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // First 3 lines: "#1 Long issue", "Labels: task:implement", ""
+    expect(frame).toContain('#1 Long issue');
+    expect(frame).toContain('Labels: task:implement');
+    // Body line 4 and 5 should NOT be visible (beyond the window)
+    expect(frame).not.toContain('Body line 4');
+    expect(frame).not.toContain('Body line 5');
+  });
+});
+
+test('it renders content beyond the window after scrolling down', async () => {
+  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 3 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Long issue',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issueDetails = new Map(store.getState().issueDetails);
+  issueDetails.set(1, {
+    body: 'Body line 1\nBody line 2\nBody line 3',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({
+    issueDetails,
+    selectedIssue: 1,
+    focusedPane: 'detailPane',
+  });
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#1 Long issue');
+  });
+
+  // Scroll down 3 times to reach body content
+  stdin.write('j');
+  stdin.write('j');
+  stdin.write('j');
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Body line 1');
+  });
+});
+
+test('it applies scroll windowing to streaming output', async () => {
+  // paneHeight=3: header line + 2 visible chunk lines
+  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Streaming',
+    oldStatus: null,
+    newStatus: 'in-progress',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, { ...issue, agentRunning: true, agentType: 'implementor' });
+  }
+
+  // 5 chunks + 1 header = 6 total lines, paneHeight=3
+  const agentStreams = new Map(store.getState().agentStreams);
+  agentStreams.set(1, ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4', 'Chunk 5']);
+  store.setState({ issues, agentStreams, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // Auto-scroll pins to tail: last 3 lines = Chunk 3, Chunk 4, Chunk 5
+    expect(frame).toContain('Chunk 5');
+    // Header and early chunks should be scrolled out
+    expect(frame).not.toContain('Implementor output');
+    expect(frame).not.toContain('Chunk 1');
+  });
+});
+
+test('it applies scroll windowing to the failure overlay', async () => {
+  // paneHeight=3: only 3 lines visible out of ~7 failure lines
+  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Failed task',
+    oldStatus: null,
+    newStatus: 'in-progress',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, {
+      ...issue,
+      lastFailure: {
+        agentType: 'implementor',
+        error: 'process crashed',
+        sessionID: 'sess-abc-123',
+        worktreePath: '/home/user/.worktrees/issue-1',
+        logFilePath: '/logs/agent.log',
+      },
+    });
+  }
+  store.setState({ issues, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // With 3 visible rows, only first 3 of ~8 failure lines visible:
+    // "Agent Failure", "Issue: #1 Failed task", "Agent: Implementor"
+    expect(frame).toContain('Agent Failure');
+    // Later lines should NOT be visible without scrolling
+    expect(frame).not.toContain('Press Enter');
+  });
+});
+
+test('it applies scroll windowing to the PR summary', async () => {
+  // paneHeight=3: only 3 of 4-5 PR lines visible
+  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'feat: add login',
+    changedFilesCount: 5,
+    ciStatus: 'success',
+    url: 'https://github.com/owner/repo/pull/10',
+    stale: false,
+  });
+  store.setState({ prDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // 4 lines total: PR title, Issue ref, Changed files, CI status
+    // Only first 3 visible
+    expect(frame).toContain('PR #10: feat: add login');
+    expect(frame).toContain('Issue: #1 Review task');
+    expect(frame).toContain('Changed files: 5');
+    expect(frame).not.toContain('CI: success');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Line truncation
+// ---------------------------------------------------------------------------
+
+test('it truncates lines that exceed the pane width with an ellipsis', async () => {
+  const { store, emit, lastFrame } = setupTest({ paneWidth: 20, paneHeight: 10 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'A very long title that exceeds the pane width',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issueDetails = new Map(store.getState().issueDetails);
+  issueDetails.set(1, {
+    body: 'Short line\nThis is a very long body line that definitely exceeds the twenty character pane width',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ issueDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // Title "#1 A very long title that exceeds..." should be truncated with ellipsis
+    expect(frame).toContain('\u2026');
+    // The full long line should NOT appear
+    expect(frame).not.toContain('twenty character pane width');
+  });
+});
+
+test('it does not truncate lines that fit within the pane width', async () => {
+  const { store, emit, lastFrame } = setupTest({ paneWidth: 80 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Short title',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issueDetails = new Map(store.getState().issueDetails);
+  issueDetails.set(1, {
+    body: 'Short body',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ issueDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('#1 Short title');
+    expect(frame).toContain('Short body');
+    expect(frame).not.toContain('\u2026');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Auto-scroll resume condition
+// ---------------------------------------------------------------------------
+
+test('it resumes auto-scroll when the user scrolls back to the bottom of the stream', async () => {
+  // paneHeight=3, so visible row count is 3
+  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 3 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Streaming',
+    oldStatus: null,
+    newStatus: 'in-progress',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, { ...issue, agentRunning: true, agentType: 'implementor' });
+  }
+
+  // 4 chunks + 1 header = 5 total lines
+  const agentStreams = new Map(store.getState().agentStreams);
+  agentStreams.set(1, ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4']);
+  store.setState({ issues, agentStreams, selectedIssue: 1, focusedPane: 'detailPane' });
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('Chunk 4');
+  });
+
+  // Scroll up to pause auto-scroll
+  stdin.write('k');
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Chunk 3');
+  });
+
+  // Add new chunk — should NOT auto-scroll because we scrolled up
+  const updatedStreams = new Map(store.getState().agentStreams);
+  updatedStreams.set(1, ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4', 'Chunk 5']);
+  store.setState({ agentStreams: updatedStreams });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // Chunk 5 should not be visible — auto-scroll is paused
+    expect(frame).not.toContain('Chunk 5');
+  });
+
+  // Scroll down to the bottom to resume auto-scroll
+  stdin.write('j');
+  stdin.write('j');
+
+  // Add another chunk — should auto-scroll now
+  const finalStreams = new Map(store.getState().agentStreams);
+  finalStreams.set(1, ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4', 'Chunk 5', 'Chunk 6']);
+  store.setState({ agentStreams: finalStreams });
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('Chunk 6');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scroll bounds
+// ---------------------------------------------------------------------------
+
+test('it does not scroll above the first line', async () => {
+  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 5 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Issue',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issueDetails = new Map(store.getState().issueDetails);
+  issueDetails.set(1, {
+    body: 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\nLine 7',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ issueDetails, selectedIssue: 1, focusedPane: 'detailPane' });
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#1 Issue');
+  });
+
+  // Try scrolling up past the top
+  stdin.write('k');
+  stdin.write('k');
+  stdin.write('k');
+
+  await vi.waitFor(() => {
+    // First line should still be visible
+    expect(lastFrame()).toContain('#1 Issue');
+  });
+});
+
+test('it does not scroll below the last line', async () => {
+  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 5 });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Issue',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issueDetails = new Map(store.getState().issueDetails);
+  issueDetails.set(1, {
+    body: 'Line 1\nLine 2\nLine 3',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ issueDetails, selectedIssue: 1, focusedPane: 'detailPane' });
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#1 Issue');
+  });
+
+  // Total lines = 6 (header, labels, blank, line1, line2, line3). paneHeight=5.
+  // Max scroll offset = 6 - 5 = 1. Scrolling down more should not go past that.
+  stdin.write('j');
+  stdin.write('j');
+  stdin.write('j');
+  stdin.write('j');
+  stdin.write('j');
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // Last line should be visible
+    expect(frame).toContain('Line 3');
   });
 });

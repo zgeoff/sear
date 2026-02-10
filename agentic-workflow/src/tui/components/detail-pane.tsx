@@ -1,5 +1,4 @@
 import { Box, Text, useInput } from 'ink';
-import Link from 'ink-link';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { match, P } from 'ts-pattern';
@@ -15,6 +14,8 @@ import type {
 
 export interface DetailPaneProps {
   store: StoreApi<EngineStore>;
+  paneWidth: number;
+  paneHeight: number;
 }
 
 type IssueState =
@@ -27,33 +28,18 @@ type IssueState =
   | { view: 'prSummary'; issue: TrackedIssue; pr: CachedPRDetails }
   | { view: 'prApproved'; issue: TrackedIssue; pr: CachedPRDetails };
 
-interface LoadingViewProps {
-  issue: TrackedIssue;
-}
-
-interface FailureViewProps {
-  issue: TrackedIssue;
-  failure: LastFailure;
-}
-
-interface StreamingViewProps {
-  issue: TrackedIssue;
-  chunks: string[];
-  scrollOffset: number;
-}
-
-interface IssueDetailsViewProps {
-  issue: TrackedIssue;
-  details: CachedIssueDetails;
-  scrollOffset: number;
-}
-
-interface PrViewProps {
-  issue: TrackedIssue;
-  pr: CachedPRDetails;
+interface ResolveIssueStateParams {
+  issue: TrackedIssue | null;
+  selectedIssue: number | null;
+  agentStreams: Map<number, string[]>;
+  issueDetails: Map<number, CachedIssueDetails>;
+  prDetails: Map<number, CachedPRDetails>;
 }
 
 const SCROLL_STEP = 1;
+const ELLIPSIS = '\u2026';
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequences use control characters by definition
+const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
 
 export function DetailPane(props: DetailPaneProps): ReactNode {
   const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
@@ -67,6 +53,8 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
   const [autoScroll, setAutoScroll] = useState(true);
   const prevChunkCountRef = useRef(0);
 
+  const visibleRowCount = props.paneHeight;
+
   const issue = selectedIssue !== null ? (issues.get(selectedIssue) ?? null) : null;
   const issueState = resolveIssueState({
     issue,
@@ -76,26 +64,37 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
     prDetails,
   });
 
-  const chunks = issueState.view === 'streaming' ? issueState.chunks : undefined;
+  const allLines = buildContentLines(issueState);
+  const lineCount = allLines.length;
+
+  const isStreaming = issueState.view === 'streaming';
+  const chunks = isStreaming ? issueState.chunks : undefined;
   const chunkCount = chunks?.length ?? 0;
 
+  const prevSelectedIssueRef = useRef(selectedIssue);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedIssue is a trigger for reset, not a consumed value
   useEffect(() => {
-    if (chunks && chunkCount > prevChunkCountRef.current && autoScroll) {
-      setScrollOffset(Math.max(0, chunkCount - 1));
+    const issueChanged = selectedIssue !== prevSelectedIssueRef.current;
+    prevSelectedIssueRef.current = selectedIssue;
+
+    if (issueChanged) {
+      setAutoScroll(true);
+      prevChunkCountRef.current = 0;
+
+      if (isStreaming) {
+        setScrollOffset(Math.max(0, lineCount - visibleRowCount));
+      } else {
+        setScrollOffset(0);
+      }
+      return;
+    }
+
+    if (isStreaming && chunkCount > prevChunkCountRef.current && autoScroll) {
+      setScrollOffset(Math.max(0, lineCount - visibleRowCount));
     }
     prevChunkCountRef.current = chunkCount;
-  }, [chunkCount, autoScroll, chunks]);
-
-  // selectedIssue is an intentional trigger — reset scroll state when the user
-  // selects a different issue.  The effect body only calls stable setters and
-  // mutates a ref, so Biome sees selectedIssue as unused, but removing it would
-  // turn this into a mount-only effect.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedIssue is a trigger, not a consumed value
-  useEffect(() => {
-    setScrollOffset(0);
-    setAutoScroll(true);
-    prevChunkCountRef.current = 0;
-  }, [selectedIssue]);
+  }, [selectedIssue, chunkCount, autoScroll, isStreaming, lineCount, visibleRowCount]);
 
   useInput((input, key) => {
     if (focusedPane !== 'detailPane') {
@@ -107,44 +106,141 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
 
     if (isUp) {
       setScrollOffset((prev) => Math.max(0, prev - SCROLL_STEP));
-      if (chunks) {
+      if (isStreaming) {
         setAutoScroll(false);
       }
     }
     if (isDown) {
-      setScrollOffset((prev) => prev + SCROLL_STEP);
-      if (chunks && scrollOffset + SCROLL_STEP >= chunkCount - 1) {
-        setAutoScroll(true);
-      }
+      setScrollOffset((prev) => {
+        const maxOffset = Math.max(0, lineCount - visibleRowCount);
+        const next = Math.min(prev + SCROLL_STEP, maxOffset);
+        if (isStreaming && next >= lineCount - visibleRowCount) {
+          setAutoScroll(true);
+        }
+        return next;
+      });
     }
   });
 
+  const clampedOffset = Math.max(
+    0,
+    Math.min(scrollOffset, Math.max(0, lineCount - visibleRowCount)),
+  );
+  const windowedLines = allLines.slice(clampedOffset, clampedOffset + visibleRowCount);
+
+  return (
+    <Box flexDirection="column">
+      {windowedLines.map((line, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: content lines have no stable identity
+        <Text key={clampedOffset + i}>{truncateLine(line, props.paneWidth)}</Text>
+      ))}
+    </Box>
+  );
+}
+
+function buildContentLines(issueState: IssueState): string[] {
   return match(issueState)
-    .with({ view: 'none' }, () => <NoIssueSelected />)
-    .with({ view: 'loading' }, ({ issue: i }) => <LoadingView issue={i} />)
-    .with({ view: 'failure' }, ({ issue: i, failure }) => (
-      <FailureView issue={i} failure={failure} />
-    ))
-    .with({ view: 'streaming' }, ({ issue: i, chunks: c }) => (
-      <StreamingView issue={i} chunks={c} scrollOffset={scrollOffset} />
-    ))
-    .with({ view: 'issueDetails' }, ({ issue: i, details }) => (
-      <IssueDetailsView issue={i} details={details} scrollOffset={scrollOffset} />
-    ))
-    .with({ view: 'issueDetailsWithGuidance' }, ({ issue: i, details }) => (
-      <IssueDetailsWithGuidanceView issue={i} details={details} scrollOffset={scrollOffset} />
-    ))
-    .with({ view: 'prSummary' }, ({ issue: i, pr }) => <PrSummaryView issue={i} pr={pr} />)
-    .with({ view: 'prApproved' }, ({ issue: i, pr }) => <PrApprovedView issue={i} pr={pr} />)
+    .with({ view: 'none' }, () => buildNoSelectionLines())
+    .with({ view: 'loading' }, (s) => buildLoadingLines(s.issue))
+    .with({ view: 'failure' }, (s) => buildFailureLines(s.issue, s.failure))
+    .with({ view: 'streaming' }, (s) => buildStreamingLines(s.issue, s.chunks))
+    .with({ view: 'issueDetails' }, (s) => buildIssueDetailsLines(s.issue, s.details))
+    .with({ view: 'issueDetailsWithGuidance' }, (s) =>
+      buildIssueDetailsWithGuidanceLines(s.issue, s.details),
+    )
+    .with({ view: 'prSummary' }, (s) => buildPrSummaryLines(s.issue, s.pr))
+    .with({ view: 'prApproved' }, (s) => buildPrApprovedLines(s.issue, s.pr))
     .exhaustive();
 }
 
-interface ResolveIssueStateParams {
-  issue: TrackedIssue | null;
-  selectedIssue: number | null;
-  agentStreams: Map<number, string[]>;
-  issueDetails: Map<number, CachedIssueDetails>;
-  prDetails: Map<number, CachedPRDetails>;
+function buildNoSelectionLines(): string[] {
+  return ['No issue selected'];
+}
+
+function buildLoadingLines(issue: TrackedIssue): string[] {
+  return [`#${issue.number} ${issue.title}`, 'Loading...'];
+}
+
+function buildFailureLines(issue: TrackedIssue, failure: LastFailure): string[] {
+  const agentLabel = failure.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
+  const lines: string[] = [
+    'Agent Failure',
+    `Issue: #${issue.number} ${issue.title}`,
+    `Agent: ${agentLabel}`,
+    `Error: ${failure.error}`,
+    `Session: ${failure.sessionID}`,
+  ];
+  if (failure.worktreePath) {
+    lines.push(`Worktree: ${failure.worktreePath}`);
+  }
+  if (failure.logFilePath) {
+    lines.push(`Log: ${failure.logFilePath}`);
+  }
+  lines.push('Press Enter in the issue list to retry.');
+  return lines;
+}
+
+function buildStreamingLines(issue: TrackedIssue, chunks: string[]): string[] {
+  const agentLabel = issue.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
+  return [`${agentLabel} output for #${issue.number}`, ...chunks];
+}
+
+function buildIssueDetailsLines(issue: TrackedIssue, details: CachedIssueDetails): string[] {
+  const lines: string[] = [
+    `#${issue.number} ${issue.title}`,
+    `Labels: ${details.labels.join(', ')}`,
+  ];
+  if (details.stale) {
+    lines.push('(Refreshing...)');
+  }
+  lines.push('');
+  lines.push(...details.body.split('\n'));
+  return lines;
+}
+
+function buildIssueDetailsWithGuidanceLines(
+  issue: TrackedIssue,
+  details: CachedIssueDetails,
+): string[] {
+  const statusDisplay = issue.statusLabel === 'needs-refinement' ? 'Needs Refinement' : 'Blocked';
+  const lines: string[] = [
+    `#${issue.number} ${issue.title}`,
+    statusDisplay,
+    `Labels: ${details.labels.join(', ')}`,
+  ];
+  if (details.stale) {
+    lines.push('(Refreshing...)');
+  }
+  lines.push('');
+  lines.push(...details.body.split('\n'));
+  return lines;
+}
+
+function buildPrSummaryLines(issue: TrackedIssue, pr: CachedPRDetails): string[] {
+  const lines: string[] = [
+    `PR #${pr.number}: ${pr.title}`,
+    `Issue: #${issue.number} ${issue.title}`,
+    `Changed files: ${pr.changedFilesCount}`,
+    `CI: ${pr.ciStatus}`,
+  ];
+  if (pr.stale) {
+    lines.push('(Refreshing...)');
+  }
+  return lines;
+}
+
+function buildPrApprovedLines(issue: TrackedIssue, pr: CachedPRDetails): string[] {
+  const lines: string[] = [
+    'Ready to Merge',
+    `PR #${pr.number}: ${pr.title}`,
+    `Issue: #${issue.number} ${issue.title}`,
+    `Changed files: ${pr.changedFilesCount}`,
+    `CI: ${pr.ciStatus}`,
+  ];
+  if (pr.stale) {
+    lines.push('(Refreshing...)');
+  }
+  return lines;
 }
 
 function resolveIssueState(params: ResolveIssueStateParams): IssueState {
@@ -200,142 +296,42 @@ function resolveIssueState(params: ResolveIssueStateParams): IssueState {
     });
 }
 
-function NoIssueSelected(): ReactNode {
-  return <Text>No issue selected</Text>;
+function truncateLine(line: string, maxWidth: number): string {
+  if (maxWidth <= 0) {
+    return '';
+  }
+  const visualWidth = stripAnsi(line).length;
+  if (visualWidth <= maxWidth) {
+    return line;
+  }
+  if (maxWidth === 1) {
+    return ELLIPSIS;
+  }
+  return stripAndTruncate(line, maxWidth - 1) + ELLIPSIS;
 }
 
-function LoadingView(props: LoadingViewProps): ReactNode {
-  return (
-    <Box flexDirection="column">
-      <Text bold={true}>
-        #{props.issue.number} {props.issue.title}
-      </Text>
-      <Text dimColor={true}>Loading...</Text>
-    </Box>
-  );
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_REGEX, '');
 }
 
-function FailureView(props: FailureViewProps): ReactNode {
-  const agentLabel = props.failure.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-
-  return (
-    <Box flexDirection="column">
-      <Text bold={true} color="red">
-        Agent Failure
-      </Text>
-      <Text>
-        Issue: #{props.issue.number} {props.issue.title}
-      </Text>
-      <Text>Agent: {agentLabel}</Text>
-      <Text>Error: {props.failure.error}</Text>
-      <Text>Session: {props.failure.sessionID}</Text>
-      {props.failure.worktreePath ? <Text>Worktree: {props.failure.worktreePath}</Text> : null}
-      {props.failure.logFilePath ? (
-        <Text>
-          Log:{' '}
-          <Link url={`file://${props.failure.logFilePath}`} fallback={false}>
-            {props.failure.logFilePath}
-          </Link>
-        </Text>
-      ) : null}
-      <Text dimColor={true}>Press Enter in the issue list to retry.</Text>
-    </Box>
-  );
-}
-
-function StreamingView(props: StreamingViewProps): ReactNode {
-  const agentLabel = props.issue.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-  const visible = props.chunks.slice(props.scrollOffset);
-
-  return (
-    <Box flexDirection="column">
-      <Text bold={true}>
-        {agentLabel} output for #{props.issue.number}
-      </Text>
-      {visible.map((chunk, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: stream chunks have no stable identity
-        <Text key={props.scrollOffset + i}>{chunk}</Text>
-      ))}
-    </Box>
-  );
-}
-
-function IssueDetailsView(props: IssueDetailsViewProps): ReactNode {
-  const lines = props.details.body.split('\n');
-  const visible = lines.slice(props.scrollOffset);
-
-  return (
-    <Box flexDirection="column">
-      <Text bold={true}>
-        #{props.issue.number} {props.issue.title}
-      </Text>
-      <Text dimColor={true}>Labels: {props.details.labels.join(', ')}</Text>
-      {props.details.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
-      <Text> </Text>
-      {visible.map((line, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: text lines have no stable identity
-        <Text key={props.scrollOffset + i}>{line}</Text>
-      ))}
-    </Box>
-  );
-}
-
-function IssueDetailsWithGuidanceView(props: IssueDetailsViewProps): ReactNode {
-  const statusDisplay =
-    props.issue.statusLabel === 'needs-refinement' ? 'Needs Refinement' : 'Blocked';
-  const lines = props.details.body.split('\n');
-  const visible = lines.slice(props.scrollOffset);
-
-  return (
-    <Box flexDirection="column">
-      <Text bold={true}>
-        #{props.issue.number} {props.issue.title}
-      </Text>
-      <Text bold={true} color="yellow">
-        {statusDisplay}
-      </Text>
-      <Text dimColor={true}>Labels: {props.details.labels.join(', ')}</Text>
-      {props.details.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
-      <Text> </Text>
-      {visible.map((line, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: text lines have no stable identity
-        <Text key={props.scrollOffset + i}>{line}</Text>
-      ))}
-    </Box>
-  );
-}
-
-function PrSummaryView(props: PrViewProps): ReactNode {
-  return (
-    <Box flexDirection="column">
-      <Text bold={true}>
-        PR #{props.pr.number}: {props.pr.title}
-      </Text>
-      <Text>
-        Issue: #{props.issue.number} {props.issue.title}
-      </Text>
-      <Text>Changed files: {props.pr.changedFilesCount}</Text>
-      <Text>CI: {props.pr.ciStatus}</Text>
-      {props.pr.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
-    </Box>
-  );
-}
-
-function PrApprovedView(props: PrViewProps): ReactNode {
-  return (
-    <Box flexDirection="column">
-      <Text bold={true} color="green">
-        Ready to Merge
-      </Text>
-      <Text bold={true}>
-        PR #{props.pr.number}: {props.pr.title}
-      </Text>
-      <Text>
-        Issue: #{props.issue.number} {props.issue.title}
-      </Text>
-      <Text>Changed files: {props.pr.changedFilesCount}</Text>
-      <Text>CI: {props.pr.ciStatus}</Text>
-      {props.pr.stale ? <Text dimColor={true}>(Refreshing...)</Text> : null}
-    </Box>
-  );
+function stripAndTruncate(text: string, maxVisibleChars: number): string {
+  let visibleCount = 0;
+  let i = 0;
+  while (i < text.length && visibleCount < maxVisibleChars) {
+    if (text[i] === '\x1b' && text[i + 1] === '[') {
+      const end = text.indexOf('m', i);
+      if (end !== -1) {
+        i = end + 1;
+        // Skip ANSI sequence, don't count towards visible width
+      } else {
+        // Malformed escape — treat rest as visible
+        visibleCount += 1;
+        i += 1;
+      }
+    } else {
+      visibleCount += 1;
+      i += 1;
+    }
+  }
+  return text.slice(0, i);
 }
