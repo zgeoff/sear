@@ -107,7 +107,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
       const tracker = await startSession({
         agentType: 'planner',
-        prompt: specPaths.join(' '),
+        prompt: params.prompt ?? specPaths.join(' '),
         cwd: repoRoot,
         agent: agentPlanner,
         specPaths,

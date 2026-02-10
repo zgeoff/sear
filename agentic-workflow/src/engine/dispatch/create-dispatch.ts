@@ -31,12 +31,22 @@ export function createDispatch(
   const latestSpecStatuses = new Map<string, string>();
 
   return {
-    handleSpecPollerResult(result: SpecPollerBatchResult): void {
-      handleSpecPollerResult(result, { emitter, agentManager, deferredPaths, latestSpecStatuses });
+    async handleSpecPollerResult(result: SpecPollerBatchResult): Promise<void> {
+      await handleSpecPollerResult(result, {
+        emitter,
+        agentManager,
+        deferredPaths,
+        latestSpecStatuses,
+      });
     },
 
-    handleIssueStatusChanged(event: IssueStatusChangedEvent): void {
-      handleIssueStatusChanged(event, { emitter, agentManager, config, activeNotifications });
+    async handleIssueStatusChanged(event: IssueStatusChangedEvent): Promise<void> {
+      await handleIssueStatusChanged(event, {
+        emitter,
+        agentManager,
+        config,
+        activeNotifications,
+      });
     },
 
     handlePlannerFailed(specPaths: string[]): void {
@@ -58,10 +68,10 @@ interface HandleSpecPollerResultDeps {
   latestSpecStatuses: Map<string, string>;
 }
 
-function handleSpecPollerResult(
+async function handleSpecPollerResult(
   result: SpecPollerBatchResult,
   deps: HandleSpecPollerResultDeps,
-): void {
+): Promise<void> {
   const { emitter, agentManager, deferredPaths, latestSpecStatuses } = deps;
   // Update the latest known statuses from this cycle's results
   for (const change of result.changes) {
@@ -113,7 +123,7 @@ function handleSpecPollerResult(
   }
 
   // Dispatch Planner with all approved paths
-  agentManager.dispatchPlanner(pathsToDispatch);
+  await agentManager.dispatchPlanner(pathsToDispatch);
   deferredPaths.clear();
 }
 
@@ -139,10 +149,10 @@ interface HandleIssueStatusChangedDeps {
   activeNotifications: Map<number, string>;
 }
 
-function handleIssueStatusChanged(
+async function handleIssueStatusChanged(
   event: IssueStatusChangedEvent,
   deps: HandleIssueStatusChangedDeps,
-): void {
+): Promise<void> {
   const { emitter, agentManager, config, activeNotifications } = deps;
   // Dismiss any active notification for this issue if the status changed
   if (activeNotifications.has(event.issueNumber)) {
@@ -153,9 +163,9 @@ function handleIssueStatusChanged(
     });
   }
 
-  match(event.newStatus)
-    .with('review', () => {
-      agentManager.dispatchReviewer(event.issueNumber);
+  await match(event.newStatus)
+    .with('review', async () => {
+      await agentManager.dispatchReviewer(event.issueNumber);
     })
     .with(
       P.when((s) => USER_DISPATCH_STATUSES.includes(s)),

@@ -104,8 +104,12 @@ test('it invokes handlers synchronously in subscription order', () => {
   const { emitter } = setupTest();
   const callOrder: number[] = [];
 
-  emitter.on(() => callOrder.push(1));
-  emitter.on(() => callOrder.push(2));
+  emitter.on(() => {
+    callOrder.push(1);
+  });
+  emitter.on(() => {
+    callOrder.push(2);
+  });
 
   const event: EngineEvent = {
     type: 'issueRemoved',

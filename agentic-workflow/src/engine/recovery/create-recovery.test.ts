@@ -14,7 +14,9 @@ function setupTest(): {
   const octokit = createMockGitHubClient();
   const emitter = createEventEmitter();
   const events: EngineEvent[] = [];
-  emitter.on((event) => events.push(event));
+  emitter.on((event) => {
+    events.push(event);
+  });
 
   const recovery = createRecovery({
     octokit,

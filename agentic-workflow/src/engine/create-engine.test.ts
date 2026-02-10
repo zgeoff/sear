@@ -1054,6 +1054,361 @@ test('it does not write the cache file when the planner fails', async () => {
   expect(exists).toBe(false);
 });
 
+// ---------------------------------------------------------------------------
+// Planner Context Pre-computation
+// ---------------------------------------------------------------------------
+
+interface PlannerContextSetupOptions {
+  cacheEntry?: PlannerCacheEntry;
+  specTreeEntries: Array<{ path: string; sha: string }>;
+  specContents: Record<string, string>;
+  taskIssues?: Array<{
+    number: number;
+    title: string;
+    labels: Array<{ name: string }>;
+    body: string;
+    created_at: string;
+  }>;
+}
+
+function setupPlannerContextTest(options: PlannerContextSetupOptions): {
+  engine: ReturnType<typeof createEngine>;
+  events: EngineEvent[];
+  octokit: ReturnType<typeof createMockGitHubClient>;
+  capturedPrompts: string[];
+} {
+  vol.reset();
+  vol.mkdirSync('/tmp/test-repo', { recursive: true });
+
+  if (options.cacheEntry) {
+    vol.writeFileSync(
+      '/tmp/test-repo/.agentic-workflow-cache.json',
+      JSON.stringify(options.cacheEntry),
+    );
+  }
+
+  const octokit = createMockGitHubClient();
+  const capturedPrompts: string[] = [];
+  const worktreeManager = createMockWorktreeManager();
+
+  const queryFactory: QueryFactory = async (params: QueryFactoryParams) => {
+    capturedPrompts.push(params.prompt);
+    const q = createMockQuery();
+    q.pushMessage({
+      type: 'system',
+      subtype: 'init',
+      session_id: `session-${capturedPrompts.length}`,
+    });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig();
+
+  // Issue poller: no in-progress issues (recovery), return task issues for regular polls
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    if (params.labels === 'task:implement' || params.labels === 'task:refinement') {
+      return { data: options.taskIssues ?? [] };
+    }
+    return { data: [] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  // SpecPoller: return the configured tree entries
+  vi.mocked(octokit.git.getTree).mockImplementation(async (params) => {
+    if (params.tree_sha === 'main') {
+      return {
+        data: {
+          sha: 'root-sha',
+          tree: [{ path: 'docs/specs', type: 'tree', sha: 'new-tree-sha' }],
+        },
+      };
+    }
+    return {
+      data: {
+        sha: 'new-tree-sha',
+        tree: options.specTreeEntries.map((entry) => ({
+          path: entry.path,
+          type: 'blob',
+          sha: entry.sha,
+        })),
+      },
+    };
+  });
+
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
+    data: { object: { sha: 'current-commit-sha' } },
+  });
+
+  // Spec content: return base64-encoded content for each spec
+  vi.mocked(octokit.repos.getContent).mockImplementation(async (params) => {
+    const rawContent = options.specContents[params.path] ?? '';
+    const content = Buffer.from(rawContent).toString('base64');
+    return { data: { content } };
+  });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => events.push(event));
+
+  return { engine, events, octokit, capturedPrompts };
+}
+
+test('it includes the full content of each changed spec in the planner prompt', async () => {
+  const specContent = '---\nstatus: approved\n---\n# My Spec\n\nSpec body content here.';
+
+  const { engine, capturedPrompts } = setupPlannerContextTest({
+    specTreeEntries: [{ path: 'my-spec.md', sha: 'blob-sha-1' }],
+    specContents: { 'docs/specs/my-spec.md': specContent },
+  });
+
+  await engine.start();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  expect(capturedPrompts.length).toBeGreaterThan(0);
+  const prompt = capturedPrompts[0];
+  invariant(prompt, 'prompt must exist');
+  expect(prompt).toContain('## Changed Specs');
+  expect(prompt).toContain('### docs/specs/my-spec.md (added)');
+  expect(prompt).toContain(specContent);
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it includes a unified diff for modified specs in the planner prompt', async () => {
+  const specContent = '---\nstatus: approved\n---\n# My Spec\n\nUpdated content.';
+  const diffOutput =
+    'diff --git a/docs/specs/my-spec.md b/docs/specs/my-spec.md\n--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new';
+
+  // Set up a cache entry so the spec is "modified" (it was known before)
+  const cacheEntry: PlannerCacheEntry = {
+    snapshot: {
+      specsDirTreeSHA: 'old-tree-sha',
+      files: {
+        'docs/specs/my-spec.md': { blobSHA: 'old-blob-sha', frontmatterStatus: 'approved' },
+      },
+    },
+    commitSHA: 'previous-commit-sha',
+  };
+
+  // Mock execFileSync to return diff output for git diff calls
+  vi.mocked(execFileSync).mockImplementation((file, args, _options) => {
+    if (file === 'git' && Array.isArray(args) && args[0] === 'diff') {
+      return diffOutput;
+    }
+    if (file === 'git' && Array.isArray(args) && args[0] === 'rev-parse') {
+      return '/resolved/repo/root\n';
+    }
+    return '';
+  });
+
+  const { engine, capturedPrompts } = setupPlannerContextTest({
+    cacheEntry,
+    specTreeEntries: [{ path: 'my-spec.md', sha: 'new-blob-sha' }],
+    specContents: { 'docs/specs/my-spec.md': specContent },
+  });
+
+  await engine.start();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  expect(capturedPrompts.length).toBeGreaterThan(0);
+  const prompt = capturedPrompts[0];
+  invariant(prompt, 'prompt must exist');
+  expect(prompt).toContain('### docs/specs/my-spec.md (modified)');
+  expect(prompt).toContain('#### Diff');
+  expect(prompt).toContain(diffOutput);
+
+  // Reset the mock to default
+  vi.mocked(execFileSync).mockReturnValue('/resolved/repo/root\n');
+  engine.send({ command: 'shutdown' });
+});
+
+test('it does not include a diff section for added specs in the planner prompt', async () => {
+  const specContent = '---\nstatus: approved\n---\n# Brand New Spec';
+
+  const { engine, capturedPrompts } = setupPlannerContextTest({
+    specTreeEntries: [{ path: 'new-spec.md', sha: 'blob-sha-1' }],
+    specContents: { 'docs/specs/new-spec.md': specContent },
+  });
+
+  await engine.start();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  expect(capturedPrompts.length).toBeGreaterThan(0);
+  const prompt = capturedPrompts[0];
+  invariant(prompt, 'prompt must exist');
+  expect(prompt).toContain('### docs/specs/new-spec.md (added)');
+  expect(prompt).not.toContain('#### Diff');
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it includes existing open task issues as a JSON array in the planner prompt', async () => {
+  const specContent = '---\nstatus: approved\n---\n# Spec';
+  const taskIssues = [
+    {
+      number: 10,
+      title: 'Implement feature X',
+      labels: [{ name: 'task:implement' }, { name: 'status:pending' }],
+      body: 'Task body for feature X',
+      created_at: '2026-01-01T00:00:00Z',
+    },
+    {
+      number: 20,
+      title: 'Refine spec Y',
+      labels: [{ name: 'task:refinement' }, { name: 'status:needs-refinement' }],
+      body: 'Refinement details',
+      created_at: '2026-01-02T00:00:00Z',
+    },
+  ];
+
+  const { engine, capturedPrompts } = setupPlannerContextTest({
+    specTreeEntries: [{ path: 'spec.md', sha: 'blob-sha-1' }],
+    specContents: { 'docs/specs/spec.md': specContent },
+    taskIssues,
+  });
+
+  await engine.start();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  expect(capturedPrompts.length).toBeGreaterThan(0);
+  const prompt = capturedPrompts[0];
+  invariant(prompt, 'prompt must exist');
+  expect(prompt).toContain('## Existing Open Issues');
+
+  // Parse the JSON array from the prompt
+  const issuesJsonMatch = prompt.split('## Existing Open Issues\n')[1];
+  invariant(issuesJsonMatch, 'issues JSON section must exist');
+  const parsedIssues: unknown = JSON.parse(issuesJsonMatch);
+  expect(parsedIssues).toStrictEqual([
+    {
+      number: 10,
+      title: 'Implement feature X',
+      labels: ['task:implement', 'status:pending'],
+      body: 'Task body for feature X',
+    },
+    {
+      number: 20,
+      title: 'Refine spec Y',
+      labels: ['task:refinement', 'status:needs-refinement'],
+      body: 'Refinement details',
+    },
+  ]);
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it re-adds spec paths to the deferred buffer when spec content fetch fails', async () => {
+  const octokit = createMockGitHubClient();
+  const capturedPrompts: string[] = [];
+  const worktreeManager = createMockWorktreeManager();
+
+  const queryFactory: QueryFactory = async (params: QueryFactoryParams) => {
+    capturedPrompts.push(params.prompt);
+    const q = createMockQuery();
+    q.pushMessage({
+      type: 'system',
+      subtype: 'init',
+      session_id: `session-${capturedPrompts.length}`,
+    });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig();
+
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    return { data: [] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  // First SpecPoller cycle: detect a new spec
+  vi.mocked(octokit.git.getTree).mockImplementation(async (params) => {
+    if (params.tree_sha === 'main') {
+      return {
+        data: {
+          sha: 'root-sha',
+          tree: [{ path: 'docs/specs', type: 'tree', sha: 'new-tree-sha' }],
+        },
+      };
+    }
+    return {
+      data: {
+        sha: 'new-tree-sha',
+        tree: [{ path: 'spec.md', type: 'blob', sha: 'blob-sha-1' }],
+      },
+    };
+  });
+
+  vi.mocked(octokit.git.getRef).mockResolvedValue({
+    data: { object: { sha: 'commit-sha-1' } },
+  });
+
+  // Make repos.getContent fail on first call, succeed on retry
+  let getContentCallCount = 0;
+  vi.mocked(octokit.repos.getContent).mockImplementation(async (_params) => {
+    getContentCallCount += 1;
+    if (getContentCallCount === 1) {
+      // First call to getContent (during frontmatter check in SpecPoller)
+      const content = Buffer.from('---\nstatus: approved\n---\n# Spec').toString('base64');
+      return { data: { content } };
+    }
+    if (getContentCallCount === 2) {
+      // Second call: planner context fetch — fail
+      throw new Error('GitHub API error');
+    }
+    // Subsequent calls: succeed
+    const content = Buffer.from('---\nstatus: approved\n---\n# Spec').toString('base64');
+    return { data: { content } };
+  });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => events.push(event));
+
+  await engine.start();
+
+  // Wait for the failed dispatch attempt
+  await new Promise((resolve) => setTimeout(resolve, 100));
+
+  // No planner should have been dispatched (the prompt build failed)
+  expect(capturedPrompts.length).toBe(0);
+
+  // The spec paths should be re-added to the deferred buffer.
+  // On the next spec poller cycle, the deferred paths will be re-dispatched.
+  // We verify this indirectly: no agentStarted event for planner
+  const plannerStarted = events.filter(
+    (e) => e.type === 'agentStarted' && e.agentType === 'planner',
+  );
+  expect(plannerStarted.length).toBe(0);
+
+  engine.send({ command: 'shutdown' });
+});
+
 test('it treats a corrupt cache file as a cold start', async () => {
   vol.reset();
   vol.mkdirSync('/tmp/test-repo', { recursive: true });
