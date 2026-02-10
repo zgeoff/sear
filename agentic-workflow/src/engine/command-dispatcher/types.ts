@@ -8,8 +8,8 @@ import type {
 } from '../../types.ts';
 
 export interface CommandHandlers {
-  dispatchImplementor: (command: DispatchImplementorCommand) => void;
-  dispatchReviewer: (command: DispatchReviewerCommand) => void;
+  dispatchImplementor: (command: DispatchImplementorCommand) => void | Promise<void>;
+  dispatchReviewer: (command: DispatchReviewerCommand) => void | Promise<void>;
   cancelAgent: (command: CancelAgentCommand) => void | Promise<void>;
   cancelPlanner: (command: CancelPlannerCommand) => void | Promise<void>;
   shutdown: (command: ShutdownCommand) => void;

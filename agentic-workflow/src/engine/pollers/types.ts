@@ -9,6 +9,7 @@ export interface IssueSnapshot {
   title: string;
   statusLabel: string;
   priorityLabel: string;
+  complexityLabel: string;
   createdAt: string;
 }
 

@@ -101,13 +101,16 @@ function createMockQuery(): MockQuery {
   return mockQuery;
 }
 
+interface BuildMockIssueDataOptions {
+  title?: string;
+  priority?: string;
+  complexity?: string;
+}
+
 function buildMockIssueData(
   number: number,
   status: string,
-  // biome-ignore lint/style/noInferrableTypes: explicit type required by useExplicitType
-  title: string = `Issue #${number}`,
-  // biome-ignore lint/style/noInferrableTypes: explicit type required by useExplicitType
-  priority: string = 'priority:medium',
+  options?: BuildMockIssueDataOptions,
 ): {
   number: number;
   title: string;
@@ -115,11 +118,17 @@ function buildMockIssueData(
   labels: Array<{ name: string }>;
   created_at: string;
 } {
+  const title = options?.title ?? `Issue #${number}`;
+  const priority = options?.priority ?? 'priority:medium';
+  const labels = [{ name: 'task:implement' }, { name: `status:${status}` }, { name: priority }];
+  if (options?.complexity) {
+    labels.push({ name: options.complexity });
+  }
   return {
     number,
     title,
     body: `Task body for #${number}`,
-    labels: [{ name: 'task:implement' }, { name: `status:${status}` }, { name: priority }],
+    labels,
     created_at: '2026-01-01T00:00:00Z',
   };
 }
@@ -197,6 +206,7 @@ function setupTest(
   octokit: ReturnType<typeof createMockGitHubClient>;
   queryFactory: QueryFactory;
   mockQueries: MockQuery[];
+  capturedQueryParams: QueryFactoryParams[];
   config: ReturnType<typeof buildValidConfig>;
   worktreeManager: WorktreeManager;
 } {
@@ -209,9 +219,11 @@ function setupTest(
 
   const octokit = createMockGitHubClient();
   const mockQueries: MockQuery[] = [];
+  const capturedQueryParams: QueryFactoryParams[] = [];
   const worktreeManager = createMockWorktreeManager();
 
-  const queryFactory: QueryFactory = async (_params: QueryFactoryParams) => {
+  const queryFactory: QueryFactory = async (params: QueryFactoryParams) => {
+    capturedQueryParams.push(params);
     const q = createMockQuery();
     if (autoComplete) {
       // Auto-complete the session immediately
@@ -254,7 +266,16 @@ function setupTest(
     events.push(event);
   });
 
-  return { engine, events, octokit, queryFactory, mockQueries, config, worktreeManager };
+  return {
+    engine,
+    events,
+    octokit,
+    queryFactory,
+    mockQueries,
+    capturedQueryParams,
+    config,
+    worktreeManager,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -452,6 +473,61 @@ test('it skips dispatching an implementor for an in-progress issue with a runnin
     (e) => e.type === 'agentSkipped' && 'issueNumber' in e && e.issueNumber === 42,
   );
   expect(agentSkipped.length).toBe(1);
+});
+
+// ---------------------------------------------------------------------------
+// Command routing: dispatchImplementor — complexity-based model override
+// ---------------------------------------------------------------------------
+
+test('it passes a sonnet model override when dispatching an implementor for a simple-complexity issue', async () => {
+  const issues = [buildMockIssueData(42, 'pending', { complexity: 'complexity:simple' })];
+  const { engine, capturedQueryParams } = setupTest({ issues, autoComplete: true });
+
+  await engine.start();
+
+  const paramsBeforeDispatch = capturedQueryParams.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+  expect(implementorParams.length).toBe(1);
+  expect(implementorParams[0]).toMatchObject({ modelOverride: 'sonnet' });
+});
+
+test('it passes an opus model override when dispatching an implementor for a complex-complexity issue', async () => {
+  const issues = [buildMockIssueData(42, 'pending', { complexity: 'complexity:complex' })];
+  const { engine, capturedQueryParams } = setupTest({ issues, autoComplete: true });
+
+  await engine.start();
+
+  const paramsBeforeDispatch = capturedQueryParams.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+  expect(implementorParams.length).toBe(1);
+  expect(implementorParams[0]).toMatchObject({ modelOverride: 'opus' });
+});
+
+test('it does not pass a model override when dispatching an implementor for an issue without a complexity label', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, capturedQueryParams } = setupTest({ issues, autoComplete: true });
+
+  await engine.start();
+
+  const paramsBeforeDispatch = capturedQueryParams.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+  expect(implementorParams.length).toBe(1);
+  expect(implementorParams[0]).not.toHaveProperty('modelOverride');
 });
 
 // ---------------------------------------------------------------------------
