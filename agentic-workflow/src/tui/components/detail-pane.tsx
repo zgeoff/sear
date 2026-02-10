@@ -26,7 +26,8 @@ type IssueState =
   | { view: 'issueDetails'; issue: TrackedIssue; details: CachedIssueDetails }
   | { view: 'issueDetailsWithGuidance'; issue: TrackedIssue; details: CachedIssueDetails }
   | { view: 'prSummary'; issue: TrackedIssue; pr: CachedPRDetails }
-  | { view: 'prApproved'; issue: TrackedIssue; pr: CachedPRDetails };
+  | { view: 'prApproved'; issue: TrackedIssue; pr: CachedPRDetails }
+  | { view: 'noPR'; issue: TrackedIssue };
 
 interface ResolveIssueStateParams {
   issue: TrackedIssue | null;
@@ -34,6 +35,7 @@ interface ResolveIssueStateParams {
   agentStreams: Map<number, string[]>;
   issueDetails: Map<number, CachedIssueDetails>;
   prDetails: Map<number, CachedPRDetails>;
+  prNotFound: Set<number>;
 }
 
 const SCROLL_STEP = 1;
@@ -55,6 +57,8 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
 
   const visibleRowCount = props.paneHeight;
 
+  const prNotFound = useStore(props.store, (s) => s.prNotFound);
+
   const issue = selectedIssue !== null ? (issues.get(selectedIssue) ?? null) : null;
   const issueState = resolveIssueState({
     issue,
@@ -62,6 +66,7 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
     agentStreams,
     issueDetails,
     prDetails,
+    prNotFound,
   });
 
   const allLines = buildContentLines(issueState);
@@ -149,6 +154,7 @@ function buildContentLines(issueState: IssueState): string[] {
     )
     .with({ view: 'prSummary' }, (s) => buildPrSummaryLines(s.issue, s.pr))
     .with({ view: 'prApproved' }, (s) => buildPrApprovedLines(s.issue, s.pr))
+    .with({ view: 'noPR' }, () => buildNoPRFoundLines())
     .exhaustive();
 }
 
@@ -158,6 +164,10 @@ function buildNoSelectionLines(): string[] {
 
 function buildLoadingLines(issue: TrackedIssue): string[] {
   return [`#${issue.number} ${issue.title}`, 'Loading...'];
+}
+
+function buildNoPRFoundLines(): string[] {
+  return ['No PR found'];
 }
 
 function buildFailureLines(issue: TrackedIssue, failure: LastFailure): string[] {
@@ -243,7 +253,7 @@ function buildPrApprovedLines(issue: TrackedIssue, pr: CachedPRDetails): string[
 }
 
 function resolveIssueState(params: ResolveIssueStateParams): IssueState {
-  const { issue, selectedIssue, agentStreams, issueDetails, prDetails } = params;
+  const { issue, selectedIssue, agentStreams, issueDetails, prDetails, prNotFound } = params;
   if (selectedIssue === null || !issue) {
     return { view: 'none' };
   }
@@ -267,10 +277,13 @@ function resolveIssueState(params: ResolveIssueStateParams): IssueState {
     })
     .with('review', (): IssueState => {
       const pr = prDetails.get(issue.number);
-      if (!pr) {
-        return { view: 'loading', issue };
+      if (pr) {
+        return { view: 'prSummary', issue, pr };
       }
-      return { view: 'prSummary', issue, pr };
+      if (prNotFound.has(issue.number)) {
+        return { view: 'noPR', issue };
+      }
+      return { view: 'loading', issue };
     })
     .with(P.union('needs-refinement', 'blocked'), (): IssueState => {
       const details = issueDetails.get(issue.number);
@@ -281,10 +294,13 @@ function resolveIssueState(params: ResolveIssueStateParams): IssueState {
     })
     .with('approved', (): IssueState => {
       const pr = prDetails.get(issue.number);
-      if (!pr) {
-        return { view: 'loading', issue };
+      if (pr) {
+        return { view: 'prApproved', issue, pr };
       }
-      return { view: 'prApproved', issue, pr };
+      if (prNotFound.has(issue.number)) {
+        return { view: 'noPR', issue };
+      }
+      return { view: 'loading', issue };
     })
     .otherwise((): IssueState => {
       const details = issueDetails.get(issue.number);

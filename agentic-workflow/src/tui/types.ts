@@ -150,6 +150,7 @@ export interface EngineStoreState {
   plannerRunning: boolean;
   issueDetails: Map<number, CachedIssueDetails>;
   prDetails: Map<number, CachedPRDetails>;
+  prNotFound: Set<number>;
   focusedPane: FocusedPane;
   selectedIssue: number | null;
   shuttingDown: boolean;

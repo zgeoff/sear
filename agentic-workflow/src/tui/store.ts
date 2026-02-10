@@ -45,6 +45,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     plannerRunning: false,
     issueDetails: new Map(),
     prDetails: new Map(),
+    prNotFound: new Set(),
     focusedPane: 'issueList',
     selectedIssue: null,
     shuttingDown: false,
@@ -90,7 +91,14 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     },
 
     async selectIssue(issueNumber: number): Promise<void> {
-      set({ selectedIssue: issueNumber });
+      const current = get();
+      const updates: Partial<EngineStoreState> = { selectedIssue: issueNumber };
+      if (current.prNotFound.has(issueNumber)) {
+        const prNotFound = new Set(current.prNotFound);
+        prNotFound.delete(issueNumber);
+        updates.prNotFound = prNotFound;
+      }
+      set(updates);
       await Promise.all([
         fetchIssueDetailsIfNeeded(issueNumber),
         fetchPrDetailsIfNeeded(issueNumber),
@@ -467,6 +475,9 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
         const prDetails = new Map(state.prDetails);
         prDetails.delete(e.issueNumber);
 
+        const prNotFound = new Set(state.prNotFound);
+        prNotFound.delete(e.issueNumber);
+
         const selectedIssue = state.selectedIssue === e.issueNumber ? null : state.selectedIssue;
 
         const notification: IssueRemovedNotification = {
@@ -483,6 +494,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           streamViewportOffsets,
           issueDetails,
           prDetails,
+          prNotFound,
           selectedIssue,
           notifications: [notification, ...state.notifications],
         });
@@ -602,12 +614,18 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     try {
       const result = await engine.getPRForIssue(issueNumber);
       if (!result) {
+        const current = store.getState();
+        const prNotFound = new Set(current.prNotFound);
+        prNotFound.add(issueNumber);
+        store.setState({ prNotFound });
         return;
       }
       const current = store.getState();
       const prDetails = new Map(current.prDetails);
       prDetails.set(issueNumber, { ...result, stale: false });
-      store.setState({ prDetails });
+      const prNotFound = new Set(current.prNotFound);
+      prNotFound.delete(issueNumber);
+      store.setState({ prDetails, prNotFound });
     } catch {
       // Fetch failure is non-fatal; cache remains empty or stale for next retry
     }

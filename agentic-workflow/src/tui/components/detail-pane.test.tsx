@@ -1113,3 +1113,78 @@ test('it does not scroll below the last line', async () => {
     expect(frame).toContain('Line 3');
   });
 });
+
+// ---------------------------------------------------------------------------
+// No PR found
+// ---------------------------------------------------------------------------
+
+test('it shows a no-PR message when a review issue has no linked PR', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const prNotFound = new Set(store.getState().prNotFound);
+  prNotFound.add(1);
+  store.setState({ prNotFound, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('No PR found');
+    expect(frame).not.toContain('Loading...');
+  });
+});
+
+test('it shows a no-PR message when an approved issue has no linked PR', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Approved task',
+    oldStatus: null,
+    newStatus: 'approved',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const prNotFound = new Set(store.getState().prNotFound);
+  prNotFound.add(1);
+  store.setState({ prNotFound, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('No PR found');
+    expect(frame).not.toContain('Loading...');
+  });
+});
+
+test('it shows a loading indicator instead of no-PR when the PR lookup has not completed yet', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  // selectedIssue set, but no prDetails and no prNotFound entry
+  store.setState({ selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Loading...');
+    expect(frame).not.toContain('No PR found');
+  });
+});
