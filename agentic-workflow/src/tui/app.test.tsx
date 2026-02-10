@@ -1,7 +1,7 @@
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
 import type { StartupResult } from '../types.ts';
-import { App, computePaneWidths } from './app.tsx';
+import { App, computeAutoScrollOffset, computePaneWidths } from './app.tsx';
 import { createMockEngine } from './test-utils/create-mock-engine.ts';
 
 interface DeferredStartResult {
@@ -525,4 +525,81 @@ test('it allocates remainder columns to the rightmost pane', () => {
 test('it accounts for exactly four border columns', () => {
   const widths = computePaneWidths(120);
   expect(widths[0] + widths[1] + widths[2] + 4).toBe(120);
+});
+
+// ---------------------------------------------------------------------------
+// Auto-scroll offset computation
+// ---------------------------------------------------------------------------
+
+test('it keeps the viewport at the top when the scroll offset is zero', () => {
+  const result = computeAutoScrollOffset(0, 22);
+
+  expect(result).toBe(0);
+});
+
+test('it resets the viewport to the top when within one page of the top', () => {
+  const visibleItemCount = 22;
+  const result = computeAutoScrollOffset(10, visibleItemCount);
+
+  expect(result).toBe(0);
+});
+
+test('it resets the viewport to the top when the offset is one less than the visible count', () => {
+  const visibleItemCount = 22;
+  const result = computeAutoScrollOffset(21, visibleItemCount);
+
+  expect(result).toBe(0);
+});
+
+test('it increments the viewport offset when past one page', () => {
+  const visibleItemCount = 22;
+  const result = computeAutoScrollOffset(22, visibleItemCount);
+
+  expect(result).toBe(23);
+});
+
+test('it increments the viewport offset when well past one page', () => {
+  const visibleItemCount = 22;
+  const result = computeAutoScrollOffset(50, visibleItemCount);
+
+  expect(result).toBe(51);
+});
+
+// ---------------------------------------------------------------------------
+// Auto-scroll integration
+// ---------------------------------------------------------------------------
+
+test('it keeps the newest notification visible when the viewport is at the top', async () => {
+  const { lastFrame, emit } = await setupStartedTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 42,
+    title: 'Test issue',
+    oldStatus: null,
+    newStatus: 'pending',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('#42');
+  });
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 43,
+    title: 'Second issue',
+    oldStatus: null,
+    newStatus: 'in-progress',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-02T00:00:00Z',
+  });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('#43');
+    expect(frame).toContain('#42');
+  });
 });
