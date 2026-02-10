@@ -92,6 +92,19 @@ export function App(props: AppProps): ReactNode {
     }
   }, [shuttingDown, runningAgentCount, exit]);
 
+  const previousNotificationCountRef = useRef(notifications.length);
+  useEffect(() => {
+    const previousCount = previousNotificationCountRef.current;
+    previousNotificationCountRef.current = notifications.length;
+
+    if (notifications.length <= previousCount) {
+      return;
+    }
+
+    const newOffset = computeAutoScrollOffset(notificationViewportOffset, contentHeight);
+    setNotificationViewportOffset(newOffset);
+  }, [notifications.length, notificationViewportOffset, contentHeight]);
+
   const startupErrorRef = useRef(startupError);
   startupErrorRef.current = startupError;
 
@@ -347,4 +360,11 @@ function copyToClipboard(text: string): void {
   }
   proc.stdin?.write(text);
   proc.stdin?.end();
+}
+
+export function computeAutoScrollOffset(currentOffset: number, visibleItemCount: number): number {
+  if (currentOffset < visibleItemCount) {
+    return 0;
+  }
+  return currentOffset + 1;
 }
