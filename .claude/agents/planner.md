@@ -30,18 +30,22 @@ The engine does not prevent re-dispatch for the same spec (e.g., a whitespace-on
 
 Use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior). The workflow steps in this document define **when** to perform operations; `skill-github-workflow.md` provides reference patterns for command syntax, authentication, label rules, and templates (not loaded at runtime).
 
+## Constraints
+
+- Do not narrate reasoning between tool calls. Output only: gate check results, issue action summaries (created/updated/closed with number and title), and the final planning summary. No exploratory commentary.
+
 ## Workflow
 
 Execute these phases in order. If all specs fail pre-planning gates, stop. Otherwise, continue with specs that pass.
 
-### Gather Inputs
+### Injected Context
 
-Before producing any output, read all of the following:
+The Engine Core pre-computes and injects the following data into your trigger prompt:
 
-1. **Spec file(s):** Read the full content of each input spec file including YAML frontmatter, acceptance criteria, and dependencies.
-2. **Spec diffs:** For each input spec, run `git log -2 --format="%H" -- <spec-path>` to find the two most recent commits touching the spec, then `git diff <older> <newer> -- <spec-path>` to see what changed. If only one commit exists (new spec), treat the entire spec as new content.
-3. **Existing GitHub Issues:** Fetch all open `task:implement` and `task:refinement` issues once (using `scripts/workflow/gh.sh` with query patterns documented in `skill-github-workflow.md`), then filter client-side to identify issues that reference any of the input specs. GitHub search doesn't support clean multi-path OR queries, so a single broad query with client-side filtering is the expected approach. **Pagination:** Query patterns use `--limit 100`. If a query returns exactly 100 results, paginate by re-fetching with `--limit 100` and an increasing `--json` offset (or by piping through `gh api` with pagination) until fewer than 100 results are returned. Missing issues due to truncation would violate idempotency.
-4. **Codebase state:** Read files referenced by the specs' scope to assess what work is already done.
+1. **Spec content:** Full content of each changed spec, including frontmatter, acceptance criteria, and dependencies. You do not need to read spec files from disk — they are provided inline.
+2. **Spec diffs:** For modified specs, a unified diff showing what changed since the last successful Planner run. Added specs have no diff (all content is new). You do not need to run `git diff` — diffs are pre-computed by the engine.
+3. **Existing GitHub Issues:** All open `task:implement` and `task:refinement` issues with number, title, labels, and body. You do not need to query GitHub for existing issues — they are provided inline.
+4. **Codebase state** is NOT injected. You read the current codebase via tool calls (Read, Grep, Glob) to assess what work is already done vs. what remains. This is your primary tool-use activity.
 
 ### Pre-Planning: Validate Entry Criteria
 
@@ -71,7 +75,7 @@ If all specs fail their gates, output all failure blocks and stop — do not pro
 
 ### Phase 1: Review Existing Issues
 
-Before creating new issues, review all open issues that reference any of the input specs. An issue references a spec if its body contains the spec file path in the "Spec Reference" section (e.g., `docs/specs/feature-name.md`). Issues that do not reference any of the input specs are ignored. Use the issue set fetched in the Gather Inputs step — no additional queries needed.
+Before creating new issues, review all open issues provided in the injected context that reference any of the input specs. An issue references a spec if its body contains the spec file path in the "Spec Reference" section (e.g., `docs/specs/feature-name.md`). Issues that do not reference any of the input specs are ignored.
 
 Identify and act on:
 
@@ -100,6 +104,15 @@ Break remaining work into tasks. Each task must be:
 - **Referenced:** Links to the specific spec file and section(s) it implements.
 - **Right-sized:** Completable in a single working session. Split large work into sequential tasks with dependencies.
 
+#### Complexity Assessment
+
+For each task, assign a complexity label that determines the Implementor's model:
+
+- `complexity:simple` — Single-file changes, mechanical transformations, straightforward CRUD, boilerplate. The Implementor runs with Sonnet.
+- `complexity:complex` — Multi-file coordination, architectural decisions, nuanced logic, non-trivial error handling. The Implementor runs with Opus.
+
+When in doubt, prefer `complexity:complex` — the cost of under-resourcing a task (wasted turns, poor output) exceeds the cost of over-resourcing (higher token cost).
+
 #### Scope Boundaries
 
 For each task, define:
@@ -119,11 +132,14 @@ Create each task issue using `scripts/workflow/gh.sh`. Use the **Issue Body Temp
 
 #### Labels
 
-Every issue gets exactly three labels (one per mutually exclusive category as documented in `skill-github-workflow.md`):
+Each issue receives the following labels at creation:
 
-- **Type:** `task:implement` (or `task:refinement` for spec clarification)
+- **Type:** `task:implement` (or `task:refinement` for spec clarification requests)
 - **Status:** `status:pending`
 - **Priority:** One of `priority:high`, `priority:medium`, `priority:low`
+- **Complexity:** One of `complexity:simple`, `complexity:complex` (see Complexity Assessment above). Not applied to `task:refinement` issues.
+
+`task:implement` issues receive exactly four labels. `task:refinement` issues receive exactly three labels (no complexity label).
 
 #### Priority Rules
 
