@@ -288,5 +288,30 @@
     "command": "",
     "expected": "allow",
     "description": "Empty command: empty string is allowed"
+  },
+  {
+    "command": "git commit -m \"fix: kill orphaned timers\"",
+    "expected": "allow",
+    "description": "Quote masking: blocklist word 'kill' inside double-quoted argument is masked"
+  },
+  {
+    "command": "echo 'eval this'",
+    "expected": "allow",
+    "description": "Quote masking: blocklist word 'eval' inside single-quoted argument is masked"
+  },
+  {
+    "command": "git commit -m \"rm stale cache entries\"",
+    "expected": "allow",
+    "description": "Quote masking: blocklist pattern 'rm\\s' inside double-quoted argument is masked"
+  },
+  {
+    "command": "gh issue comment 1 --body \"docs: sudo usage\"",
+    "expected": "allow",
+    "description": "Quote masking: blocklist word 'sudo' inside double-quoted argument is masked"
+  },
+  {
+    "command": "git commit -m \"kill orphan timers\" && git push",
+    "expected": "allow",
+    "description": "Quote masking: blocklist word in quotes with chained commands outside quotes"
   }
 ]

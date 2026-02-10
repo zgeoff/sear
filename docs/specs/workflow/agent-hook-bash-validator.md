@@ -1,7 +1,7 @@
 ---
 title: Agent Hook — Bash Validator
-version: 0.1.0
-last_updated: 2026-02-09
+version: 0.1.1
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -33,9 +33,31 @@ This order is mandatory. Blocklist-first ensures that a dangerous command (e.g.,
 
 ### Layer 1: Blocklist
 
-The blocklist is a set of regular expression patterns. Patterns use Extended Regular Expression (ERE) syntax with GNU extensions (`\s` for whitespace, `\b` for word boundary). The shell implementation matches via `grep -qE` (which supports these extensions on GNU/Linux); the TypeScript implementation uses equivalent JavaScript `RegExp`. Each pattern is matched against the **full command string** (before segmentation). For multi-line command strings, the shell implementation matches per-line (see Known Limitations). Matching is case-sensitive.
+The blocklist is a set of regular expression patterns. Patterns use Extended Regular Expression (ERE) syntax with GNU extensions (`\s` for whitespace, `\b` for word boundary). The shell implementation matches via `grep -qE` (which supports these extensions on GNU/Linux); the TypeScript implementation uses equivalent JavaScript `RegExp`. Each pattern is matched against a **quote-masked copy** of the full command string (before segmentation). For multi-line command strings, the shell implementation matches per-line (see Known Limitations). Matching is case-sensitive.
 
 If any pattern matches, the command is blocked.
+
+#### Quote Masking
+
+Before blocklist evaluation, a masked copy of the command string is produced by replacing the contents of quoted strings with spaces. Each character between the quote delimiters is replaced with exactly one space, preserving the length of the original string. Opening and closing quote characters are preserved; only the characters between them are replaced. This prevents blocklist patterns from matching words that appear as string literals in arguments (e.g., `kill` in a commit message, `eval` in an issue comment).
+
+The masking rules follow the same quoting semantics used by command segmentation:
+
+- **Double-quoted strings** (`"..."`): Characters between the opening `"` and closing `"` are replaced with spaces. Backslash escapes inside double quotes are respected — `\"` does not close the quoted context. The quote delimiters themselves are preserved.
+- **Single-quoted strings** (`'...'`): Characters between the opening `'` and closing `'` are replaced with spaces. Backslashes have no special meaning inside single quotes. The quote delimiters themselves are preserved.
+- **Unquoted content**: Left unchanged.
+- **Backslash escapes outside quotes**: The backslash and the following character are preserved (not masked).
+- **Unclosed quotes**: If a quote is opened but never closed, the masking treats all content from the opening quote to the end of the string as quoted (masked). This is a safe failure mode for the blocklist — more content is masked, which may cause false allows for dangerous patterns inside the unclosed quote. In practice, unclosed quotes produce bash syntax errors, so the command would fail at execution regardless.
+
+| Command | Masked copy |
+|---------|-------------|
+| `git commit -m "fix: kill timers"` | `git commit -m "                "` |
+| `echo 'eval this'` | `echo '         '` |
+| `kill 1234` | `kill 1234` (no quotes — unchanged) |
+| `echo "say \"hello\""` | `echo "             "` |
+| `echo "a \| b" \| jq .` | `echo "     " \| jq .` |
+
+The masked string is used **only** for blocklist evaluation. The original (unmasked) command string is used for all subsequent validation (command segmentation and allowlist checks).
 
 #### Blocklist Patterns
 
@@ -117,8 +139,9 @@ Where `<command>` is the unrecognized first word of the failing segment.
 
 The following are known limitations of the validation approach. All represent safe failure modes or accepted trade-offs.
 
-- **Command substitution.** Commands embedded in `$(...)` or backticks are not extracted as separate segments. A command like `git commit -m "$(python3 evil.py)"` passes both layers because the blocklist has no matching pattern and the allowlist only checks `git` as the segment prefix. This is an accepted risk, partially mitigated by the blocklist catching dangerous patterns anywhere in the full command string (e.g., `$(rm -rf /)` would match `rm\s`). Command substitution with a non-blocklisted, non-allowlisted binary is not caught. The agent system prompts and `tools` field provide behavioral (not technical) guardrails against this class of bypass.
+- **Command substitution.** Commands embedded in `$(...)` or backticks are not extracted as separate segments. A command like `git commit -m "$(python3 evil.py)"` passes both layers because the blocklist sees only the masked (empty) quoted content and the allowlist only checks `git` as the segment prefix. This is an accepted risk, partially mitigated by the blocklist catching dangerous patterns in unquoted command substitutions (e.g., unquoted `$(rm -rf /)` would match `rm\s` because the subshell content is not inside a quoted string). Double-quoted command substitutions like `"$(rm -rf /)"` are not caught because quote masking replaces the quoted content — this is a deliberate trade-off to eliminate false positives on string arguments (see § Quote Masking). Command substitution with a non-blocklisted, non-allowlisted binary is not caught. The agent system prompts and `tools` field provide behavioral (not technical) guardrails against this class of bypass.
 - **Subshell operators.** Operators inside `$(...)` or backtick expressions that are not also inside a quoted string are treated as segment separators. This may produce incorrect segment boundaries but is a safe failure mode (false rejection, not false allow).
+- **Heredocs.** Heredoc content (`<<EOF...EOF`) is not inside single- or double-quoted strings, so it is not masked. Blocklist patterns will match inside heredoc bodies, which may cause false rejections for commands like `cat <<EOF\nkill the process\nEOF`. This is a safe failure mode (false rejection, not false allow) and is consistent with the fail-closed constraint.
 - **Multi-line blocklist patterns.** The shell implementation uses `grep -qE`, which matches per-line. A blocklist pattern spanning two lines would not match. The TypeScript implementation uses `RegExp.test()` against the full string, where `\s` matches `\n`, so it may catch multi-line patterns that the shell implementation misses. Both behaviors are considered correct — the shell script's per-line matching is a safe failure mode (false rejection is acceptable per the fail-closed constraint). The Implementation Equivalence criterion excludes multi-line test vectors to account for this divergence.
 
 ## Acceptance Criteria
@@ -139,6 +162,14 @@ The following are known limitations of the validation approach. All represent sa
 - [ ] Given a command using `fdisk` (e.g., `fdisk /dev/sda`), when validated, then the command is blocked.
 - [ ] Given a command with `chmod o+w` or `chmod a+w`, when validated, then the command is blocked.
 - [ ] Given a command piping `wget` to a shell (e.g., `wget https://example.com | sh`), when validated, then the command is blocked.
+
+### Blocklist — Quote Masking
+
+- [ ] Given a command where a blocklist word appears inside a double-quoted argument (e.g., `git commit -m "fix: kill orphaned timers"`), when validated, then the command is allowed because the blocklist word is masked.
+- [ ] Given a command where a blocklist word appears inside a single-quoted argument (e.g., `echo 'eval this'`), when validated, then the command is allowed because the blocklist word is masked.
+- [ ] Given a command where a blocklist pattern appears inside a double-quoted argument (e.g., `git commit -m "rm stale cache entries"`), when validated, then the command is allowed because the pattern match falls within masked content.
+- [ ] Given a command where a blocklist word appears inside a quoted argument alongside real operators outside the quotes (e.g., `git commit -m "kill orphan timers" && git push`), when validated, then the command is allowed.
+- [ ] Given a command where a blocklist word appears outside any quoted string (e.g., `kill 1234`), when validated, then the command is still blocked (masking only affects content inside quotes).
 
 ### Allowlist
 

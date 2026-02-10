@@ -1,7 +1,7 @@
 ---
 title: Agent Hook — Bash Validator (Shell Script)
-version: 0.1.0
-last_updated: 2026-02-09
+version: 0.1.1
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -53,8 +53,8 @@ The script must not exit 2 for internal errors. Exit 2 is reserved exclusively f
 
 The script implements the two-layer validation defined in `agent-hook-bash-validator.md`:
 
-1. **Blocklist** — Each pattern from the blocklist table is matched against the full command string using `grep -qE`. If any pattern matches, exit 2 with the error message format from the core spec.
-2. **Allowlist** — The command is segmented using the quote-aware parser defined in the core spec (implemented in `awk`). Each segment's first word is checked against the allowlist prefixes table. If any segment's first word is unrecognized, exit 2.
+1. **Blocklist** — A quote-masked copy of the command is produced (see core spec § Quote Masking) by replacing the contents of single- and double-quoted strings with spaces, preserving quote delimiters. The masking can be performed with `awk` or `sed` using the same quoting semantics as the segmentation parser. Each pattern from the blocklist table is then matched against this masked string using `grep -qE`. If any pattern matches, exit 2 with the error message format from the core spec.
+2. **Allowlist** — The original (unmasked) command is segmented using the quote-aware parser defined in the core spec (implemented in `awk`). Each segment's first word is checked against the allowlist prefixes table. If any segment's first word is unrecognized, exit 2.
 
 The core spec defines: blocklist patterns, allowlist prefixes, command segmentation rules, evaluation order, empty command handling, error message format, and known limitations. This script implements those rules — it does not define them.
 
