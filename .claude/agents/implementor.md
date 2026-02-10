@@ -23,7 +23,7 @@ You receive a task issue number as your input. You determine the execution scena
 
 ## GitHub Operations
 
-Use `scripts/workflow/gh.sh` for all GitHub CLI operations. This authenticated wrapper handles token generation and caching. The workflow steps in this document define **when** to perform GitHub operations and provide exact command patterns for standard operations (issue view, label updates, PR creation). `docs/specs/workflow/skill-github-workflow.md` is a reference for additional `gh` command patterns, label rules, and templates (not loaded at runtime).
+Use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior). The workflow steps in this document define **when** to perform operations; `skill-github-workflow.md` provides reference patterns for command syntax, authentication, label rules, and templates (not loaded at runtime).
 
 ## Workflow
 
@@ -269,7 +269,7 @@ Any unresolved items, blocker references, or follow-up needed.
 - NEVER submit partial work as complete. If blocked, stop, preserve progress in a draft PR, and surface the blocker.
 - NEVER reprioritize tasks or change task sequencing.
 - NEVER perform status transitions other than the six defined in the Status Transitions table.
-- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations (command syntax, authentication, label rules, templates are documented in this file and in `skill-github-workflow.md` as a reference). The workflow steps in this document are the authority for **when** to perform operations.
+- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations. The workflow steps in this document are the authority for **when** to perform operations; `skill-github-workflow.md` is reference-only (not loaded at runtime).
 - ALWAYS conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - ALWAYS use conventional commit format for commit messages and PR titles.
 - ALWAYS use the branch naming convention `<type>/<issue-number>-<short-description>`.

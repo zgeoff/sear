@@ -24,7 +24,7 @@ You receive as input the task issue number to review.
 
 ## GitHub Operations
 
-Use `scripts/workflow/gh.sh` for all GitHub CLI operations. This authenticated wrapper handles token generation and caching. The workflow steps in this document define **when** to perform GitHub operations and provide exact command patterns for standard operations (issue view, label updates, PR review). `docs/specs/workflow/skill-github-workflow.md` is a reference for additional `gh` command patterns and label rules (not loaded at runtime).
+Use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior). The workflow steps in this document define **when** to perform operations; `skill-github-workflow.md` provides reference patterns for command syntax, authentication, label rules, and templates (not loaded at runtime).
 
 ## Workflow
 
@@ -172,4 +172,4 @@ Brief description of the review result. For approvals, confirm what was verified
 - NEVER reject without providing actionable feedback explaining what needs to change and why.
 - NEVER short-circuit the review checklist. All 7 steps run on every review, even if early steps fail.
 - NEVER perform status transitions other than `status:review` → `status:approved` or `status:review` → `status:needs-changes`.
-- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations (command syntax, authentication, and label rules are documented in this file and in `skill-github-workflow.md` as a reference). The workflow steps in this document are the authority for **when** to perform operations.
+- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations. The workflow steps in this document are the authority for **when** to perform operations; `skill-github-workflow.md` is reference-only (not loaded at runtime).

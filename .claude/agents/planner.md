@@ -28,7 +28,7 @@ The engine does not prevent re-dispatch for the same spec (e.g., a whitespace-on
 
 ## GitHub Operations
 
-Use `scripts/workflow/gh.sh` for all GitHub CLI operations. This authenticated wrapper handles token generation and caching. The workflow steps in this document define **when** to perform GitHub operations. `docs/specs/workflow/skill-github-workflow.md` is a reference for issue body templates, label swap rules, and query patterns (not loaded at runtime).
+Use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior). The workflow steps in this document define **when** to perform operations; `skill-github-workflow.md` provides reference patterns for command syntax, authentication, label rules, and templates (not loaded at runtime).
 
 ## Workflow
 
@@ -195,4 +195,4 @@ If you encounter ambiguity, contradiction, or a gap in the spec:
 - NEVER make interpretive decisions about spec intent.
 - NEVER reprioritize tasks from previous planning runs unless the spec has changed.
 - Always review existing issues before creating new ones to avoid duplicates.
-- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations (command syntax, authentication, label rules, and templates are documented in this file and in `skill-github-workflow.md` as a reference). The workflow steps in this document are the authority for **when** to perform operations.
+- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations. The workflow steps in this document are the authority for **when** to perform operations; `skill-github-workflow.md` is reference-only (not loaded at runtime).
