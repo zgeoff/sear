@@ -37,7 +37,18 @@ const PRIORITY_ORDER: Record<string, number> = {
   'priority:low': 2,
 };
 
-const SPINNER_FRAMES: readonly string[] = ['\u280B', '\u2819', '\u2839', '\u2838', '\u283C', '\u2834', '\u2826', '\u2827', '\u2807', '\u280F'];
+const SPINNER_FRAMES: readonly string[] = [
+  '\u280B',
+  '\u2819',
+  '\u2839',
+  '\u2838',
+  '\u283C',
+  '\u2834',
+  '\u2826',
+  '\u2827',
+  '\u2807',
+  '\u280F',
+];
 const SPINNER_INTERVAL_MS = 80;
 
 const READY_MARKER = '\u25CF';
@@ -189,7 +200,7 @@ export function IssueList(props: IssueListProps): ReactNode {
     );
   }
 
-  const currentSpinner = SPINNER_FRAMES[spinnerFrame] ?? SPINNER_FRAMES[0];
+  const currentSpinner = SPINNER_FRAMES[spinnerFrame] ?? '\u280B';
   const items = buildIssueListItems(sortedIssues, currentSpinner);
 
   return (
@@ -225,10 +236,7 @@ function sortIssues(issues: Map<number, TrackedIssue>): TrackedIssue[] {
   });
 }
 
-function buildIssueListItems(
-  sortedIssues: TrackedIssue[],
-  spinnerChar: string,
-): ListItemData[] {
+function buildIssueListItems(sortedIssues: TrackedIssue[], spinnerChar: string): ListItemData[] {
   return sortedIssues.map((issue) => {
     const priority = getPriorityIndicator(issue.priorityLabel);
     const state = getStateIndicator(issue, spinnerChar);
