@@ -240,6 +240,36 @@ test('it blocks killall commands', () => {
   });
 });
 
+// ── Blocklist: Quote masking ─────────────────────────────────────────────────
+
+test('it allows a blocklist word inside a double-quoted argument', () => {
+  const result = validateBashCommand('git commit -m "fix: kill orphaned timers"');
+  expect(result).toStrictEqual({ allowed: true });
+});
+
+test('it allows a blocklist word inside a single-quoted argument', () => {
+  const result = validateBashCommand("echo 'eval this'");
+  expect(result).toStrictEqual({ allowed: true });
+});
+
+test('it allows a blocklist pattern inside a double-quoted argument', () => {
+  const result = validateBashCommand('git commit -m "rm stale cache entries"');
+  expect(result).toStrictEqual({ allowed: true });
+});
+
+test('it allows a blocklist word inside a quoted argument alongside real operators outside the quotes', () => {
+  const result = validateBashCommand('git commit -m "kill orphan timers" && git push');
+  expect(result).toStrictEqual({ allowed: true });
+});
+
+test('it still blocks a blocklist word that appears outside any quoted string', () => {
+  const result = validateBashCommand('kill 1234');
+  expect(result).toStrictEqual({
+    allowed: false,
+    reason: "Blocked: matches dangerous pattern '\\bkill\\b'",
+  });
+});
+
 // ── Blocklist: Non-matching (should pass blocklist) ─────────────────────────
 
 test('it allows chmod with executable permission (not caught by blocklist)', () => {

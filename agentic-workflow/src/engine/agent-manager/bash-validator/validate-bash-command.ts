@@ -11,9 +11,10 @@ export function validateBashCommand(command: string): BashValidationResult {
     return ALLOWED;
   }
 
-  // Layer 1: Blocklist — checked first against the full command string
+  // Layer 1: Blocklist — checked first against a quote-masked copy of the command string
+  const masked = maskQuotes(command);
   for (const entry of BLOCKLIST_PATTERNS) {
-    if (entry.pattern.test(command)) {
+    if (entry.pattern.test(masked)) {
       return { allowed: false, reason: `Blocked: matches dangerous pattern '${entry.source}'` };
     }
   }
@@ -119,4 +120,54 @@ function extractFirstWord(segment: string): string {
   const word = match[1];
   invariant(word !== undefined, 'capture group must exist when pattern matches');
   return word;
+}
+
+// Produces a masked copy of the command string where the contents of single-
+// and double-quoted strings are replaced with spaces. Quote delimiters are
+// preserved. Backslash escapes are respected outside quotes and inside double
+// quotes. The masked string has the same length as the original.
+function maskQuotes(command: string): string {
+  const result: string[] = [];
+  let quote = '';
+  let i = 0;
+
+  while (i < command.length) {
+    const c = command[i];
+    invariant(c !== undefined, 'index within bounds of command string');
+
+    if (quote !== '') {
+      // Inside a quoted context
+      if (c === '\\' && quote === '"' && i + 1 < command.length) {
+        // Backslash escape inside double quotes — mask both characters
+        result.push(' ', ' ');
+        i += 2;
+      } else if (c === quote) {
+        // Closing quote — preserve the delimiter
+        quote = '';
+        result.push(c);
+        i += 1;
+      } else {
+        // Content inside quotes — replace with space
+        result.push(' ');
+        i += 1;
+      }
+    } else if (c === '"' || c === "'") {
+      // Opening quote — preserve the delimiter, enter quoted context
+      quote = c;
+      result.push(c);
+      i += 1;
+    } else if (c === '\\' && i + 1 < command.length) {
+      // Backslash escape outside quotes — preserve both characters
+      const next = command[i + 1];
+      invariant(next !== undefined, 'next character exists when i + 1 < length');
+      result.push(c, next);
+      i += 2;
+    } else {
+      // Unquoted content — preserve unchanged
+      result.push(c);
+      i += 1;
+    }
+  }
+
+  return result.join('');
 }
