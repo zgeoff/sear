@@ -6,6 +6,7 @@ import type { WorktreeManager } from '../worktree-manager/types.ts';
 export interface QueryFactoryConfig {
   repoRoot: string;
   bashValidatorHook: HookCallback;
+  contextPaths: string[];
 }
 
 export type AgentQuery = AsyncIterable<unknown> & {

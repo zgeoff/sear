@@ -97,7 +97,11 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     maxAgentDuration: resolved.agents.maxAgentDuration,
     queryFactory:
       deps?.queryFactory ??
-      buildQueryFactory({ repoRoot, bashValidatorHook: createBashValidatorHook() }),
+      buildQueryFactory({
+        repoRoot,
+        bashValidatorHook: createBashValidatorHook(),
+        contextPaths: ['.claude/CLAUDE.md'],
+      }),
     loggingEnabled: resolved.logging.agentSessions,
     logsDir: resolved.logging.logsDir,
     logError: (message: string, error: unknown): void =>

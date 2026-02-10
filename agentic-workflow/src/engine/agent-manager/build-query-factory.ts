@@ -8,6 +8,12 @@ import type { AgentQuery, QueryFactory, QueryFactoryConfig, QueryFactoryParams }
 export function buildQueryFactory(config: QueryFactoryConfig): QueryFactory {
   return async (params: QueryFactoryParams): Promise<AgentQuery> => {
     const agentDefinition = await loadAgentDefinition(config.repoRoot, params.agent);
+    const contextBlock = await loadContextFiles(config.repoRoot, config.contextPaths);
+
+    if (contextBlock.length > 0) {
+      agentDefinition.prompt = `${agentDefinition.prompt}\n\n${contextBlock}`;
+    }
+
     return query({
       prompt: params.prompt,
       options: {
@@ -16,7 +22,7 @@ export function buildQueryFactory(config: QueryFactoryConfig): QueryFactory {
           [params.agent]: agentDefinition,
         },
         cwd: params.cwd,
-        settingSources: ['project'],
+        settingSources: [],
         hooks: {
           PreToolUse: [{ matcher: 'Bash', hooks: [config.bashValidatorHook] }],
         },
@@ -58,6 +64,18 @@ async function loadAgentDefinition(repoRoot: string, agentName: string): Promise
   }
 
   return definition;
+}
+
+async function loadContextFiles(repoRoot: string, contextPaths: string[]): Promise<string> {
+  if (contextPaths.length === 0) {
+    return '';
+  }
+
+  const contents = await Promise.all(
+    contextPaths.map((contextPath) => readFile(join(repoRoot, contextPath), 'utf-8')),
+  );
+
+  return contents.join('\n\n');
 }
 
 function parseModel(raw: unknown): AgentModel {
