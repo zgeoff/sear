@@ -65,6 +65,7 @@ export interface DispatchReviewerParams {
 
 export interface DispatchPlannerParams {
   specPaths: string[];
+  prompt?: string;
 }
 
 export interface AgentManager {

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import invariant from 'tiny-invariant';
 import type {
   AgentStream,
   CancelAgentCommand,
@@ -13,6 +14,7 @@ import type {
   IssueDetailsResult,
   PRDetailsResult,
   ShutdownCommand,
+  SpecChange,
   StartupResult,
 } from '../types.ts';
 import { createBashValidatorHook } from './agent-manager/bash-validator/create-bash-validator-hook.ts';
@@ -92,6 +94,14 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   // pendingCacheCommitSHA when the Planner is dispatched.
   let latestSpecCommitSHA = '';
 
+  // Tracks the commitSHA from the most recently completed Planner run (via the cache).
+  // Used as the base commit for computing spec diffs at planner dispatch time.
+  let previousPlannerCommitSHA = '';
+
+  // Tracks the change type (added/modified) for each spec path from the latest SpecPoller result.
+  // Used to determine whether to compute diffs for each spec at planner dispatch time.
+  const latestSpecChangeTypes = new Map<string, 'added' | 'modified'>();
+
   const agentManager = createAgentManager({
     emitter,
     worktreeManager,
@@ -119,7 +129,24 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       dispatchPlanner: (specPaths: string[]): void => {
         pendingCacheSnapshot = specPoller.getSnapshot();
         pendingCacheCommitSHA = latestSpecCommitSHA;
-        void agentManager.dispatchPlanner({ specPaths });
+
+        void buildPlannerPrompt({
+          specPaths,
+          octokit,
+          owner,
+          repo,
+          currentCommitSHA: latestSpecCommitSHA,
+          previousCommitSHA: previousPlannerCommitSHA,
+          latestSpecChangeTypes,
+          repoRoot,
+        })
+          .then((prompt) => agentManager.dispatchPlanner({ specPaths, prompt }))
+          .catch((error) => {
+            logger.error('Failed to build planner context', { error: String(error) });
+            pendingCacheSnapshot = null;
+            pendingCacheCommitSHA = null;
+            dispatch.handlePlannerFailed(specPaths);
+          });
       },
       dispatchReviewer: (issueNumber: number): void => {
         void agentManager.dispatchReviewer({ issueNumber });
@@ -176,6 +203,9 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
           pendingCacheSnapshot = null;
           pendingCacheCommitSHA = null;
         },
+        onPlannerCacheWritten: (commitSHA: string): void => {
+          previousPlannerCommitSHA = commitSHA;
+        },
         logger,
       });
       emitter.on(eventHandler);
@@ -185,6 +215,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       if (cachedEntry) {
         specPoller = buildSpecPoller(resolved, octokit, logger, cachedEntry.snapshot);
         latestSpecCommitSHA = cachedEntry.commitSHA;
+        previousPlannerCommitSHA = cachedEntry.commitSHA;
       }
 
       // Step 3: Startup recovery
@@ -196,6 +227,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       // Step 5: First SpecPoller cycle
       const specResult = await specPoller.poll();
       latestSpecCommitSHA = specResult.commitSHA;
+      trackSpecChangeTypes(specResult.changes, latestSpecChangeTypes);
       dispatch.handleSpecPollerResult(specResult);
 
       // Step 6: Start recurring poll timers
@@ -208,6 +240,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
         logger.debug('SpecPoller cycle starting');
         void specPoller.poll().then((result) => {
           latestSpecCommitSHA = result.commitSHA;
+          trackSpecChangeTypes(result.changes, latestSpecChangeTypes);
           dispatch.handleSpecPollerResult(result);
         });
       }, resolved.specPoller.pollInterval * SECONDS_TO_MS);
@@ -260,6 +293,7 @@ interface EventHandlerDeps {
   getPendingCacheSnapshot: () => SpecPollerSnapshot | null;
   getPendingCacheCommitSHA: () => string | null;
   clearPendingCache: () => void;
+  onPlannerCacheWritten: (commitSHA: string) => void;
   logger: Logger;
 }
 
@@ -320,11 +354,16 @@ function handlePlannerCompleted(deps: EventHandlerDeps): void {
     return;
   }
 
-  deps.plannerCache.write(snapshot, commitSHA).catch((error) => {
-    deps.logger.error('Failed to write planner cache', {
-      error: String(error),
+  deps.plannerCache
+    .write(snapshot, commitSHA)
+    .then(() => {
+      deps.onPlannerCacheWritten(commitSHA);
+    })
+    .catch((error) => {
+      deps.logger.error('Failed to write planner cache', {
+        error: String(error),
+      });
     });
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -491,4 +530,166 @@ function buildSpecPoller(
   }
 
   return createSpecPoller(baseConfig);
+}
+
+// ---------------------------------------------------------------------------
+// Spec change type tracking
+// ---------------------------------------------------------------------------
+
+function trackSpecChangeTypes(
+  changes: SpecChange[],
+  changeTypes: Map<string, 'added' | 'modified'>,
+): void {
+  for (const change of changes) {
+    changeTypes.set(change.filePath, change.changeType);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Planner context pre-computation
+// ---------------------------------------------------------------------------
+
+interface BuildPlannerPromptConfig {
+  specPaths: string[];
+  octokit: GitHubClient;
+  owner: string;
+  repo: string;
+  currentCommitSHA: string;
+  previousCommitSHA: string;
+  latestSpecChangeTypes: Map<string, 'added' | 'modified'>;
+  repoRoot: string;
+}
+
+interface ExistingIssue {
+  number: number;
+  title: string;
+  labels: string[];
+  body: string | null;
+}
+
+async function buildPlannerPrompt(config: BuildPlannerPromptConfig): Promise<string> {
+  const specSections = await buildSpecSections(config);
+  const issuesSection = await buildIssuesSection(config);
+
+  const sections: string[] = [];
+  sections.push('## Changed Specs');
+  sections.push('');
+  sections.push(specSections);
+  sections.push('## Existing Open Issues');
+  sections.push(issuesSection);
+
+  return sections.join('\n');
+}
+
+async function buildSpecSections(config: BuildPlannerPromptConfig): Promise<string> {
+  const specContents = await Promise.all(
+    config.specPaths.map((specPath) => fetchSpecContent(config, specPath)),
+  );
+
+  const sections: string[] = [];
+
+  for (let i = 0; i < config.specPaths.length; i += 1) {
+    const specPath = config.specPaths[i];
+    invariant(specPath, 'specPath must exist at index within bounds');
+    const content = specContents[i] ?? '';
+    const changeType = config.latestSpecChangeTypes.get(specPath) ?? 'added';
+
+    sections.push(`### ${specPath} (${changeType})`);
+    sections.push(content);
+    sections.push('');
+
+    if (changeType === 'modified' && config.previousCommitSHA) {
+      const diff = computeSpecDiff(config, specPath);
+      if (diff) {
+        sections.push('#### Diff');
+        sections.push(diff);
+        sections.push('');
+      }
+    }
+  }
+
+  return sections.join('\n');
+}
+
+async function fetchSpecContent(
+  config: BuildPlannerPromptConfig,
+  specPath: string,
+): Promise<string> {
+  const result = await config.octokit.repos.getContent({
+    owner: config.owner,
+    repo: config.repo,
+    path: specPath,
+    ref: config.currentCommitSHA,
+  });
+
+  if (!result.data.content) {
+    return '';
+  }
+
+  return Buffer.from(result.data.content, 'base64').toString('utf-8');
+}
+
+function computeSpecDiff(config: BuildPlannerPromptConfig, specPath: string): string {
+  try {
+    return execFileSync(
+      'git',
+      ['diff', `${config.previousCommitSHA}..${config.currentCommitSHA}`, '--', specPath],
+      { encoding: 'utf-8', cwd: config.repoRoot },
+    );
+  } catch {
+    // git diff may fail if the commits are not available locally. Skip the diff silently.
+    return '';
+  }
+}
+
+const PER_PAGE = 100;
+
+async function buildIssuesSection(config: BuildPlannerPromptConfig): Promise<string> {
+  // GitHub REST API labels parameter uses AND logic. To get issues with either
+  // task:implement OR task:refinement, we make two parallel calls and deduplicate.
+  const [implementResult, refinementResult] = await Promise.all([
+    config.octokit.issues.listForRepo({
+      owner: config.owner,
+      repo: config.repo,
+      labels: 'task:implement',
+      state: 'open',
+      per_page: PER_PAGE,
+    }),
+    config.octokit.issues.listForRepo({
+      owner: config.owner,
+      repo: config.repo,
+      labels: 'task:refinement',
+      state: 'open',
+      per_page: PER_PAGE,
+    }),
+  ]);
+
+  const seen = new Set<number>();
+  const issues: ExistingIssue[] = [];
+
+  for (const issue of [...implementResult.data, ...refinementResult.data]) {
+    if (!seen.has(issue.number)) {
+      seen.add(issue.number);
+      issues.push({
+        number: issue.number,
+        title: issue.title,
+        labels: extractLabelNames(issue.labels),
+        body: issue.body,
+      });
+    }
+  }
+
+  return JSON.stringify(issues);
+}
+
+function extractLabelNames(labels: (string | { name?: string })[]): string[] {
+  const names: string[] = [];
+  for (const label of labels) {
+    if (typeof label === 'string') {
+      names.push(label);
+    } else if (label.name) {
+      names.push(label.name);
+    }
+  }
+  return names;
 }
