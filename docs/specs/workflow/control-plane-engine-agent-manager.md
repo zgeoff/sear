@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine — Agent Manager
-version: 0.2.0
-last_updated: 2026-02-09
+version: 0.4.0
+last_updated: 2026-02-10
 status: approved
 ---
 
@@ -52,7 +52,7 @@ Each agent session receives trigger-specific context as its initial prompt:
 
 ### Agent Definition Loading
 
-The engine reads agent definition files from `.claude/agents/<name>.md` at the repository root and passes them inline to the SDK. This is required because the SDK's `settingSources: ['project']` resolution hangs indefinitely when `cwd` is a git worktree — worktrees use a `.git` file (pointer to the main repository's `.git` directory) instead of a `.git` directory, and the SDK's project settings resolution does not handle this case.
+The engine reads agent definition files from `.claude/agents/<name>.md` at the repository root and passes them inline to the SDK. This is one part of the workaround for the SDK's worktree resolution bug (see Known SDK Limitation in SDK Session Configuration) — agent definitions are loaded from the repository root, which always has a `.git` directory.
 
 **Loading process:**
 
@@ -74,7 +74,7 @@ The engine reads agent definition files from `.claude/agents/<name>.md` at the r
 **Fields not mapped to `AgentDefinition`:** The agent file frontmatter includes fields like `name`, `skills`, `hooks`, and `permissionMode` that are not part of the SDK's `AgentDefinition` type. These are handled as follows:
 
 - **`hooks`** — Passed programmatically via the SDK's `hooks` option (session-level, not agent-level). The engine provides a TypeScript implementation of the bash validator hook. See Programmatic Hooks below.
-- **`skills`** — Discovered by `settingSources: ['project']` from `.claude/skills/` in the project tree. No special handling needed.
+- **`skills`** — Not available. With `settingSources: []` (see Known SDK Limitation in SDK Session Configuration), the SDK does not discover skills from `.claude/skills/`. If a `skills` field appears in the agent file's frontmatter, it is ignored — it is not part of the SDK's `AgentDefinition` type and is not mapped. Skills are not needed for agent operation within the control plane — agents receive all necessary context via their system prompt and project context injection.
 - **`permissionMode`** — Overridden by the engine's explicit `permissionMode` option regardless.
 
 **Error handling:** If the agent definition file cannot be read (missing, permissions error) or contains malformed YAML (frontmatter parsing failure), the error propagates to the caller — the session is not created. This is treated as an agent session creation failure (log at `error` level, retry next cycle).
@@ -110,7 +110,7 @@ type HookCallback = (
 
 ### SDK Session Configuration
 
-The Agent Manager creates agent sessions using the v1 `query()` function from `@anthropic-ai/claude-agent-sdk`. The engine loads agent definitions inline (see Agent Definition Loading above) and passes them via the `agents` option, while `settingSources: ['project']` loads project-level settings (CLAUDE.md, `.claude/settings.json`, skills, hooks). The engine controls session-level options (working directory, permissions, cancellation) directly.
+The Agent Manager creates agent sessions using the v1 `query()` function from `@anthropic-ai/claude-agent-sdk`. The engine loads agent definitions inline (see Agent Definition Loading above) and passes them via the `agents` option. Project context files (CLAUDE.md) are loaded manually and appended to the agent's system prompt (see Project Context Injection below). The engine controls session-level options (working directory, permissions, cancellation) directly.
 
 **Call signature:**
 
@@ -123,9 +123,10 @@ const q = query({
     agent: agentName,         // e.g., 'planner', 'implementor', 'reviewer'
     agents: {
       [agentName]: agentDefinition, // inline AgentDefinition loaded from .claude/agents/<name>.md
+                                    // prompt field includes appended project context (CLAUDE.md)
     },
     cwd: workingDirectory,    // worktree path (Implementor) or repo root (Planner, Reviewer)
-    settingSources: ['project'],
+    settingSources: [],
     hooks: {
       PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }],
     },
@@ -142,15 +143,29 @@ const q = query({
 |--------|-------|---------|
 | `prompt` | Trigger context string | The initial user message. Space-separated spec paths (Planner), or issue number as string (Implementor, Reviewer). |
 | `agent` | Agent name from config | Selects which agent definition to use from the `agents` map. |
-| `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The SDK uses this map instead of resolving agent files from the filesystem via `settingSources`. |
+| `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). |
 | `cwd` | Worktree or repo root | Implementor: `.worktrees/issue-<N>`. Planner, Reviewer: repository root. |
-| `settingSources` | `['project']` | Loads project-level settings: `.claude/settings.json`, CLAUDE.md project instructions, and skills from `.claude/skills/`. Does **not** need to resolve agent definition files because `agents` provides them inline. |
+| `settingSources` | `[]` (empty) | Intentionally empty. The SDK's `settingSources: ['project']` resolution hangs indefinitely when `cwd` is a git worktree (see Known SDK Limitation below). All project-level concerns are handled manually: agent definitions via inline loading, project context (CLAUDE.md) via `contextPaths`, hooks via the programmatic `hooks` option, and `permissionMode` via the explicit option. |
 | `hooks` | `{ PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }] }` | Programmatic hooks. The bash validator hook validates every Bash command against a blocklist/allowlist before execution. See Programmatic Hooks. |
 | `permissionMode` | `'bypassPermissions'` | Agents run non-interactively. All tool invocations are auto-approved. |
 | `allowDangerouslySkipPermissions` | `true` | Required safety acknowledgment when using `bypassPermissions` (SDK ≥0.2.x). |
 | `abortController` | `AbortController` | Cancellation handle. The engine calls `abortController.abort()` for user cancellation, shutdown, and duration timeout. |
 
-**Why inline loading:** The SDK's `settingSources: ['project']` resolution discovers `.claude/agents/` by traversing the filesystem from `cwd` upward looking for a `.git` directory. Git worktrees have a `.git` file (not a directory), causing the resolution to fail silently — the CLI subprocess hangs indefinitely with zero output. By loading agent definitions inline, the engine reads from the repository root (which always has a `.git` directory) and passes the definitions directly to the SDK, bypassing the worktree resolution issue entirely. This applies to all agent types (Implementor, Planner, Reviewer) for consistency, even though only the Implementor currently runs in a worktree.
+**Known SDK limitation:** The SDK's `settingSources: ['project']` resolution traverses the filesystem from `cwd` upward looking for a `.git` directory. Git worktrees have a `.git` file (not a directory), causing the resolution to hang indefinitely with zero output — the CLI subprocess never starts. This affects **all** project settings resolution: agent definitions, CLAUDE.md, `.claude/settings.json`, and skills from `.claude/skills/`. The engine works around this by setting `settingSources: []` and handling each concern manually: agent definitions are loaded inline (see Agent Definition Loading), project context files are injected via `contextPaths` (see Project Context Injection), hooks are passed programmatically, and permissions are set explicitly. This applies to all agent types (Implementor, Planner, Reviewer) for consistency, even though only the Implementor currently runs in a worktree.
+
+### Project Context Injection
+
+Because `settingSources` is empty (see Known SDK Limitation above), the engine manually loads project context files and appends them to each agent's system prompt. The `QueryFactory` receives a `contextPaths` array at construction time — a list of file paths relative to `repoRoot`. When creating a session, the factory reads each file (UTF-8 encoding), concatenates their contents (separated by double newlines), and appends the result to the agent definition's `prompt` field. The separator between the agent's original prompt and the appended context block is also a double newline. Files are read fresh on every session creation — there is no caching.
+
+When `contextPaths` is empty, no context is appended and the agent's original prompt is used as-is.
+
+**Default context paths:** The engine passes `['.claude/CLAUDE.md']` as the default `contextPaths`. This ensures all agents receive the project's coding conventions, style rules, and architectural guidance — equivalent to what `settingSources: ['project']` would have provided for CLAUDE.md.
+
+**Error handling:** If a context file cannot be read (missing or permissions error), the error propagates to the caller — the session is not created. This matches the behavior of agent definition loading failures.
+
+**Extensibility:** The `contextPaths` mechanism supports appending arbitrary context files to all agent prompts. Per-agent contextual injection (e.g., different context for Planner vs Implementor) is not yet supported — all agents receive the same context files. This can be extended in the future by accepting per-agent context paths at dispatch time.
+
+### SDK Types and Isolation
 
 **SDK `AgentDefinition` type:**
 
@@ -270,10 +285,10 @@ type QueryFactoryParams = {
 
 // The factory abstracts the SDK's query() call. The default implementation
 // reads agent definition files from {repoRoot}/.claude/agents/{agent}.md,
-// parses YAML frontmatter with gray-matter, and passes the inline AgentDefinition
-// to the SDK via the agents option. It also passes settingSources,
-// permissionMode, and allowDangerouslySkipPermissions. Test doubles return
-// a mock Query without spawning a real agent process.
+// parses YAML frontmatter with gray-matter, passes the inline AgentDefinition
+// to the SDK via the agents option, and appends project context files to the
+// agent's system prompt. settingSources is set to [] (see Known SDK Limitation).
+// Test doubles return a mock Query without spawning a real agent process.
 //
 // buildQueryFactory(config: QueryFactoryConfig): QueryFactory
 type QueryFactory = (params: QueryFactoryParams) => Query; // Query is from @anthropic-ai/claude-agent-sdk
@@ -281,6 +296,7 @@ type QueryFactory = (params: QueryFactoryParams) => Query; // Query is from @ant
 type QueryFactoryConfig = {
   repoRoot: string; // absolute path to the git repository root
   bashValidatorHook: HookCallback; // PreToolUse hook for Bash command validation
+  contextPaths: string[]; // paths relative to repoRoot — loaded and appended to every agent's system prompt (see Project Context Injection)
 };
 
 type AgentManagerConfig = {
@@ -317,7 +333,10 @@ type AgentStream = AsyncIterable<string> | null;
 - [ ] Given an Implementor agent session fails, when the `agentFailed` event is emitted, then it includes the session ID and preserved worktree path.
 - [ ] Given an Implementor agent session succeeds, when cleanup runs, then the worktree is removed.
 - [ ] Given an Implementor agent session fails, when the failure is detected, then the worktree is preserved.
-- [ ] Given the engine dispatches any agent, when `query()` is called, then the options include `agent` (agent name from config), `agents` (map containing an inline `AgentDefinition` loaded from `.claude/agents/<name>.md`), `settingSources: ['project']`, `permissionMode: 'bypassPermissions'`, and `allowDangerouslySkipPermissions: true`.
+- [ ] Given the engine dispatches any agent, when `query()` is called, then the options include `agent` (agent name from config), `agents` (map containing an inline `AgentDefinition` with project context appended to `prompt`), `settingSources: []`, `permissionMode: 'bypassPermissions'`, and `allowDangerouslySkipPermissions: true`.
+- [ ] Given the engine dispatches any agent, when the `QueryFactory` creates the session, then it reads each file in `contextPaths` from `repoRoot` (UTF-8), concatenates their contents (double newline separator), and appends the result to the agent definition's `prompt` field (double newline separator between original prompt and context block).
+- [ ] Given the engine dispatches any agent and `contextPaths` is empty, when the `QueryFactory` creates the session, then the agent's original prompt is used as-is with no context appended.
+- [ ] Given the engine dispatches any agent and a context file in `contextPaths` cannot be read (missing or permissions error), when the `QueryFactory` attempts to create the session, then the error propagates to the caller and the session is not created (same behavior as agent definition file loading failures).
 - [ ] Given the engine dispatches any agent, when the `QueryFactory` loads the agent definition file, then it reads `{repoRoot}/.claude/agents/{agentName}.md`, parses YAML frontmatter with `gray-matter`, maps `description`, `tools` (comma-separated → array), `model` (default `'inherit'`), and the markdown body as `prompt` into an `AgentDefinition`.
 - [ ] Given the engine dispatches an Implementor for issue N, when `query()` is called, then `cwd` is set to the worktree path (`.worktrees/issue-<N>`). For Planner and Reviewer, `cwd` is the repository root.
 - [ ] Given the engine codebase, when inspected, then no file outside `engine/agent-manager/` imports from `@anthropic-ai/claude-agent-sdk` or `gray-matter`.
