@@ -57,6 +57,7 @@ export interface AgentManagerDeps {
 
 export interface DispatchImplementorParams {
   issueNumber: number;
+  modelOverride?: 'sonnet' | 'opus';
 }
 
 export interface DispatchReviewerParams {

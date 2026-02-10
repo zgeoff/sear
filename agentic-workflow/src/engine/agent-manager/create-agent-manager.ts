@@ -65,6 +65,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent: agentImplementor,
         issueNumber,
         worktreePath: worktreeResult.worktreePath,
+        ...(params.modelOverride !== undefined && { modelOverride: params.modelOverride }),
       });
 
       issueAgents.set(issueNumber, tracker);
@@ -185,6 +186,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       agent: params.agent,
       cwd: params.cwd,
       abortController,
+      ...(params.modelOverride !== undefined && { modelOverride: params.modelOverride }),
     });
 
     const tracker: AgentSessionTracker = {
@@ -516,6 +518,7 @@ interface StartSessionParams {
   issueNumber?: number;
   specPaths?: string[];
   worktreePath?: string;
+  modelOverride?: 'sonnet' | 'opus' | 'haiku';
 }
 
 interface TextBlock {

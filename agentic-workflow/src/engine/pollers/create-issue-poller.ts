@@ -34,6 +34,7 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
 
         const statusLabel = extractLabelValue(issue.labels, 'status:');
         const priorityLabel = extractLabel(issue.labels, 'priority:');
+        const complexityLabel = extractLabel(issue.labels, 'complexity:');
 
         const existing = snapshot.get(issue.number);
 
@@ -63,12 +64,13 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
           );
         }
 
-        // Update snapshot with latest data (title, priority may change)
+        // Update snapshot with latest data (title, priority, complexity may change)
         snapshot.set(issue.number, {
           issueNumber: issue.number,
           title: issue.title,
           statusLabel,
           priorityLabel,
+          complexityLabel,
           createdAt: issue.created_at,
         });
       }

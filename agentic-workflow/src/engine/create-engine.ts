@@ -399,6 +399,11 @@ function buildSnapshotAdapter(issuePoller: IssuePoller): IssuePollerSnapshot {
 
 const USER_DISPATCH_STATUSES: Set<string> = new Set(['pending', 'unblocked', 'needs-changes']);
 
+const COMPLEXITY_MODEL_OVERRIDES: Record<string, 'sonnet' | 'opus'> = {
+  'complexity:simple': 'sonnet',
+  'complexity:complex': 'opus',
+};
+
 function handleDispatchImplementor(
   issueNumber: number,
   issuePoller: IssuePoller,
@@ -418,12 +423,16 @@ function handleDispatchImplementor(
     return;
   }
 
-  agentManager.dispatchImplementor({ issueNumber }).catch((error) => {
-    logger.error('Failed to dispatch implementor', {
-      issueNumber,
-      error: String(error),
+  const modelOverride = COMPLEXITY_MODEL_OVERRIDES[issue.complexityLabel];
+
+  agentManager
+    .dispatchImplementor({ issueNumber, ...(modelOverride !== undefined && { modelOverride }) })
+    .catch((error) => {
+      logger.error('Failed to dispatch implementor', {
+        issueNumber,
+        error: String(error),
+      });
     });
-  });
 }
 
 function handleDispatchReviewer(

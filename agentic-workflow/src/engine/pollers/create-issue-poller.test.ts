@@ -315,6 +315,7 @@ test('it stores issue number, title, status label, priority label, and creation 
     title: 'Implement feature X',
     statusLabel: 'pending',
     priorityLabel: 'priority:high',
+    complexityLabel: '',
     createdAt: '2026-01-15T10:30:00Z',
   });
 });
