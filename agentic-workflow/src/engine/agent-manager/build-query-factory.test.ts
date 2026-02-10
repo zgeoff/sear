@@ -22,6 +22,7 @@ interface SetupOverrides {
   agentName: string;
   frontmatter: string;
   body: string;
+  contextPaths: string[];
 }
 
 function setupTest(overrides?: Partial<SetupOverrides>): {
@@ -46,6 +47,7 @@ function setupTest(overrides?: Partial<SetupOverrides>): {
   const config: QueryFactoryConfig = {
     repoRoot,
     bashValidatorHook,
+    contextPaths: overrides?.contextPaths ?? [],
   };
 
   const params: QueryFactoryParams = {
@@ -98,7 +100,7 @@ test('it passes settings sources, permission mode, and dangerous skip flag to th
   expect(mockQuery).toHaveBeenCalledWith(
     expect.objectContaining({
       options: expect.objectContaining({
-        settingSources: ['project'],
+        settingSources: [],
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
       }),
@@ -224,6 +226,7 @@ test('it rejects with an error when the agent definition file does not exist', a
   const config: QueryFactoryConfig = {
     repoRoot: '/test-repo',
     bashValidatorHook: vi.fn().mockResolvedValue({ decision: 'approve' }),
+    contextPaths: [],
   };
 
   const params: QueryFactoryParams = {
@@ -308,4 +311,58 @@ test('it ignores unrelated frontmatter fields not part of the agent definition',
   expect(agentDef).not.toHaveProperty('name');
   expect(agentDef).not.toHaveProperty('permissionMode');
   expect(agentDef).not.toHaveProperty('skills');
+});
+
+test('it appends context files to the agent prompt with double newline separators', async () => {
+  const { config, params } = setupTest({
+    contextPaths: ['.claude/CLAUDE.md', 'docs/context.md'],
+  });
+
+  vol.mkdirSync('/test-repo/.claude', { recursive: true });
+  vol.writeFileSync('/test-repo/.claude/CLAUDE.md', 'Project instructions here.');
+  vol.mkdirSync('/test-repo/docs', { recursive: true });
+  vol.writeFileSync('/test-repo/docs/context.md', 'Additional context.');
+
+  await buildQueryFactory(config)(params);
+
+  expect(mockQuery).toHaveBeenCalledTimes(1);
+  const callArgs = mockQuery.mock.calls[0];
+  invariant(callArgs, 'query must have been called at least once');
+  const agentDef = callArgs[0].options?.agents?.implementor;
+  invariant(agentDef, 'agent definition must exist');
+
+  const expectedPrompt = [
+    '\nYou are the Implementor agent.',
+    'Project instructions here.',
+    'Additional context.',
+  ].join('\n\n');
+
+  expect(agentDef.prompt).toBe(expectedPrompt);
+});
+
+test('it leaves the prompt unchanged when context paths is empty', async () => {
+  const { config, params } = setupTest({
+    contextPaths: [],
+  });
+
+  await buildQueryFactory(config)(params);
+
+  expect(mockQuery).toHaveBeenCalledTimes(1);
+  const callArgs = mockQuery.mock.calls[0];
+  invariant(callArgs, 'query must have been called at least once');
+  const agentDef = callArgs[0].options?.agents?.implementor;
+  invariant(agentDef, 'agent definition must exist');
+
+  expect(agentDef.prompt).toBe('\nYou are the Implementor agent.');
+});
+
+test('it propagates the error when a context file does not exist', async () => {
+  const { config, params } = setupTest({
+    contextPaths: ['.claude/CLAUDE.md', 'missing/file.md'],
+  });
+
+  vol.mkdirSync('/test-repo/.claude', { recursive: true });
+  vol.writeFileSync('/test-repo/.claude/CLAUDE.md', 'Project instructions here.');
+
+  await expect(buildQueryFactory(config)(params)).rejects.toThrow();
 });
