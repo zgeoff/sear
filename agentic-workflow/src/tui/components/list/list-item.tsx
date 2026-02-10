@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 export interface ListItemProps {
   content: string;
+  richContent?: ReactNode;
   selected: boolean;
   focused: boolean;
   visibleIndex: number;
@@ -18,6 +19,18 @@ export function ListItem(props: ListItemProps): ReactNode {
   const showDimBackground = isOddRow && !showInverse;
 
   const availableWidth = props.paneWidth - HORIZONTAL_PADDING * 2;
+  const needsTruncation = props.content.length > availableWidth;
+
+  if (props.richContent && !needsTruncation) {
+    return (
+      <Box paddingLeft={HORIZONTAL_PADDING} paddingRight={HORIZONTAL_PADDING}>
+        <Text inverse={showInverse} dimColor={showDimBackground}>
+          {props.richContent}
+        </Text>
+      </Box>
+    );
+  }
+
   const displayContent = truncateContent(props.content, availableWidth);
 
   return (
