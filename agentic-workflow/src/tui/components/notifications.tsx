@@ -1,3 +1,4 @@
+import { Text } from 'ink';
 import type { ReactNode } from 'react';
 import { match, P } from 'ts-pattern';
 import type { Notification } from '../types.ts';
@@ -94,8 +95,194 @@ function buildListItems(notifications: Notification[]): ListItemData[] {
     const copySuffix = notification.clipboardCommand ? ' [copy]' : '';
     const content = `${glyph} ${timestamp} ${body}${logSuffix}${copySuffix}`;
 
-    return { key: notification.id, content };
+    const richContent = renderRichContent(notification, timestamp);
+
+    return { key: notification.id, content, richContent };
   });
+}
+
+function renderRichContent(notification: Notification, timestamp: string): ReactNode {
+  const indicatorColor = getIndicatorColor(notification);
+  const isDimIndicator = isIndicatorDim(notification);
+  const glyph = getIndicatorGlyph(notification);
+  const bodySegments = renderRichBody(notification);
+  const logSuffix = getLogFilePath(notification) ? <Text dimColor={true}> (logs)</Text> : null;
+  const copySuffix = notification.clipboardCommand ? ' [copy]' : null;
+  const indicatorColorProps = indicatorColor ? { color: indicatorColor } : {};
+
+  return (
+    <>
+      <Text {...indicatorColorProps} dimColor={isDimIndicator}>
+        {glyph}
+      </Text>
+      {` ${timestamp} `}
+      {bodySegments}
+      {logSuffix}
+      {copySuffix}
+    </>
+  );
+}
+
+function renderRichBody(notification: Notification): ReactNode {
+  return match(notification)
+    .with({ eventType: 'agentStarted', agentType: 'planner' }, (n) => {
+      const specPart = 'specCount' in n ? `${n.specCount} specs` : 'specs';
+      return (
+        <>
+          <Text bold={true} color="cyan">
+            Planner
+          </Text>
+          {` started for ${specPart}`}
+        </>
+      );
+    })
+    .with({ eventType: 'agentStarted' }, (n) => (
+      <>
+        <Text bold={true} color="cyan">
+          {formatAgentName(n.agentType)}
+        </Text>
+        started for
+        <Text bold={true}>#{n.issueNumber}</Text>
+      </>
+    ))
+    .with({ eventType: 'agentCompleted', agentType: 'planner' }, (n) => {
+      const specPart = 'specCount' in n ? `${n.specCount} specs` : 'specs';
+      return (
+        <>
+          <Text bold={true} color="cyan">
+            Planner
+          </Text>
+          {` completed for ${specPart}`}
+        </>
+      );
+    })
+    .with({ eventType: 'agentCompleted' }, (n) => (
+      <>
+        <Text bold={true} color="cyan">
+          {formatAgentName(n.agentType)}
+        </Text>
+        completed for
+        <Text bold={true}>#{n.issueNumber}</Text>
+      </>
+    ))
+    .with({ eventType: 'agentFailed', agentType: 'planner' }, (n) => (
+      <>
+        <Text bold={true} color="cyan">
+          Planner
+        </Text>
+        failed \u2014
+        <Text color="red">{n.error}</Text>
+      </>
+    ))
+    .with({ eventType: 'agentFailed' }, (n) => (
+      <>
+        <Text bold={true} color="cyan">
+          {formatAgentName(n.agentType)}
+        </Text>
+        failed for
+        <Text bold={true}>#{n.issueNumber}</Text>
+        \u2014
+        <Text color="red">{n.error}</Text>
+      </>
+    ))
+    .with({ eventType: 'agentSkipped', agentType: 'planner' }, () => (
+      <>
+        <Text bold={true} color="cyan">
+          Planner
+        </Text>
+        skipped \u2014 paths deferred
+      </>
+    ))
+    .with({ eventType: 'agentSkipped' }, (n) => (
+      <>
+        <Text bold={true} color="cyan">
+          {formatAgentName(n.agentType)}
+        </Text>
+        skipped for
+        <Text bold={true}>#{n.issueNumber}</Text>
+      </>
+    ))
+    .with({ eventType: 'issueStatusChanged' }, (n) => {
+      const oldStatusText = n.oldStatus ?? 'none';
+      const oldStyle = getStatusStyle(oldStatusText);
+      const newStyle = getStatusStyle(n.newStatus);
+      const oldColorProps = oldStyle.color ? { color: oldStyle.color } : {};
+      const newColorProps = newStyle.color ? { color: newStyle.color } : {};
+      return (
+        <>
+          <Text bold={true}>#{n.issueNumber}</Text>:
+          <Text {...oldColorProps} dimColor={oldStyle.dimColor}>
+            {oldStatusText}
+          </Text>
+          \u2192
+          <Text {...newColorProps} dimColor={newStyle.dimColor}>
+            {n.newStatus}
+          </Text>
+        </>
+      );
+    })
+    .with({ eventType: 'specChanged' }, (n) => (
+      <>
+        Spec changed:
+        <Text color="magenta">{n.specFileName}</Text>
+      </>
+    ))
+    .with({ eventType: 'recoveryPerformed' }, (n) => (
+      <>
+        <Text bold={true}>#{n.issueNumber}</Text>
+        recovered from stale
+      </>
+    ))
+    .with({ eventType: 'notification', notificationType: 'approved' }, (n) => (
+      <>
+        <Text bold={true}>#{n.issueNumber}</Text> <Text color="green">approved</Text>
+        \u2014 ready to merge
+      </>
+    ))
+    .with(
+      { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
+      (n) => {
+        const label = n.notificationType === 'needs-refinement' ? 'needs refinement' : 'blocked';
+        const labelStyle = getStatusStyle(n.notificationType);
+        const labelColorProps = labelStyle.color ? { color: labelStyle.color } : {};
+        const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+        return (
+          <>
+            <Text bold={true}>#{n.issueNumber}</Text>{' '}
+            <Text {...labelColorProps} dimColor={labelStyle.dimColor}>
+              {label}
+            </Text>
+            {guidance}
+          </>
+        );
+      },
+    )
+    .with({ eventType: 'dispatchReady' }, (n) => (
+      <>
+        <Text bold={true}>#{n.issueNumber}</Text>
+        ready for dispatch
+      </>
+    ))
+    .with({ eventType: 'notificationDismissed' }, (n) => (
+      <>
+        <Text bold={true}>#{n.issueNumber}</Text>
+        dismissed
+      </>
+    ))
+    .with({ eventType: 'issueRemoved' }, (n) => (
+      <>
+        <Text bold={true}>#{n.issueNumber}</Text>
+        removed
+      </>
+    ))
+    .with({ eventType: 'startup' }, (n) => {
+      const base = `Startup complete: ${n.issueCount} issues tracked`;
+      if (n.recoveriesPerformed > 0) {
+        return `${base}, ${n.recoveriesPerformed} recoveries performed`;
+      }
+      return base;
+    })
+    .exhaustive();
 }
 
 function formatTimestamp(isoString: string): string {
@@ -124,6 +311,54 @@ function getIndicatorGlyph(notification: Notification): string {
     .with({ eventType: 'issueRemoved' }, () => '\u2212')
     .with({ eventType: 'startup' }, () => '\u2713')
     .exhaustive();
+}
+
+export type InkColor = 'green' | 'blue' | 'red' | 'yellow' | 'cyan' | 'magenta' | undefined;
+
+export function getIndicatorColor(notification: Notification): InkColor {
+  return match<Notification, InkColor>(notification)
+    .with({ eventType: 'dispatchReady' }, () => 'green')
+    .with({ eventType: 'agentStarted' }, () => 'blue')
+    .with({ eventType: 'agentCompleted' }, () => 'green')
+    .with({ eventType: 'agentFailed' }, () => 'red')
+    .with({ eventType: 'agentSkipped' }, () => 'yellow')
+    .with({ eventType: 'issueStatusChanged' }, () => 'cyan')
+    .with({ eventType: 'specChanged' }, () => 'magenta')
+    .with({ eventType: 'recoveryPerformed' }, () => 'yellow')
+    .with({ eventType: 'notification', notificationType: 'approved' }, () => 'green')
+    .with(
+      { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
+      () => 'yellow',
+    )
+    .with({ eventType: 'notificationDismissed' }, () => undefined)
+    .with({ eventType: 'issueRemoved' }, () => undefined)
+    .with({ eventType: 'startup' }, () => 'green')
+    .exhaustive();
+}
+
+export function isIndicatorDim(notification: Notification): boolean {
+  return (
+    notification.eventType === 'notificationDismissed' || notification.eventType === 'issueRemoved'
+  );
+}
+
+export interface StatusStyle {
+  color: InkColor;
+  dimColor: boolean;
+}
+
+export function getStatusStyle(status: string): StatusStyle {
+  const STATUS_COLORS: Record<string, InkColor> = {
+    'in-progress': 'blue',
+    review: 'cyan',
+    'needs-refinement': 'yellow',
+    blocked: 'yellow',
+    approved: 'green',
+  };
+  if (status === 'none') {
+    return { color: undefined, dimColor: true };
+  }
+  return { color: STATUS_COLORS[status], dimColor: false };
 }
 
 function renderContentString(notification: Notification): string {

@@ -34,6 +34,7 @@ export function List(props: ListProps): ReactNode {
         <ListItem
           key={item.key}
           content={item.content}
+          richContent={item.richContent}
           selected={viewportStart + index === props.selectedIndex}
           focused={props.focused}
           visibleIndex={index}

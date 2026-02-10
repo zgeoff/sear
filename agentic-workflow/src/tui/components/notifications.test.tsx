@@ -4,7 +4,10 @@ import { match } from 'ts-pattern';
 import { expect, test, vi } from 'vitest';
 import type { Notification } from '../types.ts';
 import {
+  getIndicatorColor,
+  getStatusStyle,
   handleNotificationsInput,
+  isIndicatorDim,
   NotificationsPane,
   type NotificationsPaneProps,
 } from './notifications.tsx';
@@ -138,6 +141,157 @@ test('it renders a yellow star indicator for a blocked notification', () => {
   const { lastFrame } = setupRenderTest({ notifications: [notification] });
 
   expect(lastFrame()).toContain('\u2605');
+});
+
+// ---------------------------------------------------------------------------
+// Indicator colors (getIndicatorColor)
+// ---------------------------------------------------------------------------
+
+test('it returns green for a dispatch-ready indicator', () => {
+  const notification = buildTypedNotification('dispatchReady', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('green');
+});
+
+test('it returns blue for an agent-started indicator', () => {
+  const notification = buildTypedNotification('agentStarted', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('blue');
+});
+
+test('it returns green for an agent-completed indicator', () => {
+  const notification = buildTypedNotification('agentCompleted', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('green');
+});
+
+test('it returns red for an agent-failed indicator', () => {
+  const notification = buildTypedNotification('agentFailed', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('red');
+});
+
+test('it returns yellow for an agent-skipped indicator', () => {
+  const notification = buildTypedNotification('agentSkipped', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('yellow');
+});
+
+test('it returns cyan for a status-changed indicator', () => {
+  const notification = buildTypedNotification('issueStatusChanged', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('cyan');
+});
+
+test('it returns magenta for a spec-changed indicator', () => {
+  const notification = buildTypedNotification('specChanged', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('magenta');
+});
+
+test('it returns yellow for a recovery-performed indicator', () => {
+  const notification = buildTypedNotification('recoveryPerformed', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('yellow');
+});
+
+test('it returns green for an approved notification indicator', () => {
+  const notification = buildTypedNotification('notification', 'n-1', {
+    notificationType: 'approved',
+  });
+  expect(getIndicatorColor(notification)).toBe('green');
+});
+
+test('it returns yellow for a needs-refinement notification indicator', () => {
+  const notification = buildTypedNotification('notification', 'n-1', {
+    notificationType: 'needs-refinement',
+    resolutionGuidance: 'fix it',
+  });
+  expect(getIndicatorColor(notification)).toBe('yellow');
+});
+
+test('it returns yellow for a blocked notification indicator', () => {
+  const notification = buildTypedNotification('notification', 'n-1', {
+    notificationType: 'blocked',
+    resolutionGuidance: 'waiting',
+  });
+  expect(getIndicatorColor(notification)).toBe('yellow');
+});
+
+test('it returns undefined for a dismissed notification indicator', () => {
+  const notification = buildTypedNotification('notificationDismissed', 'n-1');
+  expect(getIndicatorColor(notification)).toBeUndefined();
+});
+
+test('it returns undefined for an issue-removed indicator', () => {
+  const notification = buildTypedNotification('issueRemoved', 'n-1');
+  expect(getIndicatorColor(notification)).toBeUndefined();
+});
+
+test('it returns green for a startup indicator', () => {
+  const notification = buildTypedNotification('startup', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('green');
+});
+
+// ---------------------------------------------------------------------------
+// Indicator dimming (isIndicatorDim)
+// ---------------------------------------------------------------------------
+
+test('it dims the indicator for a dismissed notification', () => {
+  const notification = buildTypedNotification('notificationDismissed', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(true);
+});
+
+test('it dims the indicator for a removed issue notification', () => {
+  const notification = buildTypedNotification('issueRemoved', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(true);
+});
+
+test('it does not dim the indicator for a dispatch-ready notification', () => {
+  const notification = buildTypedNotification('dispatchReady', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(false);
+});
+
+test('it does not dim the indicator for an agent-started notification', () => {
+  const notification = buildTypedNotification('agentStarted', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(false);
+});
+
+test('it does not dim the indicator for a startup notification', () => {
+  const notification = buildTypedNotification('startup', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// Status label styling (getStatusStyle)
+// ---------------------------------------------------------------------------
+
+test('it returns default style for a pending status label', () => {
+  expect(getStatusStyle('pending')).toStrictEqual({ color: undefined, dimColor: false });
+});
+
+test('it returns default style for an unblocked status label', () => {
+  expect(getStatusStyle('unblocked')).toStrictEqual({ color: undefined, dimColor: false });
+});
+
+test('it returns default style for a needs-changes status label', () => {
+  expect(getStatusStyle('needs-changes')).toStrictEqual({ color: undefined, dimColor: false });
+});
+
+test('it returns blue for an in-progress status label', () => {
+  expect(getStatusStyle('in-progress')).toStrictEqual({ color: 'blue', dimColor: false });
+});
+
+test('it returns cyan for a review status label', () => {
+  expect(getStatusStyle('review')).toStrictEqual({ color: 'cyan', dimColor: false });
+});
+
+test('it returns yellow for a needs-refinement status label', () => {
+  expect(getStatusStyle('needs-refinement')).toStrictEqual({ color: 'yellow', dimColor: false });
+});
+
+test('it returns yellow for a blocked status label', () => {
+  expect(getStatusStyle('blocked')).toStrictEqual({ color: 'yellow', dimColor: false });
+});
+
+test('it returns green for an approved status label', () => {
+  expect(getStatusStyle('approved')).toStrictEqual({ color: 'green', dimColor: false });
+});
+
+test('it returns dim style for the none status representing first detection', () => {
+  expect(getStatusStyle('none')).toStrictEqual({ color: undefined, dimColor: true });
 });
 
 // ---------------------------------------------------------------------------
