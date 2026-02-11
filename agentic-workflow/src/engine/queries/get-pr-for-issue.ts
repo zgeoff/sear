@@ -4,8 +4,10 @@ import type { CIStatus, QueriesConfig } from './types.ts';
 export async function getPRForIssue(
   config: QueriesConfig,
   issueNumber: number,
+  options?: { includeDrafts?: boolean },
 ): Promise<PRDetailsResult> {
   const { octokit, owner, repo } = config;
+  const includeDrafts = options?.includeDrafts ?? false;
 
   const closingPattern = buildClosingKeywordPattern(issueNumber);
 
@@ -18,6 +20,7 @@ export async function getPRForIssue(
 
   const matchingPRs = pullRequests
     .filter((pr) => pr.body !== null && closingPattern.test(pr.body))
+    .filter((pr) => includeDrafts || !pr.draft)
     .sort((a, b) => a.number - b.number);
 
   const linkedPr = matchingPRs[0];
@@ -40,6 +43,8 @@ export async function getPRForIssue(
     changedFilesCount: prDetail.changed_files,
     ciStatus,
     url: prDetail.html_url,
+    isDraft: prDetail.draft,
+    headRefName: prDetail.head.ref,
   };
 }
 

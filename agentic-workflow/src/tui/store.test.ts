@@ -1697,6 +1697,8 @@ test('it clears the no-PR marker when a subsequent fetch returns a real PR', asy
     changedFilesCount: 3,
     ciStatus: 'success',
     url: 'https://github.com/owner/repo/pull/10',
+    isDraft: false,
+    headRefName: 'feature-branch',
   });
 
   await store.getState().selectIssue(1);

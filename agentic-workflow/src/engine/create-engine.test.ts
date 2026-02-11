@@ -167,7 +167,8 @@ function setupMockGitHubClient(
       title: 'PR #1',
       changed_files: 3,
       html_url: 'https://github.com/owner/repo/pull/1',
-      head: { sha: 'abc123' },
+      head: { sha: 'abc123', ref: 'feature-branch' },
+      draft: false,
     },
   });
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({

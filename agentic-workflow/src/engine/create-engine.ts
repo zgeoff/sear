@@ -281,8 +281,11 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       return getIssueDetails(queriesConfig, issueNumber);
     },
 
-    getPRForIssue(issueNumber: number): Promise<PRDetailsResult> {
-      return getPRForIssue(queriesConfig, issueNumber);
+    getPRForIssue(
+      issueNumber: number,
+      options?: { includeDrafts?: boolean },
+    ): Promise<PRDetailsResult> {
+      return getPRForIssue(queriesConfig, issueNumber, options);
     },
 
     getAgentStream(issueNumber: number): AgentStream {
