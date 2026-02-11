@@ -167,6 +167,26 @@ export interface PRFileEntry {
   patch?: string;
 }
 
+export interface PRReview {
+  id: number;
+  author: string;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
+  body: string;
+}
+
+export interface PRInlineComment {
+  id: number;
+  author: string;
+  body: string;
+  path: string;
+  line: number | null;
+}
+
+export interface PRReviewsResult {
+  reviews: PRReview[];
+  comments: PRInlineComment[];
+}
+
 // ---------------------------------------------------------------------------
 // Stream
 // ---------------------------------------------------------------------------
@@ -257,5 +277,6 @@ export interface Engine {
     options?: { includeDrafts?: boolean },
   ) => Promise<PRDetailsResult>;
   getPRFiles: (prNumber: number) => Promise<PRFileEntry[]>;
+  getPRReviews: (prNumber: number) => Promise<PRReviewsResult>;
   getAgentStream: (issueNumber: number) => AgentStream;
 }
