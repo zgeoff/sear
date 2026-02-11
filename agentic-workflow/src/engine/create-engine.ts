@@ -13,6 +13,7 @@ import type {
   EngineEvent,
   IssueDetailsResult,
   PRDetailsResult,
+  PRFileEntry,
   ShutdownCommand,
   SpecChange,
   StartupResult,
@@ -38,6 +39,7 @@ import { createIssuePoller } from './pollers/create-issue-poller.ts';
 import { createSpecPoller } from './pollers/create-spec-poller.ts';
 import type { IssuePoller, SpecPollerSnapshot } from './pollers/types.ts';
 import { getIssueDetails } from './queries/get-issue-details.ts';
+import { getPRFiles } from './queries/get-pr-files.ts';
 import { getPRForIssue } from './queries/get-pr-for-issue.ts';
 import type { QueriesConfig } from './queries/types.ts';
 import { createRecovery } from './recovery/create-recovery.ts';
@@ -298,6 +300,10 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       options?: { includeDrafts?: boolean },
     ): Promise<PRDetailsResult> {
       return getPRForIssue(queriesConfig, issueNumber, options);
+    },
+
+    getPRFiles(prNumber: number): Promise<PRFileEntry[]> {
+      return getPRFiles(queriesConfig, prNumber);
     },
 
     getAgentStream(issueNumber: number): AgentStream {

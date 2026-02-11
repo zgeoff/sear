@@ -65,6 +65,7 @@ function createMockEngine(): {
       isDraft: false,
       headRefName: 'feature-branch',
     })),
+    getPRFiles: vi.fn(async () => []),
     getAgentStream: vi.fn(() => null),
   };
 
