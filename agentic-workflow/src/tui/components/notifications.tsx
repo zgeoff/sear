@@ -51,8 +51,7 @@ export interface HandleNotificationsInputParams {
 export function handleNotificationsInput(params: HandleNotificationsInputParams): void {
   const { input, key, notifications, selectedIndex, onSelectIndex, openUrl, copyToClipboard } =
     params;
-  const reversed = [...notifications].reverse();
-  if (reversed.length === 0) {
+  if (notifications.length === 0) {
     return;
   }
 
@@ -63,13 +62,13 @@ export function handleNotificationsInput(params: HandleNotificationsInputParams)
   }
 
   if (key.downArrow || input === 'j') {
-    const newIndex = Math.min(reversed.length - 1, selectedIndex + 1);
+    const newIndex = Math.min(notifications.length - 1, selectedIndex + 1);
     onSelectIndex(newIndex);
     return;
   }
 
   if (key.return) {
-    const selected = reversed[selectedIndex];
+    const selected = notifications[selectedIndex];
     if (selected?.contextURL) {
       openUrl(selected.contextURL);
     }
@@ -77,7 +76,7 @@ export function handleNotificationsInput(params: HandleNotificationsInputParams)
   }
 
   if (input === 'c') {
-    const selected = reversed[selectedIndex];
+    const selected = notifications[selectedIndex];
     if (selected?.clipboardCommand) {
       copyToClipboard(selected.clipboardCommand);
     }
@@ -88,8 +87,7 @@ function buildListItems(notifications: Notification[], repository: string): List
   if (notifications.length === 0) {
     return [{ key: 'empty', content: 'No notifications' }];
   }
-  const reversed = [...notifications].reverse();
-  return reversed.map((notification) => {
+  return notifications.map((notification) => {
     const timestamp = formatTimestamp(notification.timestamp);
     const glyph = getIndicatorGlyph(notification);
     const body = renderContentString(notification);
