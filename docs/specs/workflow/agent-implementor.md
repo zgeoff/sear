@@ -1,6 +1,6 @@
 ---
 title: Implementor Agent
-version: 0.6.0
+version: 0.7.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -16,239 +16,99 @@ Agent that executes assigned tasks by reading task issues and referenced specs, 
 - Must work on exactly one task at a time.
 - Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
 - Must conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
+- Must use conventional commit format for commit messages and PR titles.
 - Must not reprioritize tasks or change task sequencing. Executes what is assigned.
+- Must not make interpretive decisions when the spec is ambiguous, contradictory, or incomplete. Escalate as a blocker instead.
+- The agent definition body must include the permitted bash command list from `agent-hook-bash-validator.md` § Allowlist Prefixes to prevent wasted turns on blocked commands.
 
-## Agent Definition Frontmatter
+## Agent Profile
 
-The agent definition file for the Implementor must include the following frontmatter fields (see `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses these):
+| Constraint | Value | Rationale |
+|-----------|-------|-----------|
+| Model tier | Opus (default) | Implementation requires strong reasoning; overridden by engine based on task complexity |
+| Tool access | Full write (Read, Write, Edit, Grep, Glob, Bash) | Must create and modify source code and tests |
+| Turn budget | 100 | Open-ended implementation work requires higher budget than analysis |
+| Permission model | Non-interactive with bash validation | Runs unattended; bash validator enforces command safety |
 
-```yaml
-name: implementor
-description: Implements assigned tasks by writing code and tests within declared scope
-model: opus
-maxTurns: 100
-tools: Read, Write, Edit, Grep, Glob, Bash
-disallowedTools: NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
-permissionMode: bypassPermissions
-hooks:
-  PreToolUse:
-    - matcher: Bash
-      hooks:
-        - type: command
-          command: scripts/workflow/validate-bash.sh
-```
+The agent definition (`.claude/agents/implementor.md`) implements these constraints as frontmatter. The Engine overrides the model at dispatch time based on the task's complexity label (see `control-plane-engine.md` § Dispatch Logic). See `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses frontmatter.
 
-- **name:** Agent identifier used by the engine for dispatch and logging.
-- **description:** One-line summary mapped to `AgentDefinition.description`.
-- **model:** `opus` — default; overridden by the engine at dispatch time based on task complexity (see `control-plane-engine.md` § Dispatch Logic).
-- **maxTurns:** `100` — upper bound on agentic turns per session.
-- **tools:** Allowlist. The Implementor reads, writes, and edits code.
-- **disallowedTools:** Denylist reinforcing the allowlist. Blocks notebook editing, web access, sub-agent spawning, plan mode, user interaction, and todo list management.
-- **permissionMode:** `bypassPermissions` — agents run non-interactively. The engine overrides this at dispatch time, but including it ensures correct behavior when the agent is run directly via CLI.
-- **hooks:** PreToolUse bash validator hook. The engine provides this programmatically at dispatch time (see `control-plane-engine-agent-manager.md` § Programmatic Hooks), but including it ensures the validator is active when the agent is run directly via CLI.
+## Trigger
 
-### Permitted Bash Commands
+The Implementor is invoked with a task issue number under three scenarios:
 
-The agent definition body (system prompt) must include the full list of permitted Bash command prefixes from `agent-hook-bash-validator.md` § Allowlist Prefixes. This tells the agent which commands are available and prevents wasted turns attempting commands the validator will block. The authoritative list lives in the bash validator spec — the agent definition transcribes it verbatim.
+1. **New task** — A `status:pending` task is selected for implementation.
+2. **Task unblocked** — A previously blocked task moves to `status:unblocked`.
+3. **Task needs changes** — A reviewed task moves to `status:needs-changes`.
 
-## Specification
+The agent determines the scenario from the task's current status label.
 
-### Trigger
-
-The Implementor agent is invoked with a task issue number when any of the following occur:
-
-1. **New task** -- A Human selects a `status:pending` task for implementation.
-2. **Task unblocked** -- A previously blocked task moves to `status:unblocked`.
-3. **Task needs changes** -- A reviewed task moves to `status:needs-changes`.
-
-The trigger mechanism is outside the scope of this spec. The agent receives a task issue number as its input and determines the scenario from the task's current status label.
-
-### Inputs
+## Inputs
 
 The Engine injects the following into the agent's session at dispatch time (see `control-plane-engine-agent-manager.md` § Trigger Context and § Project Context Injection):
 
 1. **Trigger prompt:** The task issue number (e.g., `"42"`).
 2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended to the agent's system prompt.
-3. **Working directory:** A git worktree path (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). The worktree is a full checkout — all relative paths in the codebase work as-is from `cwd`.
+3. **Working directory:** A git worktree (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). For new tasks, the worktree is on a fresh branch. For resumed tasks (`status:unblocked`, `status:needs-changes`), the worktree is on the existing PR branch.
 
-The agent fetches all remaining data via tool calls. On invocation, the agent reads:
+The agent fetches all remaining data via tool calls: the task issue body, referenced spec sections, in-scope file state, and (for resumed tasks) existing PR and review comments.
 
-1. **Task issue** -- The GitHub Issue body, including:
-   - Objective
-   - Spec reference (file path and section names)
-   - Scope (In Scope and Out of Scope file lists)
-   - Acceptance criteria
-   - Context and constraints
-2. **Referenced spec sections** -- The spec file(s) and section(s) listed in the task's "Spec Reference" field.
-3. **Codebase state** -- The current state of files listed in the "In Scope" section.
-4. **Existing PR** (resume only) -- If resuming from `status:unblocked` or `status:needs-changes`, the existing draft PR and its review comments.
+## Input Validation
 
-### Input Validation
+Before starting work, the agent validates:
 
-Before starting work, the agent validates its inputs:
+1. **Task structure** — The task issue contains all required sections: Objective, Spec Reference, Scope (with In Scope list), and Acceptance Criteria.
+2. **Spec reference** — The spec file exists and has `status: approved` in its frontmatter.
+3. **Status label** — The task's current status label is one of: `status:pending`, `status:unblocked`, `status:needs-changes`.
+4. **Existing PR** (resume only) — For `status:unblocked` or `status:needs-changes`, a PR linked to the task issue exists.
 
-1. **Task structure** -- The task issue contains all required sections: Objective, Spec Reference, Scope (with In Scope list), and Acceptance Criteria.
-2. **Spec reference** -- The spec file referenced in the task exists and has `status: approved` in its frontmatter.
-3. **Status label** -- The task's current status label matches the expected label for the trigger type:
-   - `status:pending` for new tasks
-   - `status:unblocked` for resumed blocked tasks
-   - `status:needs-changes` for post-review tasks
-4. **Existing PR** (resume only) -- For `status:unblocked` or `status:needs-changes`, a PR linked to the task issue exists.
+If any check fails, the agent posts a comment using the Validation Failure Comment format (see `workflow-contracts.md` § Validation Failure Comment) and stops. The agent does not change the status label on validation failure.
 
-If any check fails, the agent stops and adds a comment to the task issue:
+## Execution Scenarios
 
-```markdown
-## Validation Failure
+The agent's behavior differs based on the task's status label at invocation. All scenarios share the same input validation and scope enforcement rules.
 
-**Check:** <which check failed>
-**Expected:** <what was expected>
-**Actual:** <what was found>
+### New Task (status:pending)
 
-Cannot proceed until this is resolved.
-```
+The agent transitions the label to `status:in-progress` before any code changes, then implements the task and submits a ready-for-review PR linked to the task issue via `Closes #<issue-number>`. The PR title follows conventional commit format. The branch name is assigned by the engine — the agent pushes on whatever branch its worktree starts on.
 
-The agent does not change the task's status label on validation failure. It stops and waits for the issue to be corrected.
+### Resume from Unblocked (status:unblocked)
 
-### Execution Behavior
+The worktree is on the existing PR branch. The agent reviews the original blocker and any resolution comments, transitions the label to `status:in-progress`, then continues implementation from preserved progress. On completion, the existing draft PR is converted to ready-for-review (not a new PR).
 
-#### New Task
+### Resume from Needs-Changes (status:needs-changes)
 
-When invoked with a `status:pending` task:
+The worktree is on the existing PR branch. The agent reads the PR review comments to understand requested changes, transitions the label to `status:in-progress`, then addresses each review comment within scope. Fixes are pushed to the existing PR — no new PR is opened, and the draft-to-ready conversion does not apply (the PR is already ready-for-review).
 
-1. Read the task issue to understand the objective, scope, and acceptance criteria.
-2. Read the referenced spec sections to understand the required behavior.
-3. Read the current state of in-scope files to understand the baseline.
-4. Validate inputs (see Input Validation).
-5. Update the task issue label from `status:pending` to `status:in-progress` (`scripts/workflow/gh.sh issue edit`).
-6. Implement and submit (see Complete and Submit).
+If a review comment requests changes to out-of-scope files, the agent posts an escalation comment (see `workflow-contracts.md` § Escalation Comment Format) explaining the scope constraint and continues with in-scope fixes.
 
-#### Resume from Unblocked
+### Test Verification
 
-When a previously blocked task moves to `status:unblocked`:
+In all scenarios, the agent runs tests locally before completing. If tests fail due to the agent's changes, it fixes and re-runs. If tests fail due to something outside the agent's scope (pre-existing failure, broken dependency), it treats the failure as a blocker.
 
-1. Read the task issue to review the original blocker and any resolution comments.
-2. Read the referenced spec sections (which may have been amended).
-3. Validate inputs (see Input Validation).
-4. Update the task issue label from `status:unblocked` to `status:in-progress`.
-5. Continue implementation from where work was preserved, then complete and submit (see Complete and Submit).
+## Blocker Handling
 
-The agent's worktree is already on the existing PR branch.
+When the agent encounters something that prevents continued progress:
 
-#### Resume from Needs-Changes
-
-When a reviewed task moves to `status:needs-changes`. This scenario does not use the Complete and Submit procedure because it pushes fixes to an existing ready-for-review PR rather than opening or converting one.
-
-1. Read the task issue and PR review comments to understand the requested changes.
-2. Read any relevant spec sections referenced in the feedback.
-3. Validate inputs (see Input Validation).
-4. Update the task issue label from `status:needs-changes` to `status:in-progress`.
-5. Address each review comment within scope. If a review comment requests changes to out-of-scope files, post an escalation comment explaining the scope constraint and continue with in-scope fixes. Do not open a new PR -- push fixes to the existing one.
-6. Update tests if the feedback requires behavioral changes.
-7. Verify all tests pass locally. If tests fail, the agent fixes its implementation and re-runs until they pass. If the failure is caused by something outside the agent's scope, treat it as a blocker.
-
-The agent's worktree is already on the existing PR branch.
-
-#### Complete and Submit
-
-Shared procedure used by all execution scenarios after implementation work is done:
-
-1. Write or update tests that verify each acceptance criterion.
-2. Verify all tests pass locally. If tests fail, the agent fixes its implementation and re-runs until they pass. If the failure is caused by something outside the agent's scope (pre-existing failure, broken dependency), treat it as a blocker.
-3. Open or update the PR:
-   - **New task:** Open a new ready-for-review (non-draft) PR (title: `<type>(<scope>): <description>`, body: `Closes #<issue-number>`). The branch name is assigned by the engine at dispatch time — the Implementor pushes on whatever branch its worktree starts on.
-   - **Resume from unblocked:** Convert the existing draft PR to ready-for-review.
-
-### Blocker Handling
-
-When the agent encounters something that prevents continued progress, it must stop immediately:
-
-1. Stop work on the current task.
-2. Open a draft PR to preserve progress made so far (if no PR exists yet).
-3. Add a blocker comment to the task issue (see Blocker Comment Format).
-4. Update the task issue label from `status:in-progress` to the appropriate status:
+1. Stop work immediately.
+2. Open a draft PR to preserve progress (if no PR exists yet).
+3. Post a blocker comment on the task issue using the Blocker Comment Format (see `workflow-contracts.md` § Blocker Comment Format).
+4. Transition the label from `status:in-progress` to:
    - `status:needs-refinement` for spec blockers (ambiguity, contradiction, gap)
-   - `status:blocked` for non-spec blockers (external dependency, technical constraint, scope conflict)
+   - `status:blocked` for non-spec blockers (external dependency, technical constraint)
 
-#### Blocker Comment Format
+### Escalations
 
-```markdown
-## Blocker: <Short Title>
+When the agent identifies a non-blocking issue (e.g., scope conflict with another task, priority conflict, judgment call), it posts an escalation comment using the Escalation Comment Format (see `workflow-contracts.md` § Escalation Comment Format) and continues working. Escalations do not stop work and do not change the status label. If the issue later prevents progress, it becomes a blocker.
 
-**Type:** spec-ambiguity | spec-contradiction | spec-gap | external-dependency | technical-constraint
+## Scope Enforcement
 
-**Description:**
-Clear explanation of what is blocking progress.
+The agent must only modify files listed in the task issue's "In Scope" section, subject to the scope enforcement rules defined in `workflow-contracts.md` § Scope Enforcement Rules (primary scope, co-located test files, incidental changes).
 
-**Spec Reference:**
-- File: `docs/specs/<name>.md`
-- Section: <section name>
-- Quote: "<relevant text from spec>"
+When non-incidental changes to out-of-scope files are needed:
+- If it blocks progress: treat as a blocker (type: `technical-constraint`).
+- If it does not block progress: post an escalation (type: `scope-conflict`) and continue.
 
-**Options:**
-
-1. **<Option A>**
-   - Description: ...
-   - Trade-offs: ...
-
-2. **<Option B>**
-   - Description: ...
-   - Trade-offs: ...
-
-**Recommendation:** Option <X> because <reasoning>.
-
-**Impact:** What happens if this isn't resolved (other blocked tasks, timeline impact).
-```
-
-The "Spec Reference" section is required for spec blockers (types: `spec-ambiguity`, `spec-contradiction`, `spec-gap`). For non-spec blockers it may be omitted.
-
-At least two options must be provided. A recommendation is required.
-
-#### Escalation Comment Format
-
-When the agent identifies an issue that is not a direct blocker on the current task (e.g., scope conflict with another task, priority conflict, judgment call), it posts an escalation comment and continues working. Escalations do not stop work and do not change the status label. If the issue later prevents progress, it becomes a blocker at that point.
-
-The escalation comment uses this template:
-
-```markdown
-## Escalation: <Short Title>
-
-**Type:** scope-conflict | priority-conflict | judgment-call
-
-**Description:**
-Clear explanation of the issue.
-
-**What I've Tried:**
-Steps taken before escalating.
-
-**Options:**
-1. <option> -- <trade-offs>
-2. <option> -- <trade-offs>
-
-**Recommendation:** <which option and why, or "No recommendation">
-
-**Blocked Tasks:** <issue references, or "None">
-
-**Decision Needed By:** <date, or "No deadline">
-```
-
-### Scope Enforcement
-
-The agent must only modify files listed in the task issue's "In Scope" section, with two exceptions:
-
-1. **Co-located test files** (e.g., `foo.test.ts` adjacent to `foo.ts`) are implicitly in scope, even if not explicitly listed. Shared test utilities, fixtures, and integration tests in other directories are not implicitly in scope.
-
-2. **Incidental changes** to files outside the "In Scope" list are permitted when all of the following are true:
-   - The change is minimal (e.g., adding an import, re-exporting a new symbol, adding a field to a shared type, updating test fixtures or snapshots to reflect the structural change).
-   - The change is directly required by a change in a primary-scope file (the in-scope change would not work without it).
-   - The change does not alter the behavioral logic of the incidentally changed file (e.g., adding a new function, modifying control flow, or changing default values is not incidental).
-
-   Changes that do **not** qualify as incidental include: adding a new function, modifying control flow, changing default values, or adding new test cases for behavior that doesn't yet exist.
-
-If the agent determines that changes outside the declared scope are needed and do not qualify as incidental, it must not modify the out-of-scope files. If the out-of-scope change blocks progress, treat it as a blocker (type: `technical-constraint`). If it does not block progress, post an escalation (type: `scope-conflict`) and continue working.
-
-### Status Transitions
-
-The agent is responsible for the following label transitions (all via `scripts/workflow/gh.sh`):
+## Status Transitions
 
 | From | To | When |
 |------|----|------|
@@ -260,55 +120,42 @@ The agent is responsible for the following label transitions (all via `scripts/w
 
 The agent must not perform any other status transitions.
 
-### Completion Output
+## Completion Output
 
-When the agent finishes (whether successfully or stopped by a validation failure or blocker), it outputs a summary as its final text output (returned to whatever process invoked it):
-
-```
-## Implementor Result
-
-**Task:** #<issue-number> — <title>
-**Outcome:** completed | blocked | validation-failure
-**PR:** #<pr-number> (or "None")
-
-### What Was Done
-Brief description of changes made (or "No changes" if stopped before implementation).
-
-### Outstanding
-Any unresolved items, blocker references, or follow-up needed.
-```
+On every run (success, blocker, or validation failure), the agent returns the Implementor Completion Output (see `workflow-contracts.md` § Implementor Completion Output) as its final text output to the invoking process.
 
 ## Acceptance Criteria
 
-- [ ] Given the agent is invoked with a `status:pending` task, when it starts work, then the task label is updated to `status:in-progress` before any code changes are made.
+- [ ] Given a `status:pending` task, when the agent starts work, then the label is updated to `status:in-progress` before any code changes are made.
 - [ ] Given a task issue with a "Spec Reference" field, when the agent starts work, then it reads the referenced spec file and sections before writing code.
 - [ ] Given a task issue missing a required section (Objective, Spec Reference, Scope, or Acceptance Criteria), when the agent validates inputs, then it posts a validation failure comment and stops without changing the status label.
-- [ ] Given a task issue whose referenced spec file does not exist or is not `status: approved`, when the agent validates inputs, then it posts a validation failure comment and stops without changing the status label.
-- [ ] Given a task with an "In Scope" file list, when the agent completes work, then only files in the "In Scope" list, their co-located test files, and any incidental changes (minimal, directly required, non-behavioral) have been modified.
-- [ ] Given a task whose acceptance criteria are all satisfiable, when the agent completes work, then a PR exists that is linked to the task issue via `Closes #<issue-number>`.
-- [ ] Given a task whose acceptance criteria are all satisfiable, when the agent completes work, then all tests pass locally before the agent session ends.
-- [ ] Given the agent encounters a spec ambiguity during implementation, when it stops work, then a draft PR is opened, a blocker comment following the blocker format is added to the issue, and the task label is set to `status:needs-refinement`.
-- [ ] Given the agent encounters a non-spec blocker during implementation, when it stops work, then a draft PR is opened, a blocker comment following the blocker format is added to the issue, and the task label is set to `status:blocked`.
-- [ ] Given a blocker comment posted by the agent, when reviewed, then it contains a Type field, a Description, at least two Options with trade-offs, and a Recommendation.
-- [ ] Given a spec blocker comment posted by the agent, when reviewed, then it includes a Spec Reference section with file path, section name, and quote. Given a non-spec blocker comment, the Spec Reference section may be omitted.
-- [ ] Given a task that moves to `status:unblocked`, when the agent resumes, then it continues from preserved progress on the existing PR branch rather than starting over.
-- [ ] Given a task that moves to `status:unblocked`, when the agent completes work, then the existing draft PR is converted to ready-for-review rather than opening a new PR.
-- [ ] Given a task that moves to `status:needs-changes`, when the agent resumes, then it pushes fixes to the existing PR branch rather than opening a new PR.
-- [ ] Given a task that moves to `status:needs-changes`, when a review comment requests changes to out-of-scope files, then the agent posts an escalation comment explaining the scope constraint and continues with in-scope fixes.
-- [ ] Given any status transition performed by the agent, when reviewed, then it matches one of the five defined transitions in the Status Transitions table.
-- [ ] Given the agent identifies a non-blocking issue (e.g., scope conflict with another task), when it posts an escalation comment, then it continues working and does not change the status label.
-- [ ] Given the agent finishes execution (any outcome), when reviewed, then it has returned a completion summary with the task number, outcome, PR reference, and description of what was done.
-- [ ] Given any GitHub CLI operation performed by the Implementor, when the command is inspected, then it uses `scripts/workflow/gh.sh` (not bare `gh`).
+- [ ] Given a task whose referenced spec file does not exist or is not `status: approved`, when the agent validates inputs, then it posts a validation failure comment and stops without changing the status label.
+- [ ] Given a task with an unexpected status label (not `status:pending`, `status:unblocked`, or `status:needs-changes`), when the agent validates inputs, then it posts a validation failure comment and stops without changing the status label.
+- [ ] Given a task with an "In Scope" file list, when the agent completes work, then only files in primary scope, co-located test files, and incidental changes have been modified.
+- [ ] Given a satisfiable task, when the agent completes work, then a ready-for-review PR exists linked to the task issue via `Closes #<issue-number>`.
+- [ ] Given a satisfiable task, when the agent completes work, then all tests pass locally before the session ends.
+- [ ] Given a spec ambiguity during implementation, when the agent stops work, then a draft PR preserves progress, a blocker comment is posted, and the label is `status:needs-refinement`.
+- [ ] Given a non-spec blocker during implementation, when the agent stops work, then a draft PR preserves progress, a blocker comment is posted, and the label is `status:blocked`.
+- [ ] Given a blocker comment, when reviewed, then it contains a Type, Description, at least two Options with trade-offs, and a Recommendation.
+- [ ] Given a spec blocker comment, when reviewed, then it includes a Spec Reference with file path, section name, and quote.
+- [ ] Given a `status:unblocked` task, when the agent resumes, then it continues from preserved progress on the existing PR branch.
+- [ ] Given a `status:unblocked` task, when the agent completes, then the existing draft PR is converted to ready-for-review.
+- [ ] Given a `status:needs-changes` task, when the agent resumes, then it pushes fixes to the existing PR branch.
+- [ ] Given a needs-changes review comment requesting out-of-scope changes, then the agent posts an escalation comment and continues with in-scope fixes.
+- [ ] Given a non-blocking issue (scope conflict, priority conflict), when the agent posts an escalation, then it continues working and does not change the status label.
+- [ ] Given the agent finishes execution (any outcome), then it returns a completion summary matching the Implementor Completion Output format.
 
 ## Dependencies
 
-- `scripts/workflow/gh.sh` -- Authenticated `gh` CLI wrapper (see `docs/specs/workflow/github-cli.md`). All GitHub operations (label changes, issue comments, PR creation and updates).
-- Project testing framework -- Tests must be runnable locally via the commands defined in `CLAUDE.md`.
-- `CLAUDE.md` -- Code style, naming conventions, and patterns that the agent must conform to.
-- Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
+- `scripts/workflow/gh.sh` — Authenticated `gh` CLI wrapper (see `docs/specs/workflow/github-cli.md`). All GitHub operations (label changes, issue comments, PR creation and updates).
+- Project testing framework — Tests must be runnable locally via the commands defined in `CLAUDE.md`.
+- `CLAUDE.md` — Code style, naming conventions, and patterns that the agent must conform to.
+- `workflow-contracts.md` — Shared data formats: Validation Failure Comment, Blocker Comment Format, Escalation Comment Format, Implementor Completion Output, Scope Enforcement Rules.
+- Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
 
 ## References
 
-- `docs/specs/workflow/skill-github-workflow.md` -- GitHub Workflow Skill spec (reference for `gh` command patterns and label rules; not loaded at runtime)
-- `docs/specs/workflow/github-cli.md` -- GitHub CLI wrapper spec
-- `docs/specs/workflow/script-label-setup.md` -- Label definitions for the repository
+- `docs/specs/workflow/workflow.md` — Development Protocol (Implementor role, Implementation Phase)
+- `docs/specs/workflow/skill-github-workflow.md` — GitHub Workflow Skill spec (reference for `gh` command patterns and label rules; not loaded at runtime)
+- `docs/specs/workflow/github-cli.md` — GitHub CLI wrapper spec
+- `docs/specs/workflow/script-label-setup.md` — Label definitions for the repository
