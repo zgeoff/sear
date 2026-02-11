@@ -17,6 +17,8 @@ import type { GitHubClient } from './github-client/types.ts';
 import type { PlannerCacheEntry } from './planner-cache/types.ts';
 import type { WorktreeManager } from './worktree-manager/types.ts';
 
+const FRESH_BRANCH_PATTERN = /^issue-42-\d+$/;
+
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
@@ -189,7 +191,17 @@ function createMockWorktreeManager(): WorktreeManager {
       branch: 'issue-42',
       created: true,
     }),
+    createForBranch: vi
+      .fn()
+      .mockImplementation((params: { branchName: string; branchBase?: string }) =>
+        Promise.resolve({
+          worktreePath: `/tmp/test-repo/.worktrees/${params.branchName}`,
+          branch: params.branchName,
+          created: params.branchBase !== undefined,
+        }),
+      ),
     remove: vi.fn().mockResolvedValue(undefined),
+    removeByPath: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -1794,6 +1806,107 @@ test('it does not check for a PR or dispatch a reviewer when an implementor fail
       e.type === 'issueStatusChanged' && e.isEngineTransition === true,
   );
   expect(syntheticEvents).toHaveLength(0);
+
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// Worktree strategy: dispatchImplementor calls getPRForIssue for strategy selection
+// ---------------------------------------------------------------------------
+
+test('it calls getPRForIssue with includeDrafts when dispatching an implementor', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit } = setupTest({ issues, autoComplete: true });
+
+  // No linked PR
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  await engine.start();
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
+
+  // getPRForIssue calls octokit.pulls.list — verify it was called
+  expect(octokit.pulls.list).toHaveBeenCalled();
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it uses a fresh branch with timestamp when no linked PR exists', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit, worktreeManager } = setupTest({
+    issues,
+    autoComplete: true,
+  });
+
+  // No linked PR
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  await engine.start();
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
+
+  // Verify createForBranch was called with a fresh branch name (issue-42-<timestamp>) and branchBase: 'main'
+  expect(worktreeManager.createForBranch).toHaveBeenCalledWith(
+    expect.objectContaining({
+      branchName: expect.stringMatching(FRESH_BRANCH_PATTERN),
+      branchBase: 'main',
+    }),
+  );
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it uses the PR branch when a linked PR exists', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit, worktreeManager } = setupTest({
+    issues,
+    autoComplete: true,
+  });
+
+  // Linked PR with headRefName 'issue-42-1738000000'
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 100, body: 'Closes #42', draft: true }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR for issue 42',
+      changed_files: 5,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'pr-sha-1', ref: 'issue-42-1738000000' },
+      draft: true,
+    },
+  });
+
+  await engine.start();
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
+
+  // Verify createForBranch was called with the PR's headRefName and NO branchBase
+  expect(worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-42-1738000000',
+  });
 
   engine.send({ command: 'shutdown' });
 });

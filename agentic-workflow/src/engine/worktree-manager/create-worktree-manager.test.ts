@@ -205,3 +205,68 @@ test('it propagates git errors when removing a worktree fails', async () => {
 
   await expect(manager.remove(99)).rejects.toThrow();
 });
+
+// -- createForBranch: fresh branch strategy --
+
+test('it creates a new branch from a base when branchBase is provided', async () => {
+  const { manager, calls } = setupTest();
+
+  const result = await manager.createForBranch({
+    branchName: 'issue-42-1739000000',
+    branchBase: 'main',
+  });
+
+  expect(result.worktreePath).toBe(resolve('/repo', '.worktrees', 'issue-42-1739000000'));
+  expect(result.branch).toBe('issue-42-1739000000');
+  expect(result.created).toBe(true);
+
+  const addCall = calls.find(
+    (c) => c.args[0] === 'worktree' && c.args[1] === 'add' && c.args[2] === '-b',
+  );
+  expect(addCall?.args).toStrictEqual([
+    'worktree',
+    'add',
+    '-b',
+    'issue-42-1739000000',
+    resolve('/repo', '.worktrees', 'issue-42-1739000000'),
+    'main',
+  ]);
+});
+
+// -- createForBranch: PR branch strategy --
+
+test('it creates a worktree from an existing branch when no branchBase is provided', async () => {
+  const { manager, calls } = setupTest();
+
+  const result = await manager.createForBranch({
+    branchName: 'issue-42-1738000000',
+  });
+
+  expect(result.worktreePath).toBe(resolve('/repo', '.worktrees', 'issue-42-1738000000'));
+  expect(result.branch).toBe('issue-42-1738000000');
+  expect(result.created).toBe(false);
+
+  const addCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
+  expect(addCall?.args).toStrictEqual([
+    'worktree',
+    'add',
+    resolve('/repo', '.worktrees', 'issue-42-1738000000'),
+    'issue-42-1738000000',
+  ]);
+});
+
+// -- removeByPath --
+
+test('it force-removes a worktree by its absolute path', async () => {
+  const { manager, calls } = setupTest();
+
+  await manager.removeByPath('/repo/.worktrees/issue-42-1739000000');
+
+  const removeCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'remove');
+  expect(removeCall?.args).toStrictEqual([
+    'worktree',
+    'remove',
+    '/repo/.worktrees/issue-42-1739000000',
+    '--force',
+  ]);
+});

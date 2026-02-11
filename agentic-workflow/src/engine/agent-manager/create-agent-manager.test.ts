@@ -94,11 +94,21 @@ function createMockQuery(): MockQuery {
 function createMockWorktreeManager(): WorktreeManager {
   return {
     createOrReuse: vi.fn().mockResolvedValue({
-      worktreePath: '/repo/.worktrees/issue-42',
+      worktreePath: '/repo/.worktrees/issue-42-1700000000',
       branch: 'issue-42',
       created: true,
     }),
+    createForBranch: vi
+      .fn()
+      .mockImplementation((params: { branchName: string; branchBase?: string }) =>
+        Promise.resolve({
+          worktreePath: `/repo/.worktrees/${params.branchName}`,
+          branch: params.branchName,
+          created: params.branchBase !== undefined,
+        }),
+      ),
     remove: vi.fn().mockResolvedValue(undefined),
+    removeByPath: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -295,27 +305,42 @@ function buildErrorResult(): {
 test('it creates a worktree and agent session when dispatching an implementor', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
 
-  expect(ctx.worktreeManager.createOrReuse).toHaveBeenCalledWith(42);
+  expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   expect(ctx.mockQueries).toHaveLength(1);
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '42',
     agent: 'implementor',
-    cwd: '/repo/.worktrees/issue-42',
+    cwd: '/repo/.worktrees/issue-42-1700000000',
   });
 });
 
 test('it emits agentSkipped when dispatching an implementor for an issue with a running agent', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
@@ -329,7 +354,11 @@ test('it emits agentSkipped when dispatching an implementor for an issue with a 
 test('it emits agentStarted with session ID when the init message is received', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('abc-123'));
   await vi.waitFor(() => {
     const started = ctx.events.find((e) => e.type === 'agentStarted');
@@ -345,17 +374,25 @@ test('it emits agentStarted with session ID when the init message is received', 
 test('it sets the working directory to the worktree path for implementors', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
 
   expect(ctx.queryParams[0]).toMatchObject({
-    cwd: '/repo/.worktrees/issue-42',
+    cwd: '/repo/.worktrees/issue-42-1700000000',
   });
 });
 
 test('it emits agentCompleted and removes worktree when an implementor session succeeds', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -373,14 +410,20 @@ test('it emits agentCompleted and removes worktree when an implementor session s
     });
   });
 
-  expect(ctx.worktreeManager.remove).toHaveBeenCalledWith(42);
+  expect(ctx.worktreeManager.removeByPath).toHaveBeenCalledWith(
+    '/repo/.worktrees/issue-42-1700000000',
+  );
   expect(ctx.manager.isRunning(42)).toBe(false);
 });
 
 test('it emits agentFailed with worktree path and preserves worktree when an implementor session fails', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -396,11 +439,11 @@ test('it emits agentFailed with worktree path and preserves worktree when an imp
       issueNumber: 42,
       error: 'Agent session ended with error',
       sessionID: 'session-1',
-      worktreePath: '/repo/.worktrees/issue-42',
+      worktreePath: '/repo/.worktrees/issue-42-1700000000',
     });
   });
 
-  expect(ctx.worktreeManager.remove).not.toHaveBeenCalled();
+  expect(ctx.worktreeManager.removeByPath).not.toHaveBeenCalled();
 });
 
 // ---------------------------------------------------------------------------
@@ -422,7 +465,11 @@ test('it sets the working directory to the repo root for reviewers', async () =>
 test('it emits agentSkipped when dispatching a reviewer for an issue with a running agent', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 10 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 10,
+    branchName: 'issue-10-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -470,7 +517,7 @@ test('it emits agentCompleted and does not remove worktree for reviewer sessions
     });
   });
 
-  expect(ctx.worktreeManager.remove).not.toHaveBeenCalled();
+  expect(ctx.worktreeManager.removeByPath).not.toHaveBeenCalled();
 });
 
 // ---------------------------------------------------------------------------
@@ -561,7 +608,11 @@ test('it returns null from getAgentStream for planner sessions since they have n
 test('it cancels a running agent session and emits agentFailed', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -576,7 +627,7 @@ test('it cancels a running agent session and emits agentFailed', async () => {
       issueNumber: 42,
       error: 'Cancelled by user',
       sessionID: 'session-1',
-      worktreePath: '/repo/.worktrees/issue-42',
+      worktreePath: '/repo/.worktrees/issue-42-1700000000',
     });
   });
 
@@ -626,7 +677,11 @@ test('it is a no-op when cancelling the planner with no running session', async 
 test('it completes the async iterable when an agent session is cancelled', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Hello'));
   await vi.waitFor(() => {
@@ -667,7 +722,11 @@ test('it returns null from getAgentStream when no agent is running for the issue
 test('it yields plain text output chunks from the agent stream', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Hello world'));
   ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('More output'));
@@ -683,7 +742,11 @@ test('it yields plain text output chunks from the agent stream', async () => {
 test('it yields buffered and live chunks through the async iterable', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Chunk 1'));
   await vi.waitFor(() => {
@@ -718,7 +781,11 @@ test('it cancels a session that exceeds the max duration', async () => {
 
   const ctx = setupTest({ maxAgentDuration: 10 });
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
 
   // Allow the monitoring loop to start consuming
@@ -750,7 +817,11 @@ test('it tracks whether an agent is running for a given issue', async () => {
 
   expect(ctx.manager.isRunning(42)).toBe(false);
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
 
   expect(ctx.manager.isRunning(42)).toBe(true);
 
@@ -790,7 +861,11 @@ test('it tracks whether a planner is running', async () => {
 test('it returns all running session IDs', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 1 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 1,
+    branchName: 'issue-1-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-impl'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
@@ -822,7 +897,11 @@ test('it returns all running session IDs', async () => {
 test('it cancels all running sessions when cancelAll is called', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 1 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 1,
+    branchName: 'issue-1-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
@@ -858,7 +937,11 @@ test('it cancels all running sessions when cancelAll is called', async () => {
 test('it includes the session ID in the agentFailed event for implementor failures', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('my-session-id'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -923,7 +1006,11 @@ test('it does not include worktreePath in agentFailed events for planners', asyn
 test('it emits agentSkipped when dispatching a reviewer for an issue already running an implementor', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 5 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 5,
+    branchName: 'issue-5-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-impl'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -947,7 +1034,11 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
 test('it only yields text content from assistant messages and filters out tool use blocks', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   // Message with mixed content including tool_use blocks
   ctx.mockQueries[0]?.pushMessage({
@@ -993,7 +1084,11 @@ test('it only yields text content from assistant messages and filters out tool u
 test('it allows dispatching a new implementor after the previous one completes', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1006,7 +1101,11 @@ test('it allows dispatching a new implementor after the previous one completes',
   });
 
   // Should be able to dispatch again
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   expect(ctx.manager.isRunning(42)).toBe(true);
   expect(ctx.mockQueries).toHaveLength(2);
 });
@@ -1047,7 +1146,11 @@ function readLogContent(fileName: string): string {
 test('it creates a log file with session header when logging is enabled and an init message is received', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1089,7 +1192,11 @@ test('it does not create a log file when logging is disabled', async () => {
   const ctx = setupTest({ loggingEnabled: false, logsDir: '/test-logs' });
   vol.reset();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1103,7 +1210,11 @@ test('it creates the logs directory automatically when it does not exist', async
   vol.reset();
   const ctx = setupTest({ loggingEnabled: true, logsDir: '/new-logs-dir' });
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1120,7 +1231,11 @@ test('it creates the logs directory automatically when it does not exist', async
 test('it appends formatted assistant text messages to the log file', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1138,7 +1253,11 @@ test('it appends formatted assistant text messages to the log file', async () =>
 test('it logs tool use blocks with only the tool name', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1171,7 +1290,11 @@ test('it logs tool use blocks with only the tool name', async () => {
 test('it logs unknown message types with raw JSON', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1199,7 +1322,11 @@ test('it logs unknown message types with raw JSON', async () => {
 test('it writes a completed footer and includes logFilePath in the completed event', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1229,7 +1356,11 @@ test('it writes a completed footer and includes logFilePath in the completed eve
 test('it writes a failed footer and includes logFilePath in the failed event', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1257,7 +1388,11 @@ test('it writes a failed footer and includes logFilePath in the failed event', a
 test('it writes a cancelled footer when an agent session is cancelled', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1285,7 +1420,11 @@ test('it does not include logFilePath in events when logging is disabled', async
   vol.reset();
   const ctx = setupTest({ loggingEnabled: false });
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1308,7 +1447,11 @@ test('it does not include logFilePath in events when logging is disabled', async
 test('it logs result message metadata in the log file', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1337,7 +1480,11 @@ test('it logs result message metadata in the log file', async () => {
 test('it writes to independent log files when two agents run concurrently', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 1 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 1,
+    branchName: 'issue-1-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-a'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
@@ -1388,7 +1535,11 @@ test('it continues the agent session when the log file cannot be created', async
 
   const ctx = setupTest({ loggingEnabled: true, logsDir: '/bad-path/logs' });
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1409,7 +1560,11 @@ test('it continues the agent session when the log file cannot be created', async
 test('it includes logFilePath pointing to the partial file when a write fails mid-session', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1472,7 +1627,11 @@ test('it names reviewer log files with the issue number as context', async () =>
 test('it logs model, working directory, and tools from the init message', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchImplementor({ issueNumber: 42 });
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1483,4 +1642,46 @@ test('it logs model, working directory, and tools from the init message', async 
   const content = readLogContent(files[0]);
   expect(content).toContain('Model: claude-opus-4-6');
   expect(content).toContain('CWD: /repo');
+});
+
+// ---------------------------------------------------------------------------
+// Worktree strategy: fresh-branch (no linked PR)
+// ---------------------------------------------------------------------------
+
+test('it uses a fresh branch from main when branchBase is provided', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1739000000',
+    branchBase: 'main',
+  });
+
+  expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-42-1739000000',
+    branchBase: 'main',
+  });
+  expect(ctx.queryParams[0]).toMatchObject({
+    cwd: '/repo/.worktrees/issue-42-1739000000',
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Worktree strategy: PR-branch (linked PR exists)
+// ---------------------------------------------------------------------------
+
+test('it uses the PR branch when no branchBase is provided', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1738000000',
+  });
+
+  expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-42-1738000000',
+  });
+  expect(ctx.queryParams[0]).toMatchObject({
+    cwd: '/repo/.worktrees/issue-42-1738000000',
+  });
 });

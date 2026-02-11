@@ -49,14 +49,17 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
   return {
     async dispatchImplementor(params: DispatchImplementorParams): Promise<void> {
-      const { issueNumber } = params;
+      const { issueNumber, branchName } = params;
 
       if (issueAgents.has(issueNumber)) {
         emitter.emit(buildSkippedEvent('implementor', { issueNumber }));
         return;
       }
 
-      const worktreeResult = await worktreeManager.createOrReuse(issueNumber);
+      const worktreeResult = await worktreeManager.createForBranch({
+        branchName,
+        ...(params.branchBase !== undefined && { branchBase: params.branchBase }),
+      });
 
       const tracker = await startSession({
         agentType: 'implementor',
@@ -314,8 +317,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     if (succeeded) {
       emitter.emit(buildCompletedEvent(tracker, logFilePath));
 
-      if (tracker.agentType === 'implementor' && tracker.issueNumber !== undefined) {
-        worktreeManager.remove(tracker.issueNumber).catch(() => {
+      if (tracker.agentType === 'implementor' && tracker.worktreePath !== undefined) {
+        worktreeManager.removeByPath(tracker.worktreePath).catch(() => {
           // Worktree cleanup failure is non-fatal
         });
       }
