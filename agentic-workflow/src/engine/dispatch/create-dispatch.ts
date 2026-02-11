@@ -43,7 +43,6 @@ export function createDispatch(
     async handleIssueStatusChanged(event: IssueStatusChangedEvent): Promise<void> {
       await handleIssueStatusChanged(event, {
         emitter,
-        agentManager,
         config,
         activeNotifications,
       });
@@ -144,7 +143,6 @@ function filterApprovedPaths(paths: Set<string>, latestStatuses: Map<string, str
 
 interface HandleIssueStatusChangedDeps {
   emitter: EventEmitter;
-  agentManager: AgentManagerDelegate;
   config: DispatchConfig;
   activeNotifications: Map<number, string>;
 }

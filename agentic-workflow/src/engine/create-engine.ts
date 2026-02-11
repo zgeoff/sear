@@ -149,9 +149,6 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
           dispatch.handlePlannerFailed(specPaths);
         }
       },
-      dispatchReviewer: async (issueNumber: number): Promise<void> => {
-        await agentManager.dispatchReviewer({ issueNumber });
-      },
       isPlannerRunning: (): boolean => agentManager.isPlannerRunning(),
     },
     { repository: resolved.repository },

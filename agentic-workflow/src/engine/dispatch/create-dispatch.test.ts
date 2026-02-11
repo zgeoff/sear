@@ -27,7 +27,6 @@ function setupTest(options: SetupTestOptions = {}): {
 
   const agentManager: AgentManagerDelegate = {
     dispatchPlanner: vi.fn().mockResolvedValue(undefined),
-    dispatchReviewer: vi.fn().mockResolvedValue(undefined),
     isPlannerRunning: vi.fn().mockReturnValue(options.isPlannerRunning ?? false),
   };
 
@@ -631,7 +630,6 @@ test('it triggers no dispatch action for in-progress status', async () => {
     buildIssueStatusChanged({ newStatus: 'in-progress', issueNumber: 50 }),
   );
 
-  expect(agentManager.dispatchReviewer).not.toHaveBeenCalled();
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 
   const dispatchEvents = events.filter(
@@ -647,7 +645,6 @@ test('it triggers no dispatch action for review status', async () => {
     buildIssueStatusChanged({ newStatus: 'review', issueNumber: 51 }),
   );
 
-  expect(agentManager.dispatchReviewer).not.toHaveBeenCalled();
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 
   const dispatchEvents = events.filter(
