@@ -1,6 +1,6 @@
 ---
 title: Control Plane TUI — Failure Overlay
-version: 0.3.0
+version: 0.3.1
 last_updated: 2026-02-11
 status: approved
 ---
@@ -30,7 +30,7 @@ lastFailure?: {
   agentType: 'implementor' | 'reviewer'; // from event.agentType (narrowed — Planner excluded)
   error: string;                          // from event.error
   sessionID: string;                      // from event.sessionID
-  branchName?: string;                    // from event.branchName (present for Implementor failures — branch persists after worktree cleanup)
+  branchName?: string;                    // from event.branchName (present for Implementor and Reviewer failures — branch persists after worktree cleanup)
   logFilePath?: string;                   // from event.logFilePath (present when engine logging.agentSessions is enabled)
 };
 ```
@@ -64,7 +64,7 @@ When a failed issue is selected, the detail pane displays the failure overlay in
 
 - **Error message** — from `lastFailure.error`, styled red.
 - **Session ID** — from `lastFailure.sessionID`. Displayed so the user can manually resume the session outside the control plane if desired.
-- **Branch name** — from `lastFailure.branchName`, present only for Implementor failures. The branch persists after worktree cleanup and can be inspected via `git log <branchName>` or by creating a new worktree from it.
+- **Branch name** — from `lastFailure.branchName`, present for Implementor and Reviewer failures. The branch persists after worktree cleanup and can be inspected via `git log <branchName>` or by creating a new worktree from it.
 - **Log file path** — from `lastFailure.logFilePath`, present only when engine logging is enabled. Rendered as an OSC 8 terminal hyperlink to `file://{logFilePath}`.
 - **Retry prompt** — instructs the user to press Enter to retry.
 
@@ -85,7 +85,7 @@ The confirmation prompt follows the same rendering and exclusivity rules as all 
 ### Failure Recording
 
 - [ ] Given the engine emits `agentFailed` for an Implementor on issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, branch name, and log file path (if present).
-- [ ] Given the engine emits `agentFailed` for a Reviewer on issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, and log file path (if present). No branch name is recorded.
+- [ ] Given the engine emits `agentFailed` for a Reviewer on issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, branch name, and log file path (if present).
 - [ ] Given the engine emits `agentFailed` for the Planner, when the store processes it, then no `lastFailure` is set on any issue.
 
 ### Failure Clearing
@@ -101,7 +101,7 @@ The confirmation prompt follows the same rendering and exclusivity rules as all 
 
 ### Detail Pane Rendering
 
-- [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the branch name for inspection (Implementor only).
+- [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the branch name for inspection (Implementor and Reviewer).
 - [ ] Given an issue has `lastFailure` with a `logFilePath`, when the failure overlay renders in the detail pane, then the log file path is displayed as an OSC 8 terminal hyperlink to `file://{logFilePath}`.
 - [ ] Given an issue has `lastFailure` without a `logFilePath`, when the failure overlay renders in the detail pane, then the log file path line is omitted entirely.
 

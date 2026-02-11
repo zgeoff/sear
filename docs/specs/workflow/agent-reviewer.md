@@ -1,6 +1,6 @@
 ---
 title: Reviewer Agent
-version: 0.5.1
+version: 0.6.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -47,6 +47,10 @@ hooks:
 - **permissionMode:** `bypassPermissions` — agents run non-interactively. The engine overrides this at dispatch time, but including it ensures correct behavior when the agent is run directly via CLI.
 - **hooks:** PreToolUse bash validator hook. The engine provides this programmatically at dispatch time (see `control-plane-engine-agent-manager.md` § Programmatic Hooks), but including it ensures the validator is active when the agent is run directly via CLI.
 
+### Permitted Bash Commands
+
+The agent definition body (system prompt) must include the full list of permitted Bash command prefixes from `agent-hook-bash-validator.md` § Allowlist Prefixes. This tells the agent which commands are available and prevents wasted turns attempting commands the validator will block. The authoritative list lives in the bash validator spec — the agent definition transcribes it verbatim.
+
 ## Specification
 
 ### Trigger
@@ -59,6 +63,7 @@ The Engine injects the following into the agent's session at dispatch time (see 
 
 1. **Trigger prompt:** The task issue number (e.g., `"42"`).
 2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended to the agent's system prompt.
+3. **Working directory:** A git worktree checked out to the PR branch at the latest remote state (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). The worktree is a full checkout — all relative paths in the codebase work as-is from `cwd`. The Reviewer reads the implementation files as they exist on the PR branch, not on `main`.
 
 The agent fetches all remaining data via tool calls. On invocation, the agent reads:
 

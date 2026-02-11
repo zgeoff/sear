@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine
-version: 0.11.0
+version: 0.12.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -176,7 +176,7 @@ The engine emits typed events for discrete state changes. Events drive reactive 
 | `specChanged` | File path, frontmatter status, change type (added/modified), commit SHA | Engine Core (from SpecPoller results) |
 | `agentStarted` | Agent type, issue number or spec paths, session ID | Agent Manager |
 | `agentCompleted` | Agent type, issue number or spec paths, session ID, log file path (when logging enabled) | Agent Manager |
-| `agentFailed` | Agent type, issue number or spec paths, error details, session ID, branch name (Implementor only — the branch persists after worktree cleanup for inspection), log file path (when logging enabled) | Agent Manager |
+| `agentFailed` | Agent type, issue number or spec paths, error details, session ID, branch name (Implementor and Reviewer — the branch persists after worktree cleanup for inspection), log file path (when logging enabled) | Agent Manager |
 | `agentSkipped` | Agent type, issue number or spec paths (deferred) | Agent Manager (per-issue guard) or Engine Core (Planner concurrency guard) |
 | `dispatchReady` | Issue number, status label | Dispatch Logic |
 | `notification` | Issue number, status label, `contextURL` (issue URL), `clipboardCommand` (optional — present for `needs-refinement`, absent for `blocked` and `approved`), `resolutionGuidance` (optional — present for `needs-refinement` and `blocked`, absent for `approved`). Note: this is a specific engine event type for notify-only tier issues, distinct from the TUI's "notification" concept (the TUI surfaces all engine events as notification entries in the notifications pane). | Dispatch Logic |
@@ -191,8 +191,8 @@ The engine accepts commands that trigger side effects.
 | Command | Parameters | Effect |
 |---------|-----------|--------|
 | `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: true })` to determine the worktree strategy: if a linked PR is found (draft or non-draft), the PR branch strategy is used (`branchName` = PR's `headRefName`); otherwise, the fresh branch strategy is used (`branchName` = `issue-<N>-<timestamp>`). See `control-plane.md` § Worktree Isolation. The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies). |
-| `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot or if the issue's status is not `review`. No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
-| `cancelAgent` | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, removes the worktree (branch preserved for inspection). For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`). Emits `agentFailed` with a cancellation error. No-op if no agent is running. |
+| `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, if the issue's status is not `review`, or if no linked open PR is found (the Reviewer requires a PR branch to check out). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: false })` to obtain the PR's `headRefName` for the worktree. The Agent Manager fetches the branch from the remote and creates a worktree at `origin/<headRefName>`. See `control-plane.md` § Worktree Isolation. No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
+| `cancelAgent` | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, removes the worktree (branch preserved for inspection). For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`), removes the worktree (branch preserved for inspection). Emits `agentFailed` with a cancellation error. No-op if no agent is running. |
 | `cancelPlanner` | None | Cancels the running Planner session if one exists. Emits `agentFailed` with a cancellation error. No-op if no Planner is running. Note: `cancelPlanner` is not exposed in the TUI — there is no keybinding to cancel the Planner. A hung Planner can be stopped by quitting the control plane (which triggers the graceful shutdown sequence, which cancels all agents after `shutdownTimeout`) or by waiting for `maxAgentDuration` timeout. This is a known v1 limitation. |
 | `shutdown` | None | Initiates graceful shutdown |
 
@@ -437,7 +437,7 @@ type AgentFailedEvent = {
   specPaths?: string[];
   error: string;
   sessionID: string;
-  branchName?: string; // present for Implementor — the branch persists after worktree cleanup for inspection
+  branchName?: string; // present for Implementor and Reviewer — the branch persists after worktree cleanup for inspection
   logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
@@ -647,7 +647,9 @@ See `control-plane-engine-pollers.md` for all poller acceptance criteria.
 - [ ] Given `status:review` is detected by the IssuePoller (set externally or by the engine on a previous cycle), when the dispatch logic processes the change, then no Reviewer is auto-dispatched — `status:review` is not a dispatch trigger.
 - [ ] Given an issue is `status:pending`, when the change is first detected, then a `dispatchReady` event is emitted.
 - [ ] Given an issue status changes to `status:unblocked` or `status:needs-changes`, when the IssuePoller emits the change, then a `dispatchReady` event is emitted.
-- [ ] Given the `dispatchReviewer` command is received for issue N, when no agent is running for issue N, then a Reviewer session is created.
+- [ ] Given the `dispatchReviewer` command is received for issue N, when no agent is running for issue N and a linked open PR is found, then the Engine Core obtains the PR's `headRefName` and dispatches a Reviewer session with `branchName` set to `headRefName`.
+- [ ] Given the `dispatchReviewer` command is received for issue N, when no linked open PR is found, then the dispatch is a no-op.
+- [ ] Given the `dispatchReviewer` command is received for an issue whose status is not `review`, when the command is processed, then it is a no-op.
 - [ ] Given the `dispatchReviewer` command is received for an issue not in the IssuePoller snapshot, when the command is processed, then it is a no-op.
 - [ ] Given an issue status changes to `status:needs-refinement`, when the IssuePoller emits the change, then a `notification` event is emitted with a clipboard-ready CLI command, the issue URL as `contextURL`, and resolution guidance.
 - [ ] Given an issue status changes to `status:blocked`, when the IssuePoller emits the change, then a `notification` event is emitted with the issue URL as `contextURL` and resolution guidance.

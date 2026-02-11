@@ -1,6 +1,6 @@
 ---
 title: Agent Hook — Bash Validator
-version: 0.1.1
+version: 0.2.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -107,11 +107,11 @@ Subshell expressions (`$(...)`, backticks) are not parsed. An operator inside a 
 
 | Category | Prefixes |
 |----------|----------|
-| GitHub & Git | `gh`, `git`, `scripts/workflow/gh.sh`, `./scripts/workflow/gh.sh` |
+| Git | `git`, `scripts/workflow/gh.sh`, `./scripts/workflow/gh.sh` |
 | Node.js ecosystem | `yarn` |
-| Text processing | `cat`, `head`, `tail`, `grep`, `rg`, `awk`, `sed`, `tr`, `cut`, `sort`, `uniq`, `wc`, `jq`, `xargs` |
-| Shell utilities | `echo`, `printf`, `ls`, `pwd`, `which`, `command`, `test`, `true`, `false`, `env`, `date`, `basename`, `dirname`, `realpath` |
-| File operations | `chmod` (subject to blocklist restrictions), `mkdir`, `touch` |
+| Text processing | `head`, `tail`, `grep`, `rg`, `awk`, `sed`, `tr`, `cut`, `sort`, `uniq`, `wc`, `jq`, `xargs`, `diff`, `tee` |
+| Shell utilities | `echo`, `printf`, `ls`, `pwd`, `which`, `command`, `test`, `true`, `false`, `env`, `date`, `basename`, `dirname`, `realpath`, `find` |
+| File operations | `chmod` (subject to blocklist restrictions), `mkdir`, `touch`, `cp`, `mv` |
 
 ### Empty Command Handling
 
@@ -141,7 +141,7 @@ The following are known limitations of the validation approach. All represent sa
 
 - **Command substitution.** Commands embedded in `$(...)` or backticks are not extracted as separate segments. A command like `git commit -m "$(python3 evil.py)"` passes both layers because the blocklist sees only the masked (empty) quoted content and the allowlist only checks `git` as the segment prefix. This is an accepted risk, partially mitigated by the blocklist catching dangerous patterns in unquoted command substitutions (e.g., unquoted `$(rm -rf /)` would match `rm\s` because the subshell content is not inside a quoted string). Double-quoted command substitutions like `"$(rm -rf /)"` are not caught because quote masking replaces the quoted content — this is a deliberate trade-off to eliminate false positives on string arguments (see § Quote Masking). Command substitution with a non-blocklisted, non-allowlisted binary is not caught. The agent system prompts and `tools` field provide behavioral (not technical) guardrails against this class of bypass.
 - **Subshell operators.** Operators inside `$(...)` or backtick expressions that are not also inside a quoted string are treated as segment separators. This may produce incorrect segment boundaries but is a safe failure mode (false rejection, not false allow).
-- **Heredocs.** Heredoc content (`<<EOF...EOF`) is not inside single- or double-quoted strings, so it is not masked. Blocklist patterns will match inside heredoc bodies, which may cause false rejections for commands like `cat <<EOF\nkill the process\nEOF`. This is a safe failure mode (false rejection, not false allow) and is consistent with the fail-closed constraint.
+- **Heredocs.** Heredoc content (`<<EOF...EOF`) is not inside single- or double-quoted strings, so it is not masked. Blocklist patterns will match inside heredoc bodies, which may cause false rejections for commands like `git commit -m "$(head <<EOF\nkill the process\nEOF\n)"`. This is a safe failure mode (false rejection, not false allow) and is consistent with the fail-closed constraint.
 - **Multi-line blocklist patterns.** The shell implementation uses `grep -qE`, which matches per-line. A blocklist pattern spanning two lines would not match. The TypeScript implementation uses `RegExp.test()` against the full string, where `\s` matches `\n`, so it may catch multi-line patterns that the shell implementation misses. Both behaviors are considered correct — the shell script's per-line matching is a safe failure mode (false rejection is acceptable per the fail-closed constraint). The Implementation Equivalence criterion excludes multi-line test vectors to account for this divergence.
 
 ## Acceptance Criteria
@@ -173,12 +173,12 @@ The following are known limitations of the validation approach. All represent sa
 
 ### Allowlist
 
-- [ ] Given a command with an allowlisted prefix (e.g., `git status`, `yarn test`, `gh pr list`), when validated, then the command is allowed.
-- [ ] Given a command with an unrecognized prefix (e.g., `python3 --version`, `curl https://example.com`), when validated, then the command is blocked and the error message names the unrecognized command.
+- [ ] Given a command with an allowlisted prefix (e.g., `git status`, `yarn test`, `scripts/workflow/gh.sh pr list`), when validated, then the command is allowed.
+- [ ] Given a command with an unrecognized prefix (e.g., `python3 --version`, `curl https://example.com`, `gh pr list`), when validated, then the command is blocked and the error message names the unrecognized command.
 
 ### Command Segmentation
 
-- [ ] Given a piped command where all segments have allowlisted prefixes (e.g., `gh pr list --json number | jq .[].number`), when validated, then the command is allowed.
+- [ ] Given a piped command where all segments have allowlisted prefixes (e.g., `scripts/workflow/gh.sh pr list --json number | jq .[].number`), when validated, then the command is allowed.
 - [ ] Given a chained command using `&&` where all segments have allowlisted prefixes (e.g., `git add . && git commit -m "msg"`), when validated, then the command is allowed.
 - [ ] Given a chained command where one segment has an unrecognized prefix (e.g., `git status && python3 script.py`), when validated, then the command is blocked.
 - [ ] Given a command using `;` where all segments have allowlisted prefixes (e.g., `git status ; echo done`), when validated, then the command is allowed.

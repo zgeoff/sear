@@ -1,6 +1,6 @@
 ---
 title: Planner Agent
-version: 0.2.1
+version: 0.3.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -44,6 +44,10 @@ hooks:
 - **disallowedTools:** Denylist reinforcing the allowlist. Blocks write operations, web access, sub-agent spawning, plan mode, user interaction, and todo list management.
 - **permissionMode:** `bypassPermissions` — agents run non-interactively. The engine overrides this at dispatch time, but including it ensures correct behavior when the agent is run directly via CLI.
 - **hooks:** PreToolUse bash validator hook. The engine provides this programmatically at dispatch time (see `control-plane-engine-agent-manager.md` § Programmatic Hooks), but including it ensures the validator is active when the agent is run directly via CLI.
+
+### Permitted Bash Commands
+
+The agent definition body (system prompt) must include the full list of permitted Bash command prefixes from `agent-hook-bash-validator.md` § Allowlist Prefixes. This tells the agent which commands are available and prevents wasted turns attempting commands the validator will block. The authoritative list lives in the bash validator spec — the agent definition transcribes it verbatim.
 
 ## Specification
 

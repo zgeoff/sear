@@ -1,6 +1,6 @@
 ---
 title: Agentic Workflow Control Plane
-version: 0.3.0
+version: 0.4.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -140,40 +140,44 @@ Consequences for implementors:
 
 ### Worktree Isolation
 
-Each Implementor agent runs in a dedicated git worktree, isolating parallel implementors from each other and from the main working tree.
+Implementor and Reviewer agents run in dedicated git worktrees, isolating them from each other and from the main working tree. The Planner operates on the main working tree (it reads specs and creates issues, never modifying code).
 
 **Lifecycle:**
 
-1. **Create on dispatch** — When the engine dispatches an Implementor for issue N, it creates a worktree before creating the agent session. The worktree strategy depends on whether a linked PR already exists (see Worktree Strategy below).
+1. **Create on dispatch** — When the engine dispatches an Implementor or Reviewer for issue N, it creates a worktree before creating the agent session. The worktree strategy depends on the agent type and whether a linked PR already exists (see Worktree Strategy below).
 2. **Agent runs in worktree** — The agent session is created with its working directory set to the worktree path. All file operations are isolated to that worktree.
-3. **Always cleanup** — When the agent session completes (success or failure), the engine removes the worktree via `git worktree remove`. The branch is the durable artifact — it persists in the local repository after worktree removal, and on the remote if the Implementor pushed. Previous attempt branches are preserved for inspection.
+3. **Always cleanup** — When the agent session completes (success or failure), the engine removes the worktree via `git worktree remove`. The branch is the durable artifact — it persists in the local repository after worktree removal, and on the remote if pushed. Previous attempt branches are preserved for inspection.
 
 **Worktree Strategy:**
 
-The engine selects between two strategies based on whether a linked PR exists for the issue at dispatch time:
+The engine selects between strategies based on the agent type and whether a linked PR exists:
 
-| Condition | Strategy | Branch | Base |
-|-----------|----------|--------|------|
-| No linked PR (new task, retry after failure) | **Fresh branch** | `issue-<N>-<timestamp>` | Current `main` |
-| Linked PR exists (resume from `needs-changes`, `unblocked`) | **PR branch** | PR's `headRefName` | Existing PR branch |
+| Agent | Condition | Strategy | Branch | Base |
+|-------|-----------|----------|--------|------|
+| Implementor | No linked PR (new task, retry after failure) | **Fresh branch** | `issue-<N>-<timestamp>` | Current `main` |
+| Implementor | Linked PR exists (resume from `needs-changes`, `unblocked`) | **PR branch** | PR's `headRefName` | Existing PR branch |
+| Reviewer | Linked PR exists (always — Reviewer requires a PR) | **Review branch** | PR's `headRefName` | Remote tip (`origin/<headRefName>`) |
 
-The fresh-branch strategy uses `issue-<N>-<timestamp>` where `<timestamp>` is epoch milliseconds (e.g., `issue-42-1739000000`). Each dispatch attempt gets a unique branch, so previous attempts' branches remain for inspection. The PR-branch strategy creates a worktree from the existing PR's head branch, so the Implementor resumes exactly where the previous session left off.
+The fresh-branch strategy uses `issue-<N>-<timestamp>` where `<timestamp>` is epoch milliseconds (e.g., `issue-42-1739000000`). Each dispatch attempt gets a unique branch, so previous attempts' branches remain for inspection. The PR-branch strategy creates a worktree from the existing PR's head branch, so the Implementor resumes exactly where the previous session left off. The review-branch strategy fetches the latest remote state and creates a worktree at the remote tip, so the Reviewer sees exactly what was pushed.
 
-PR detection for strategy selection uses `getPRForIssue` with draft inclusion — any linked PR (draft or non-draft) indicates a resume scenario.
+PR detection for Implementor strategy selection uses `getPRForIssue` with draft inclusion — any linked PR (draft or non-draft) indicates a resume scenario.
+
+**Reviewer fetch:** The review-branch strategy always fetches the PR branch from the remote before creating the worktree (`git fetch origin <headRefName>`). This ensures the Reviewer sees the latest pushed state, even if the branch was modified outside the local repository. The worktree is created from the remote tracking ref (`origin/<headRefName>`), not the local branch.
 
 **Naming:**
 
 | Artifact | Convention | Example |
 |----------|------------|---------|
 | Branch (new) | `issue-<number>-<timestamp>` | `issue-42-1739000000` |
-| Branch (resume) | PR's `headRefName` | `issue-42-1739000000` (from previous attempt) |
+| Branch (resume/review) | PR's `headRefName` | `issue-42-1739000000` (from previous attempt) |
 | Worktree directory | `<repo-root>/.worktrees/<branch-name>` | `.worktrees/issue-42-1739000000` |
 
 **Constraints:**
 
 - The `.worktrees/` directory must be added to `.gitignore`.
-- Only Implementor agents use worktrees. Planner and Reviewer agents operate on the main working tree.
+- Only the Planner operates on the main working tree. Implementors and Reviewers always use worktrees.
 - The Implementor pushes on the branch it starts on. It does not rename the branch.
+- The Reviewer is read-only — it does not modify files or push to the branch.
 
 ## Acceptance Criteria
 
@@ -191,7 +195,8 @@ PR detection for strategy selection uses `getPRForIssue` with draft inclusion �
 - [ ] Given an agent session completes and the issue is still `status:in-progress`, when the completion is detected, then the issue is reset to `status:pending`.
 - [ ] Given the engine dispatches an Implementor for issue N with no linked PR, when the worktree is created, then it uses a fresh branch `issue-<N>-<timestamp>` from `main`.
 - [ ] Given the engine dispatches an Implementor for issue N with a linked PR, when the worktree is created, then it uses the PR's head branch.
-- [ ] Given an Implementor agent session completes (success or failure), when cleanup runs, then the worktree is removed and the branch is preserved.
+- [ ] Given the engine dispatches a Reviewer for issue N, when the worktree is created, then it fetches the PR branch from the remote and creates the worktree from `origin/<headRefName>`.
+- [ ] Given an Implementor or Reviewer agent session completes (success or failure), when cleanup runs, then the worktree is removed and the branch is preserved.
 - [ ] Given the engine sets `status:review` on an issue, when the label is set, then the engine emits a synthetic `issueStatusChanged` event so the TUI updates immediately.
 
 ## Dependencies

@@ -1,6 +1,6 @@
 ---
 title: Control Plane TUI
-version: 0.7.0
+version: 0.7.1
 last_updated: 2026-02-11
 status: approved
 ---
@@ -214,7 +214,7 @@ type TrackedIssue = {
     agentType: 'implementor' | 'reviewer';
     error: string;
     sessionID: string;
-    branchName?: string; // present for Implementor failures — the branch persists after worktree cleanup for inspection
+    branchName?: string; // present for Implementor and Reviewer failures — the branch persists after worktree cleanup for inspection
     logFilePath?: string; // present when engine logging.agentSessions is enabled
   };
   resolutionGuidance?: string; // set by engine `notification` event for needs-refinement/blocked issues; cleared on non-recovery status change
