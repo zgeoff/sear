@@ -42,7 +42,7 @@ Each line in the detail pane occupies exactly one terminal row. Lines exceeding 
 | `review` (no agent) | PR summary — title, changed files count, CI status | `getPRForIssue` query (cached in `prDetails`) |
 | `needs-refinement`, `blocked` | Issue details + resolution guidance | `getIssueDetails` query (cached in `issueDetails`) + `TrackedIssue.resolutionGuidance` |
 | `approved` | PR summary — ready for merge | `getPRForIssue` query (cached in `prDetails`) |
-| Failed (TUI overlay) | Error details, session ID, preserved worktree path (if Implementor), log file path (if present), retry prompt | `lastFailure` from Zustand store |
+| Failed (TUI overlay) | Error details, session ID, branch name (if Implementor), log file path (if present), retry prompt | `lastFailure` from Zustand store |
 | No issue selected (`selectedIssue` is `null`) | Empty state: "No issue selected" | N/A |
 
 ### On-Demand Fetching
@@ -82,8 +82,9 @@ type CachedIssueDetails = {
   stale: boolean; // marked stale on issueStatusChanged, re-fetched on next view
 };
 
-// CachedPRDetails extends the engine's PRDetailsResult (see control-plane-engine.md
-// § Query Results) with an additional `stale` field for cache management.
+// CachedPRDetails captures the PRDetailsResult fields needed for TUI display
+// (see control-plane-engine.md § Query Results), plus a `stale` field for cache
+// management. `isDraft` and `headRefName` are omitted — not needed for rendering.
 type CachedPRDetails = {
   number: number;
   title: string;
@@ -102,7 +103,7 @@ type CachedPRDetails = {
 - [ ] Given an issue in `review` with no running Reviewer is selected, when the detail pane renders, then it displays the PR summary.
 - [ ] Given a running agent's output is streaming, when new output arrives, then the detail pane auto-scrolls to show the latest output.
 - [ ] Given the user scrolls up in the agent stream, when new output arrives, then auto-scroll is paused until the user scrolls back to the bottom.
-- [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the preserved worktree path.
+- [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the branch name for inspection (Implementor only).
 - [ ] Given the detail pane displays content that exceeds the visible row count, when the pane renders, then only the visible window of lines is rendered — the pane header remains fixed and the dashboard does not exceed the terminal viewport.
 - [ ] Given the detail pane has more content than fits in the visible window, when the user presses `↓`/`j` or `↑`/`k`, then the viewport shifts by exactly one row per key press.
 - [ ] Given the user selects an issue, when its detail data is not cached, then the store fetches it via `getIssueDetails` or `getPRForIssue` and shows a loading indicator until the data arrives.

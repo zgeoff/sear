@@ -1,7 +1,7 @@
 ---
 title: Implementor Agent
-version: 0.4.0
-last_updated: 2026-02-10
+version: 0.5.0
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -21,7 +21,7 @@ Agent that executes assigned tasks by reading task issues and referenced specs, 
 - Must follow the blocker and escalation comment formats defined in this spec.
 - Must conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - Must not reprioritize tasks or change task sequencing. Executes what is assigned.
-- PR branch names must follow the convention `<type>/<issue-number>-<short-description>`.
+- Must not rename branches. The Implementor pushes on the branch it starts on.
 
 ## Agent Definition Frontmatter
 
@@ -129,9 +129,10 @@ When a previously blocked task moves to `status:unblocked`:
 1. Read the task issue to review the original blocker and any resolution comments.
 2. Read the referenced spec sections (which may have been amended).
 3. Validate inputs (see Input Validation).
-4. Check out the existing draft PR branch.
-5. Update the task issue label from `status:unblocked` to `status:in-progress`.
-6. Continue implementation from where work was preserved, then complete and submit (see Complete and Submit).
+4. Update the task issue label from `status:unblocked` to `status:in-progress`.
+5. Continue implementation from where work was preserved, then complete and submit (see Complete and Submit).
+
+The agent's worktree is already on the existing PR branch (the engine creates the worktree from the PR's head ref for resume scenarios — see `control-plane-engine-agent-manager.md` § Agent Lifecycle).
 
 #### Resume from Needs-Changes
 
@@ -140,12 +141,12 @@ When a reviewed task moves to `status:needs-changes`. This scenario does not use
 1. Read the task issue and PR review comments to understand the requested changes.
 2. Read any relevant spec sections referenced in the feedback.
 3. Validate inputs (see Input Validation).
-4. Check out the existing PR branch.
-5. Update the task issue label from `status:needs-changes` to `status:in-progress`.
-6. Address each review comment within scope. If a review comment requests changes to out-of-scope files, post an escalation comment explaining the scope constraint and continue with in-scope fixes. Do not open a new PR -- push fixes to the existing one.
-7. Update tests if the feedback requires behavioral changes.
-8. Verify all tests pass locally. If tests fail, the agent fixes its implementation and re-runs until they pass. If the failure is caused by something outside the agent's scope, treat it as a blocker.
-9. Update the task issue label from `status:in-progress` to `status:review`.
+4. Update the task issue label from `status:needs-changes` to `status:in-progress`.
+5. Address each review comment within scope. If a review comment requests changes to out-of-scope files, post an escalation comment explaining the scope constraint and continue with in-scope fixes. Do not open a new PR -- push fixes to the existing one.
+6. Update tests if the feedback requires behavioral changes.
+7. Verify all tests pass locally. If tests fail, the agent fixes its implementation and re-runs until they pass. If the failure is caused by something outside the agent's scope, treat it as a blocker.
+
+The agent's worktree is already on the existing PR branch (the engine creates the worktree from the PR's head ref for resume scenarios — see `control-plane-engine-agent-manager.md` § Agent Lifecycle). The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists (see `control-plane-engine.md` § Completion-dispatch).
 
 #### Complete and Submit
 
@@ -154,9 +155,10 @@ Shared procedure used by all execution scenarios after implementation work is do
 1. Write or update tests that verify each acceptance criterion.
 2. Verify all tests pass locally. If tests fail, the agent fixes its implementation and re-runs until they pass. If the failure is caused by something outside the agent's scope (pre-existing failure, broken dependency), treat it as a blocker.
 3. Open or update the PR:
-   - **New task:** Open a new ready-for-review (non-draft) PR (title: `<type>(<scope>): <description>`, body: `Closes #<issue-number>`, branch: `<type>/<issue-number>-<short-description>`).
+   - **New task:** Open a new ready-for-review (non-draft) PR (title: `<type>(<scope>): <description>`, body: `Closes #<issue-number>`). The branch name is assigned by the engine at dispatch time — the Implementor pushes on whatever branch its worktree starts on.
    - **Resume from unblocked:** Convert the existing draft PR to ready-for-review.
-4. Update the task issue label from `status:in-progress` to `status:review`.
+
+The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists (see `control-plane-engine.md` § Completion-dispatch).
 
 ### Blocker Handling
 
@@ -255,9 +257,10 @@ The agent is responsible for the following label transitions (all via `scripts/w
 | `status:pending` | `status:in-progress` | Starting work on a new task |
 | `status:unblocked` | `status:in-progress` | Resuming a previously blocked task |
 | `status:needs-changes` | `status:in-progress` | Resuming after reviewer feedback |
-| `status:in-progress` | `status:review` | Work complete, PR ready for review |
 | `status:in-progress` | `status:needs-refinement` | Blocked by spec issue |
 | `status:in-progress` | `status:blocked` | Blocked by non-spec issue |
+
+The agent does not set `status:review`. That transition is owned by the engine — it sets `status:review` after the agent session completes when a linked non-draft PR exists (see `control-plane-engine.md` § Completion-dispatch).
 
 The agent must not perform any other status transitions.
 
@@ -287,18 +290,18 @@ Any unresolved items, blocker references, or follow-up needed.
 - [ ] Given a task issue whose referenced spec file does not exist or is not `status: approved`, when the agent validates inputs, then it posts a validation failure comment and stops without changing the status label.
 - [ ] Given a task with an "In Scope" file list, when the agent completes work, then only files in the "In Scope" list, their co-located test files, and any incidental changes (minimal, directly required, non-behavioral) have been modified.
 - [ ] Given a task whose acceptance criteria are all satisfiable, when the agent completes work, then a PR exists that is linked to the task issue via `Closes #<issue-number>`.
-- [ ] Given a task whose acceptance criteria are all satisfiable, when the agent completes work, then all tests pass locally before the label is changed to `status:review`.
+- [ ] Given a task whose acceptance criteria are all satisfiable, when the agent completes work, then all tests pass locally before the agent session ends.
 - [ ] Given the agent encounters a spec ambiguity during implementation, when it stops work, then a draft PR is opened, a blocker comment following the blocker format is added to the issue, and the task label is set to `status:needs-refinement`.
 - [ ] Given the agent encounters a non-spec blocker during implementation, when it stops work, then a draft PR is opened, a blocker comment following the blocker format is added to the issue, and the task label is set to `status:blocked`.
 - [ ] Given a blocker comment posted by the agent, when reviewed, then it contains a Type field, a Description, at least two Options with trade-offs, and a Recommendation.
 - [ ] Given a spec blocker comment posted by the agent, when reviewed, then it includes a Spec Reference section with file path, section name, and quote. Given a non-spec blocker comment, the Spec Reference section may be omitted.
-- [ ] Given a task that moves to `status:unblocked`, when the agent resumes, then it checks out the existing draft PR branch and continues from preserved progress rather than starting over.
+- [ ] Given a task that moves to `status:unblocked`, when the agent resumes, then it continues from preserved progress on the existing PR branch rather than starting over.
 - [ ] Given a task that moves to `status:unblocked`, when the agent completes work, then the existing draft PR is converted to ready-for-review rather than opening a new PR.
 - [ ] Given a task that moves to `status:needs-changes`, when the agent resumes, then it pushes fixes to the existing PR branch rather than opening a new PR.
 - [ ] Given a task that moves to `status:needs-changes`, when a review comment requests changes to out-of-scope files, then the agent posts an escalation comment explaining the scope constraint and continues with in-scope fixes.
-- [ ] Given any status transition performed by the agent, when reviewed, then it matches one of the six defined transitions in the Status Transitions table.
+- [ ] Given any status transition performed by the agent, when reviewed, then it matches one of the five defined transitions in the Status Transitions table.
 - [ ] Given the agent identifies a non-blocking issue (e.g., scope conflict with another task), when it posts an escalation comment, then it continues working and does not change the status label.
-- [ ] Given a completed PR, when reviewed, then the branch name follows the `<type>/<issue-number>-<short-description>` convention.
+- [ ] Given the agent completes work, when reviewed, then the agent has not set `status:review` on the task issue (the engine owns that transition).
 - [ ] Given the agent finishes execution (any outcome), when reviewed, then it has returned a completion summary with the task number, outcome, PR reference, and description of what was done.
 - [ ] Given any GitHub CLI operation performed by the Implementor, when the command is inspected, then it uses `scripts/workflow/gh.sh` (not bare `gh`).
 

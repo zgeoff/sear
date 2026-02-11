@@ -47,7 +47,7 @@ Monitors GitHub Issues for status label changes.
 
 **Initial poll cycle:** On the first cycle, the snapshot is empty. All detected issues are treated as new — each emits an `issueStatusChanged` event with `oldStatus: null`. This is how the engine populates the initial issue set. The dispatch logic treats `oldStatus: null` the same as any other status change for tier classification.
 
-**Startup burst:** This means the first poll cycle may trigger dispatch actions for all existing issues simultaneously: auto-dispatching Reviewers for all `status:review` issues, emitting `dispatchReady` for all `status:pending` issues, and emitting notifications for all `status:needs-refinement`/`status:blocked` issues. This is intentional — if the control plane starts (or restarts), it should bring the system to the correct state. Startup recovery completes before the first poll cycle, so `status:in-progress` issues will already be reset to `status:pending`.
+**Startup burst:** This means the first poll cycle may trigger dispatch actions for all existing issues simultaneously: emitting `dispatchReady` for all `status:pending` issues, and emitting notifications for all `status:needs-refinement`/`status:blocked` issues. This is intentional — if the control plane starts (or restarts), it should bring the system to the correct state. Startup recovery completes before the first poll cycle, so `status:in-progress` issues will already be reset to `status:pending`. Note: `status:review` issues do not trigger Reviewer dispatch on startup — Reviewer dispatch is completion-driven, not label-driven (see `control-plane-engine.md` § Completion-dispatch).
 
 **First-cycle execution:** `Engine.start()` runs the first poll cycle of each poller as a direct invocation, not via the interval timer. It awaits both first cycles before resolving. Interval-based polling begins after the first cycles complete. This ensures the TUI receives the initial issue set and any startup-triggered dispatch events before `start()` resolves.
 
@@ -105,7 +105,7 @@ type IssuePollerSnapshot = Map<number, IssueSnapshotEntry>;
 type IssuePoller = {
   poll(): Promise<void>; // runs one poll cycle, emitting events for detected changes
   getSnapshot(): IssuePollerSnapshot;
-  updateEntry(issueNumber: number, entry: IssueSnapshotEntry): void; // updates a single snapshot entry (used by Engine Core during crash recovery to prevent duplicate events on next poll)
+  updateEntry(issueNumber: number, entry: IssueSnapshotEntry): void; // updates a single snapshot entry (used by Engine Core during crash recovery and completion-dispatch to prevent duplicate events on next poll)
   stop(): void; // stops the interval timer
 };
 
@@ -172,7 +172,7 @@ type SpecPollerConfig = {
 - [ ] Given the IssuePoller detects issues in the API response, when processing the results, then only issues with the `task:implement` label are tracked — `task:refinement` issues are ignored.
 - [ ] Given an issue was present in the previous poll but is absent from the current poll results, when the IssuePoller processes the cycle, then the issue is removed from the snapshot and the removal is reported to the Engine Core.
 - [ ] Given `Engine.start()` is called, when the first IssuePoller cycle runs, then it is executed as a direct invocation (not via the interval timer) and `start()` awaits its completion before resolving.
-- [ ] Given the first IssuePoller cycle completes for a repository with `status:review` issues, when the startup burst fires, then Reviewers are auto-dispatched for all `status:review` issues.
+- [ ] Given the first IssuePoller cycle completes for a repository with `status:review` issues, when the startup burst fires, then no Reviewers are auto-dispatched — `status:review` is not a dispatch trigger (Reviewer dispatch is completion-driven).
 - [ ] Given `getSnapshot()` is called on the IssuePoller, when the snapshot is returned, then it contains the current status, title, priority, and creation date for each tracked issue.
 
 ### SpecPoller

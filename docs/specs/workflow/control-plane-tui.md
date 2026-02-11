@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI
-version: 0.6.0
-last_updated: 2026-02-10
+version: 0.7.0
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -138,7 +138,7 @@ The engine store is created once at startup and subscribes to all engine events.
 
 **State** (see `EngineStoreState` in Type Definitions):
 - `repository` — `{ owner: string; repo: string }`. Set once at initialization from the engine config. Used to construct issue, PR, and commit URLs for hyperlinks and `contextURL`.
-- `issues` — Map of issue number → `TrackedIssue`. Populated from `issueStatusChanged` events. Includes agent status (`agentRunning`, `agentType`) and optional `lastFailure` (error, session ID, worktree path, log file path).
+- `issues` — Map of issue number → `TrackedIssue`. Populated from `issueStatusChanged` events. Includes agent status (`agentRunning`, `agentType`) and optional `lastFailure` (error, session ID, branch name, log file path).
 - `notifications` — `Notification[]` (discriminated union on `eventType`). New notifications are prepended (index 0 is the newest). Each variant carries typed fields for its event — see Type Definitions.
 - `agentStreams` — Map of issue number → `string[]` buffer. Populated by subscribing to the engine's `getAgentStream` on `agentStarted`.
 - `issueDetails` — Cache of `CachedIssueDetails`. Populated via `getIssueDetails` when the user selects an issue. Invalidated on `issueStatusChanged`.
@@ -167,7 +167,7 @@ The engine store is created once at startup and subscribes to all engine events.
 
 | Event | Store Update |
 |-------|-------------|
-| `issueStatusChanged` | Add notification ("#{N}: {oldStatus} → {newStatus}"). Upsert issue in `issues` (creates entry on first detection with `oldStatus: null`). Clears `lastFailure` and `resolutionGuidance` if status changed — **unless `isRecovery` is true** (recovery events must not clear the failure overlay; only user-initiated retry or a subsequent non-recovery poll clears it). Marks `issueDetails`/`prDetails` cache for this issue as stale (see stale-while-revalidate below). |
+| `issueStatusChanged` | Add notification ("#{N}: {oldStatus} → {newStatus}"). Upsert issue in `issues` (creates entry on first detection with `oldStatus: null`). Clears `lastFailure` and `resolutionGuidance` if status changed — **unless `isRecovery` is true or `isEngineTransition` is true** (recovery and engine-initiated transitions such as completion-dispatch must not clear the failure overlay; only user-initiated retry or a subsequent non-recovery poll clears it). Marks `issueDetails`/`prDetails` cache for this issue as stale (see stale-while-revalidate below). |
 | `agentStarted` | **Planner:** set `plannerRunning: true`, add notification (derive `specCount` from `event.specPaths.length` — `specPaths` is guaranteed present when `agentType` is `'planner'`), skip issue state and stream subscription. **Implementor/Reviewer:** set `agentRunning: true` and `agentType` on the issue. Stream subscription and buffer management: see `control-plane-tui-detail-pane.md` § Agent Stream Lifecycle. |
 | `agentCompleted` | **Planner:** set `plannerRunning: false`, add notification (derive `specCount` from `event.specPaths.length`; include `logFilePath` if present on the engine event). **Implementor:** set `agentRunning: false` on the issue, add notification with the issue URL as `contextURL` initially (and `logFilePath` if present), then call `getPRForIssue` asynchronously and update the notification's `contextURL` to the PR URL when it resolves (this is an exception to the append-only rule — in-place URL update only; no-op if the notification no longer exists). **Reviewer:** set `agentRunning: false` on the issue, mark `prDetails` as stale (Reviewer may have added approval or posted review comments), add notification (with `logFilePath` if present). |
 | `agentFailed` | **Planner:** set `plannerRunning: false`, add notification (with `logFilePath` if present on the engine event), no `lastFailure`. **Implementor/Reviewer:** set `agentRunning: false` on the issue, record `lastFailure` (see `control-plane-tui-failure-overlay.md` § Failure Recording). |
@@ -214,7 +214,7 @@ type TrackedIssue = {
     agentType: 'implementor' | 'reviewer';
     error: string;
     sessionID: string;
-    worktreePath?: string; // present for Implementor failures
+    branchName?: string; // present for Implementor failures — the branch persists after worktree cleanup for inspection
     logFilePath?: string; // present when engine logging.agentSessions is enabled
   };
   resolutionGuidance?: string; // set by engine `notification` event for needs-refinement/blocked issues; cleared on non-recovery status change
@@ -419,6 +419,7 @@ See `control-plane-tui-failure-overlay.md` for all failure overlay acceptance cr
 - [ ] Given the engine emits a `notification` event for `needs-refinement` or `blocked`, when the store processes it, then `resolutionGuidance` is set on the affected issue's `TrackedIssue`.
 - [ ] Given an issue has `resolutionGuidance` set, when a non-recovery `issueStatusChanged` fires for that issue, then `resolutionGuidance` is cleared.
 - [ ] Given an issue has `resolutionGuidance` set, when a recovery `issueStatusChanged` (`isRecovery: true`) fires for that issue, then `resolutionGuidance` is not cleared.
+- [ ] Given an issue has `resolutionGuidance` set, when an engine-transition `issueStatusChanged` (`isEngineTransition: true`) fires for that issue, then `resolutionGuidance` is not cleared.
 - [ ] Given the engine emits a `notification` event for `approved`, when the store processes it, then `getPRForIssue` is called asynchronously and the notification's `contextURL` is updated to the PR URL when resolved.
 
 ## Dependencies

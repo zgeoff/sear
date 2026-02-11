@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI — Failure Overlay
-version: 0.2.0
-last_updated: 2026-02-09
+version: 0.3.0
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -30,7 +30,7 @@ lastFailure?: {
   agentType: 'implementor' | 'reviewer'; // from event.agentType (narrowed — Planner excluded)
   error: string;                          // from event.error
   sessionID: string;                      // from event.sessionID
-  worktreePath?: string;                  // from event.worktreePath (present for Implementor failures)
+  branchName?: string;                    // from event.branchName (present for Implementor failures — branch persists after worktree cleanup)
   logFilePath?: string;                   // from event.logFilePath (present when engine logging.agentSessions is enabled)
 };
 ```
@@ -45,11 +45,12 @@ For Planner `agentFailed` events, the store sets `plannerRunning: false` and add
 
 1. **User-initiated retry.** The user presses Enter on a failed issue, confirms the retry prompt, and the store calls `dispatchImplementor` or `dispatchReviewer` (matching `lastFailure.agentType`). The dispatch action clears `lastFailure` before sending the command to the engine.
 
-2. **Non-recovery status change.** When `issueStatusChanged` fires for the issue and `isRecovery` is **not** true, `lastFailure` is cleared. This covers the case where the issue's status changes via a normal IssuePoller cycle (e.g., a human manually changes the label on GitHub).
+2. **Non-recovery, non-engine-transition status change.** When `issueStatusChanged` fires for the issue and neither `isRecovery` nor `isEngineTransition` is true, `lastFailure` is cleared. This covers the case where the issue's status changes via a normal IssuePoller cycle (e.g., a human manually changes the label on GitHub).
 
 `lastFailure` is **not** cleared when:
 
 - The `issueStatusChanged` event has `isRecovery: true`. Recovery events are synthetic — they represent the engine resetting a stale status to `pending`, not a real external change. Clearing the overlay on recovery would hide the failure before the user has a chance to see it.
+- The `issueStatusChanged` event has `isEngineTransition: true`. Engine-initiated transitions (e.g., setting `status:review` on Implementor completion) are synthetic — they should not interfere with the failure overlay state.
 
 ### Issue List Rendering
 
@@ -63,7 +64,7 @@ When a failed issue is selected, the detail pane displays the failure overlay in
 
 - **Error message** — from `lastFailure.error`, styled red.
 - **Session ID** — from `lastFailure.sessionID`. Displayed so the user can manually resume the session outside the control plane if desired.
-- **Worktree path** — from `lastFailure.worktreePath`, present only for Implementor failures. The Implementor's worktree is preserved on failure so work-in-progress is not lost.
+- **Branch name** — from `lastFailure.branchName`, present only for Implementor failures. The branch persists after worktree cleanup and can be inspected via `git log <branchName>` or by creating a new worktree from it.
 - **Log file path** — from `lastFailure.logFilePath`, present only when engine logging is enabled. Rendered as an OSC 8 terminal hyperlink to `file://{logFilePath}`.
 - **Retry prompt** — instructs the user to press Enter to retry.
 
@@ -83,15 +84,16 @@ The confirmation prompt follows the same rendering and exclusivity rules as all 
 
 ### Failure Recording
 
-- [ ] Given the engine emits `agentFailed` for an Implementor on issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, worktree path, and log file path (if present).
-- [ ] Given the engine emits `agentFailed` for a Reviewer on issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, and log file path (if present). No worktree path is recorded.
+- [ ] Given the engine emits `agentFailed` for an Implementor on issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, branch name, and log file path (if present).
+- [ ] Given the engine emits `agentFailed` for a Reviewer on issue N, when the store processes it, then `lastFailure` is set on the issue with error details, session ID, and log file path (if present). No branch name is recorded.
 - [ ] Given the engine emits `agentFailed` for the Planner, when the store processes it, then no `lastFailure` is set on any issue.
 
 ### Failure Clearing
 
 - [ ] Given an issue has `lastFailure` set, when the user presses Enter and confirms (retry), then `lastFailure` is cleared and the appropriate agent is dispatched (matching `lastFailure.agentType`).
-- [ ] Given an issue has `lastFailure` set, when the issue's status changes on a subsequent non-recovery poll (`isRecovery` is false or absent), then `lastFailure` is cleared.
+- [ ] Given an issue has `lastFailure` set, when the issue's status changes on a subsequent non-recovery, non-engine-transition poll (`isRecovery` and `isEngineTransition` are both false or absent), then `lastFailure` is cleared.
 - [ ] Given an issue has `lastFailure` set, when a recovery event fires for the issue (`isRecovery` is true), then `lastFailure` is **not** cleared.
+- [ ] Given an issue has `lastFailure` set, when an engine-transition event fires for the issue (`isEngineTransition` is true), then `lastFailure` is **not** cleared.
 
 ### Issue List Rendering
 
@@ -99,7 +101,7 @@ The confirmation prompt follows the same rendering and exclusivity rules as all 
 
 ### Detail Pane Rendering
 
-- [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the preserved worktree path (Implementor only).
+- [ ] Given a failed issue is selected, when the detail pane renders, then it shows error details, session ID, and the branch name for inspection (Implementor only).
 - [ ] Given an issue has `lastFailure` with a `logFilePath`, when the failure overlay renders in the detail pane, then the log file path is displayed as an OSC 8 terminal hyperlink to `file://{logFilePath}`.
 - [ ] Given an issue has `lastFailure` without a `logFilePath`, when the failure overlay renders in the detail pane, then the log file path line is omitted entirely.
 
@@ -112,7 +114,7 @@ The confirmation prompt follows the same rendering and exclusivity rules as all 
 ## Dependencies
 
 - `control-plane-tui.md` — Parent TUI spec (store, type definitions, event handler table, pane rendering)
-- `control-plane-engine.md` — Engine events (`agentFailed`, `issueStatusChanged` with `isRecovery`)
+- `control-plane-engine.md` — Engine events (`agentFailed`, `issueStatusChanged` with `isRecovery` and `isEngineTransition`)
 - `control-plane-engine-recovery.md` — Crash recovery behavior (resets GitHub status to `pending` after agent failure)
 
 ## References

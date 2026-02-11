@@ -13,7 +13,7 @@ The engine performs recovery to ensure no issue is permanently stuck in `status:
 
 ## Constraints
 
-- The `in-progress → pending` reset is an administrative override that bypasses the normal transition table defined in `workflow.md`. It is the only engine-initiated status change besides startup recovery.
+- The `in-progress → pending` reset is an administrative override that bypasses the normal transition table defined in `workflow.md`. The only other engine-initiated status change is the `in-progress → review` transition during completion-dispatch (see `control-plane-engine.md` § Completion-dispatch).
 - Recovery events must include `isRecovery: true` on synthetic `issueStatusChanged` events so the TUI can distinguish them from normal poll-detected changes (the failure overlay must survive recovery).
 
 ## Specification
@@ -32,7 +32,7 @@ On initialization, after planner cache load and before pollers start:
 
 ### Crash Recovery
 
-The Engine Core invokes crash recovery after any agent session completes (success or failure). The Agent Manager reports completion to the Engine Core; the Engine Core calls Recovery. This avoids a circular dependency between the Agent Manager and Recovery modules.
+The Engine Core invokes crash recovery after an Implementor or Reviewer agent session completes (success or failure). Planner sessions skip crash recovery entirely (no associated issue). The Agent Manager reports completion to the Engine Core; the Engine Core calls Recovery. This avoids a circular dependency between the Agent Manager and Recovery modules. The Engine Core emits `agentFailed` (or `agentCompleted`) before calling crash recovery, ensuring `lastFailure` is recorded in the TUI store before the recovery's synthetic `issueStatusChanged` arrives.
 
 1. Check if the issue still has `status:in-progress`.
 2. If yes, reset to `status:pending` via `GitHubClient`. If the reset fails (API error), log the error and return `false` — the issue remains `status:in-progress` and will be retried on the next agent completion or detected on the next IssuePoller cycle.
@@ -101,6 +101,7 @@ Event emission (`recoveryPerformed`, synthetic `issueStatusChanged`) and IssuePo
 - [ ] Given a Reviewer fails, when the failure is detected, then no recovery is performed and the issue remains `status:review`.
 - [ ] Given crash recovery resets an issue to `status:pending`, when the IssuePoller snapshot is updated to match, then the next IssuePoller cycle does not emit a duplicate `issueStatusChanged` for that issue.
 - [ ] Given startup recovery resets an issue to `status:pending`, then a `dispatchReady` event is emitted for that issue (via the synthetic `issueStatusChanged` passing through dispatch logic).
+- [ ] Given an Implementor fails and crash recovery runs, when events are emitted, then `agentFailed` is emitted before `recoveryPerformed` and the synthetic `issueStatusChanged`.
 
 ## Dependencies
 

@@ -47,7 +47,7 @@ The wrapper handles authentication automatically — it generates a GitHub App t
 
 For mutually exclusive label categories (status, type, priority), remove the existing label and add the new one in a single command:
 
-- `gh issue edit <number> --remove-label "status:in-progress" --add-label "status:review"`
+- `gh issue edit <number> --remove-label "status:pending" --add-label "status:in-progress"`
 
 #### Close Issue
 

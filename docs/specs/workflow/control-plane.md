@@ -1,7 +1,7 @@
 ---
 title: Agentic Workflow Control Plane
-version: 0.2.0
-last_updated: 2026-02-09
+version: 0.3.0
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -79,13 +79,14 @@ The control plane categorizes state changes into three tiers that determine how 
 
 | Tier | Behavior | Triggers |
 |------|----------|----------|
-| **Auto-dispatch** | Agent invoked automatically, no user action needed | Spec changes (approved only) → Planner; `status:review` → Reviewer |
+| **Auto-dispatch** | Agent invoked automatically, no user action needed | Spec changes (approved only) → Planner |
+| **Completion-dispatch** | Agent invoked automatically after a preceding agent completes | Implementor completes + linked non-draft PR exists → Reviewer (engine sets `status:review`) |
 | **User-dispatch** | Surfaced in TUI, user chooses when to invoke | Issues with `status:pending`, `status:unblocked`, `status:needs-changes` → Implementor |
 | **Notify-only** | User notified for action outside the control plane | `status:needs-refinement` (with clipboard command), `status:blocked` (URL only), `status:approved` (ready to merge) |
 
-Dispatch decisions are based solely on status labels and dispatch tier classification. The engine does not enforce task dependencies (e.g., "Blocked by #X" references in issue bodies). Dependency ordering is the Human's responsibility when deciding which user-dispatch tasks to invoke.
+Dispatch decisions are based on status labels, dispatch tier classification, and agent completion signals. The engine does not enforce task dependencies (e.g., "Blocked by #X" references in issue bodies). Dependency ordering is the Human's responsibility when deciding which user-dispatch tasks to invoke.
 
-The engine determines the tier. The TUI renders accordingly — auto-dispatched agents appear as running, user-dispatch items appear as actionable, and notifications appear with copy-to-clipboard commands.
+The engine determines the tier. The TUI renders accordingly — auto-dispatched and completion-dispatched agents appear as running, user-dispatch items appear as actionable, and notifications appear with copy-to-clipboard commands.
 
 Notifications are dismissed automatically when the underlying issue status changes.
 
@@ -97,6 +98,8 @@ The SDK provides structured lifecycle management — the engine creates agent se
 
 The Planner receives all changed spec paths from the poll cycle in a single invocation (batched, not per-file).
 
+The Reviewer is dispatched when an Implementor agent session completes and a linked non-draft PR exists for the issue. The engine checks for the PR on Implementor completion, sets `status:review` on the issue, and dispatches the Reviewer atomically. This ensures the Reviewer is never dispatched without a PR to review. If the Implementor completes without a linked PR (e.g., PR creation failed, or the Implementor hit a blocker), no Reviewer is dispatched — the issue remains `status:in-progress` and crash recovery resets it to `status:pending`. The `status:review` label is not a dispatch trigger — the IssuePoller tracks it for display purposes only.
+
 ### Recovery
 
 The engine performs status recovery in two cases:
@@ -106,7 +109,7 @@ The engine performs status recovery in two cases:
 
 Reviewers do not change issue status to `in-progress`, so crash recovery does not apply to Reviewer failures. A failed Reviewer leaves the issue in `status:review` — the user can retry via the TUI.
 
-Recovery is the only case where the engine writes to GitHub Issues. All other GitHub writes are performed by the agents themselves.
+The engine writes to GitHub Issues in two cases: recovery (status label resets) and Reviewer dispatch (setting `status:review`). All other GitHub writes are performed by the agents themselves.
 
 ### Technology
 
@@ -141,30 +144,44 @@ Each Implementor agent runs in a dedicated git worktree, isolating parallel impl
 
 **Lifecycle:**
 
-1. **Create on dispatch** — When the engine dispatches an Implementor for issue N, it creates a worktree before creating the agent session. The worktree is created from the current `main` branch with a branch named `issue-<number>` (e.g., `issue-42`).
+1. **Create on dispatch** — When the engine dispatches an Implementor for issue N, it creates a worktree before creating the agent session. The worktree strategy depends on whether a linked PR already exists (see Worktree Strategy below).
 2. **Agent runs in worktree** — The agent session is created with its working directory set to the worktree path. All file operations are isolated to that worktree.
-3. **Cleanup on success** — When the agent session succeeds, the engine removes the worktree via `git worktree remove`.
-4. **Preserve on failure** — When the agent session fails, the engine leaves the worktree in place so the user can inspect it. The worktree path is surfaced in the TUI.
+3. **Always cleanup** — When the agent session completes (success or failure), the engine removes the worktree via `git worktree remove`. The branch is the durable artifact — it persists in the local repository after worktree removal, and on the remote if the Implementor pushed. Previous attempt branches are preserved for inspection.
+
+**Worktree Strategy:**
+
+The engine selects between two strategies based on whether a linked PR exists for the issue at dispatch time:
+
+| Condition | Strategy | Branch | Base |
+|-----------|----------|--------|------|
+| No linked PR (new task, retry after failure) | **Fresh branch** | `issue-<N>-<timestamp>` | Current `main` |
+| Linked PR exists (resume from `needs-changes`, `unblocked`) | **PR branch** | PR's `headRefName` | Existing PR branch |
+
+The fresh-branch strategy uses `issue-<N>-<timestamp>` where `<timestamp>` is epoch milliseconds (e.g., `issue-42-1739000000`). Each dispatch attempt gets a unique branch, so previous attempts' branches remain for inspection. The PR-branch strategy creates a worktree from the existing PR's head branch, so the Implementor resumes exactly where the previous session left off.
+
+PR detection for strategy selection uses `getPRForIssue` with draft inclusion — any linked PR (draft or non-draft) indicates a resume scenario.
 
 **Naming:**
 
 | Artifact | Convention | Example |
 |----------|------------|---------|
-| Branch | `issue-<number>` | `issue-42` |
-| Worktree directory | `<repo-root>/.worktrees/issue-<number>` | `.worktrees/issue-42` |
+| Branch (new) | `issue-<number>-<timestamp>` | `issue-42-1739000000` |
+| Branch (resume) | PR's `headRefName` | `issue-42-1739000000` (from previous attempt) |
+| Worktree directory | `<repo-root>/.worktrees/<branch-name>` | `.worktrees/issue-42-1739000000` |
 
 **Constraints:**
 
 - The `.worktrees/` directory must be added to `.gitignore`.
-- The engine must check for an existing worktree/branch for the issue before creating a new one. If one exists (e.g., from a previous failed run), reuse it.
 - Only Implementor agents use worktrees. Planner and Reviewer agents operate on the main working tree.
-- The `issue-<number>` branch is a working branch created by the engine. The Implementor agent is responsible for renaming it to follow the `<type>/<issue-number>-<short-description>` branch convention (per `workflow.md` quality gates) before pushing and opening a PR.
+- The Implementor pushes on the branch it starts on. It does not rename the branch.
 
 ## Acceptance Criteria
 
 - [ ] Given the control plane is started, when startup completes, then the TUI renders and the engine begins polling.
 - [ ] Given a spec with `status: approved` is committed, when the next poll cycle runs, then the Planner is auto-dispatched without user interaction.
-- [ ] Given a task issue moves to `status:review`, when the next poll cycle runs, then the Reviewer is auto-dispatched without user interaction.
+- [ ] Given an Implementor agent session completes for issue N, when a linked non-draft PR exists, then the engine sets `status:review` on the issue and dispatches the Reviewer.
+- [ ] Given an Implementor agent session completes for issue N, when no linked non-draft PR exists, then no Reviewer is dispatched and the issue remains `status:in-progress` (crash recovery resets to `status:pending`).
+- [ ] Given `status:review` is detected by the IssuePoller (set externally or by the engine), when the change is processed, then no Reviewer is auto-dispatched — `status:review` is not a dispatch trigger.
 - [ ] Given a task issue is `status:pending`, when the TUI displays it, then the user can dispatch an Implementor for it on demand.
 - [ ] Given a task issue moves to `status:needs-refinement`, when the TUI displays the notification, then a clipboard-ready CLI command is provided.
 - [ ] Given a notification's underlying issue status changes, when the next poll cycle runs, then the notification is dismissed.
@@ -172,10 +189,10 @@ Each Implementor agent runs in a dedicated git worktree, isolating parallel impl
 - [ ] Given the engine emits an event, when the TUI is subscribed, then the TUI re-renders to reflect the new state.
 - [ ] Given an issue is `status:in-progress` with no running agent at startup, when initialization completes, then the issue is reset to `status:pending`.
 - [ ] Given an agent session completes and the issue is still `status:in-progress`, when the completion is detected, then the issue is reset to `status:pending`.
-- [ ] Given the engine dispatches an Implementor for issue N, when the agent session is created, then it runs in a worktree at `.worktrees/issue-<N>` on a branch named `issue-<N>`.
-- [ ] Given an Implementor agent session succeeds, when cleanup runs, then the worktree is removed.
-- [ ] Given an Implementor agent session fails, when the failure is detected, then the worktree is preserved and its path is surfaced in the TUI.
-- [ ] Given a worktree already exists for issue N (from a prior run), when the engine dispatches an Implementor for issue N, then the existing worktree is reused.
+- [ ] Given the engine dispatches an Implementor for issue N with no linked PR, when the worktree is created, then it uses a fresh branch `issue-<N>-<timestamp>` from `main`.
+- [ ] Given the engine dispatches an Implementor for issue N with a linked PR, when the worktree is created, then it uses the PR's head branch.
+- [ ] Given an Implementor agent session completes (success or failure), when cleanup runs, then the worktree is removed and the branch is preserved.
+- [ ] Given the engine sets `status:review` on an issue, when the label is set, then the engine emits a synthetic `issueStatusChanged` event so the TUI updates immediately.
 
 ## Dependencies
 

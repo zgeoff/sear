@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine — Agent Manager
-version: 0.5.0
-last_updated: 2026-02-10
+version: 0.6.0
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -15,8 +15,7 @@ The Agent Manager handles agent session lifecycle — creating sessions via the 
 
 - No file outside `engine/agent-manager/` may import from `@anthropic-ai/claude-agent-sdk` or `gray-matter`.
 - Must not dispatch more than one agent per task issue at a time.
-- Must preserve Implementor worktrees on failure for inspection.
-- Must remove Implementor worktrees on success.
+- Must remove Implementor worktrees on completion (success or failure). The branch is the durable artifact for inspection.
 - Log writing failures are non-fatal — agent session behavior is unaffected.
 
 ## Specification
@@ -26,19 +25,24 @@ The Agent Manager handles agent session lifecycle — creating sessions via the 
 When the engine dispatches an agent:
 
 1. **Guard** — Check if an agent is already running for this issue. If so, emit `agentSkipped` and return.
-2. **Worktree** (Implementor only) — Create or reuse a worktree at `.worktrees/issue-<N>` on branch `issue-<N>`. See `control-plane.md` § Worktree Isolation.
+2. **Worktree** (Implementor only) — Create a worktree using the appropriate strategy. The Engine Core provides a `branchName` and `branchBase` to the Agent Manager at dispatch time:
+   - **Fresh branch** (no linked PR — new task or retry): The Engine Core generates `issue-<N>-<timestamp>` as `branchName` with `branchBase: 'main'`. The Agent Manager creates the worktree via `git worktree add .worktrees/<branchName> -b <branchName> <branchBase>`.
+   - **PR branch** (linked PR exists — resume from `needs-changes` or `unblocked`): The Engine Core provides the PR's `headRefName` as `branchName` with no `branchBase`. The Agent Manager creates the worktree via `git worktree add .worktrees/<branchName> <branchName>`.
+   See `control-plane.md` § Worktree Isolation.
 3. **Create session** — Create an agent session via `query()` from `@anthropic-ai/claude-agent-sdk`. The engine loads the agent definition inline (see Agent Definition Loading) and passes it to the SDK via the `agents` option. See SDK Session Configuration below for the full call signature.
 4. **Capture session ID** — The SDK returns a `session_id` in its init message. Store this alongside the session handle.
-5. **Track** — Record the agent session as running for this issue/spec, including the session handle, session ID, and worktree path (if Implementor).
+5. **Track** — Record the agent session as running for this issue/spec, including the session handle, session ID, and branch name (if Implementor).
 6. **Emit** — Emit `agentStarted` with the session ID.
 7. **Start duration timer** — Begin a timer for `maxAgentDuration` seconds. If the timer fires before the session completes, cancel the session (treated as failure).
 8. **Monitor** — Non-blocking. When the session completes:
    - Remove from active tracking.
-   - If session succeeded: emit `agentCompleted`. If Implementor, remove the worktree.
-   - If session failed: emit `agentFailed` with session ID and worktree path (Implementor only). If Implementor, preserve the worktree for inspection.
-   - **Crash recovery (Implementor only):** After emitting `agentFailed`/`agentCompleted`, the Agent Manager reports the completion to the Engine Core. The Engine Core invokes Recovery to check if the issue is still `status:in-progress` and, if so, resets it to `status:pending`, emits `recoveryPerformed` and a synthetic `issueStatusChanged`. See `control-plane-engine-recovery.md`. The Agent Manager does not perform recovery directly — it reports completion and the Engine Core mediates.
-   - **Planner sessions** skip crash recovery entirely (no associated issue).
-   - **Reviewer sessions** skip crash recovery (issue stays `status:review`; see `control-plane-engine-recovery.md` § Reviewer Failure).
+   - If Implementor, remove the worktree via `git worktree remove` (success or failure — the branch persists for inspection).
+   - If session succeeded: emit `agentCompleted`.
+   - If session failed: emit `agentFailed` with session ID and branch name (Implementor only).
+   - **Completion-dispatch (Implementor success only):** After emitting `agentCompleted` for an Implementor, the Agent Manager reports the completion to the Engine Core. The Engine Core checks for a linked non-draft PR and, if found, sets `status:review` on the issue, emits a synthetic `issueStatusChanged` (with `isEngineTransition: true`), and dispatches the Reviewer. See `control-plane-engine.md` § Completion-dispatch.
+   - **Crash recovery (Implementor only):** After emitting `agentFailed`/`agentCompleted`, the Agent Manager reports the completion to the Engine Core. The Engine Core invokes Recovery to check if the issue is still `status:in-progress` and, if so, resets it to `status:pending`, emits `recoveryPerformed` and a synthetic `issueStatusChanged`. See `control-plane-engine-recovery.md`. The Agent Manager does not perform recovery directly — it reports completion and the Engine Core mediates. Note: if completion-dispatch already set `status:review`, crash recovery does not fire (the issue is no longer `status:in-progress`).
+   - **Planner sessions** skip crash recovery and completion-dispatch entirely (no associated issue).
+   - **Reviewer sessions** skip crash recovery (issue stays `status:review`; see `control-plane-engine-recovery.md` § Reviewer Failure) and skip completion-dispatch.
 
 **Session resume:** The SDK supports resuming a failed session via `resume: sessionId`. The engine does not resume sessions automatically — it always starts fresh sessions. However, the session ID from a failed run is included in the `agentFailed` event so the TUI can surface it to the user for manual resume outside the control plane if needed.
 
@@ -154,7 +158,7 @@ const q = query({
 | `agent` | Agent name from config | Selects which agent definition to use from the `agents` map. |
 | `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). The `model` field may be overridden by `modelOverride` from `QueryFactoryParams`. |
 | `maxTurns` | Integer from frontmatter | Maximum number of agentic turns before the SDK stops the session. Read from the agent definition's frontmatter `maxTurns` field. If absent in frontmatter, omitted from options (SDK default: no limit). |
-| `cwd` | Worktree or repo root | Implementor: `.worktrees/issue-<N>`. Planner, Reviewer: repository root. |
+| `cwd` | Worktree or repo root | Implementor: `.worktrees/<branchName>`. Planner, Reviewer: repository root. |
 | `settingSources` | `[]` (empty) | Intentionally empty. The SDK's `settingSources: ['project']` resolution hangs indefinitely when `cwd` is a git worktree (see Known SDK Limitation below). All project-level concerns are handled manually: agent definitions via inline loading, project context (CLAUDE.md) via `contextPaths`, hooks via the programmatic `hooks` option, and `permissionMode` via the explicit option. |
 | `hooks` | `{ PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }] }` | Programmatic hooks. The bash validator hook validates every Bash command against a blocklist/allowlist before execution. See Programmatic Hooks. |
 | `permissionMode` | `'bypassPermissions'` | Agents run non-interactively. All tool invocations are auto-approved. |
@@ -360,8 +364,13 @@ type AgentManagerConfig = {
 
 // createAgentManager(config: AgentManagerConfig, queryFactory: QueryFactory): AgentManager
 // The Agent Manager does not need GitHubClient, owner, or repo directly —
-// crash recovery is mediated by the Engine Core (see control-plane-engine-recovery.md).
+// crash recovery and completion-dispatch are mediated by the Engine Core
+// (see control-plane-engine-recovery.md, control-plane-engine.md § Completion-dispatch).
 // The Agent Manager reports completions via callbacks provided by the Engine Core.
+//
+// Worktree creation and cleanup are handled by the Agent Manager. The Engine Core
+// provides branchName and branchBase at dispatch time. The Agent Manager includes
+// branchName in the agentFailed event for Implementor failures.
 
 // HookCallback is from @anthropic-ai/claude-agent-sdk
 // The engine constructs the bash validator hook and passes it to buildQueryFactory.
@@ -374,15 +383,14 @@ type AgentStream = AsyncIterable<string> | null;
 
 ### Agent Lifecycle
 
-- [ ] Given the `dispatchImplementor` command is received for issue N, when no agent is running for issue N, then an Implementor session is created with the working directory set to a worktree at `.worktrees/issue-<N>`.
+- [ ] Given the `dispatchImplementor` command is received for issue N, when no agent is running for issue N, then an Implementor session is created with the working directory set to a worktree under `.worktrees/`.
 - [ ] Given the `dispatchImplementor` command is received for issue N, when an agent is already running for issue N, then `agentSkipped` is emitted and no new session is created.
 - [ ] Given an agent is already running for issue N, when `dispatchReviewer` is received for issue N, then `agentSkipped` is emitted and no new session is created.
 - [ ] Given the `dispatchImplementor` command is received for an issue not in the IssuePoller snapshot, when the command is processed, then it is a no-op.
 - [ ] Given the `dispatchImplementor` command is received for an issue whose status is not in the accepted set (`pending`, `unblocked`, `needs-changes`, or `in-progress` with no running agent), when the command is processed, then it is a no-op.
 - [ ] Given an agent session is created, when the SDK returns a session ID, then the engine stores the session ID and includes it in the `agentStarted` event.
-- [ ] Given an Implementor agent session fails, when the `agentFailed` event is emitted, then it includes the session ID and preserved worktree path.
-- [ ] Given an Implementor agent session succeeds, when cleanup runs, then the worktree is removed.
-- [ ] Given an Implementor agent session fails, when the failure is detected, then the worktree is preserved.
+- [ ] Given an Implementor agent session fails, when the `agentFailed` event is emitted, then it includes the session ID and branch name (the branch persists after worktree cleanup).
+- [ ] Given an Implementor agent session completes (success or failure), when cleanup runs, then the worktree is removed and the branch is preserved.
 - [ ] Given the engine dispatches any agent, when `query()` is called, then the options include `agent` (agent name from config), `agents` (map containing an inline `AgentDefinition` with project context appended to `prompt`), `settingSources: []`, `permissionMode: 'bypassPermissions'`, and `allowDangerouslySkipPermissions: true`.
 - [ ] Given the engine dispatches any agent, when the `QueryFactory` creates the session, then it reads each file in `contextPaths` from `repoRoot` (UTF-8), concatenates their contents (double newline separator), and appends the result to the agent definition's `prompt` field (double newline separator between original prompt and context block).
 - [ ] Given the engine dispatches any agent and `contextPaths` is empty, when the `QueryFactory` creates the session, then the agent's original prompt is used as-is with no context appended.
@@ -393,7 +401,9 @@ type AgentStream = AsyncIterable<string> | null;
 - [ ] Given an agent definition file does not include a `maxTurns` frontmatter field, when `query()` is called, then the `maxTurns` option is omitted (SDK default applies).
 - [ ] Given `modelOverride` is provided in `QueryFactoryParams`, when the `QueryFactory` constructs the `AgentDefinition`, then the `model` field uses the override value instead of the frontmatter value.
 - [ ] Given `modelOverride` is not provided in `QueryFactoryParams`, when the `QueryFactory` constructs the `AgentDefinition`, then the `model` field uses the frontmatter value (or `'inherit'` if absent).
-- [ ] Given the engine dispatches an Implementor for issue N, when `query()` is called, then `cwd` is set to the worktree path (`.worktrees/issue-<N>`). For Planner and Reviewer, `cwd` is the repository root.
+- [ ] Given the engine dispatches an Implementor for issue N with no linked PR, when the worktree is created, then it uses a fresh branch `issue-<N>-<timestamp>` from `main` and `cwd` is set to `.worktrees/issue-<N>-<timestamp>`.
+- [ ] Given the engine dispatches an Implementor for issue N with a linked PR, when the worktree is created, then it uses the PR's `headRefName` and `cwd` is set to `.worktrees/<headRefName>`.
+- [ ] Given the engine dispatches a Planner or Reviewer, when `query()` is called, then `cwd` is the repository root.
 - [ ] Given the engine codebase, when inspected, then no file outside `engine/agent-manager/` imports from `@anthropic-ai/claude-agent-sdk` or `gray-matter`.
 - [ ] Given the engine dispatches any agent, when `query()` is called, then the `hooks` option includes a `PreToolUse` hook with matcher `Bash` that implements the bash validator logic from `agent-hook-bash-validator.md`.
 - [ ] Given the bash validator hook receives a Bash command matching a blocklist pattern, when the hook evaluates the command, then it returns a block decision with the matched pattern in the reason.

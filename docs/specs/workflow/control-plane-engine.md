@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine
-version: 0.10.0
-last_updated: 2026-02-10
+version: 0.11.0
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -21,7 +21,7 @@ The engine is the core module of the control plane. It orchestrates independent 
 - Must use `@octokit/rest` with `@octokit/auth-app` as the authentication strategy for all GitHub API interactions. Octokit is an implementation detail of the GitHub Client adapter — all engine code interacts with the `GitHubClient` interface, never with Octokit directly. No type assertions (`as`) are permitted at the adapter boundary or anywhere `GitHubClient` is consumed.
 - Must use `@anthropic-ai/claude-agent-sdk` (≥0.2.x) for all agent invocations via the v1 `query()` API.
 - Must detect spec changes remotely (via GitHub API), not from the local filesystem.
-- GitHub write operations are limited to recovery (status label resets). All other writes are performed by agents.
+- GitHub write operations are limited to recovery (status label resets) and completion-dispatch (setting `status:review`). All other writes are performed by agents.
 
 ## Specification
 
@@ -103,7 +103,6 @@ The engine invokes the agent automatically with no user action.
 | Poller Event | Agent | Condition |
 |-------------|-------|-----------|
 | `specChanged` | Planner | Spec frontmatter `status` is `approved` |
-| `issueStatusChanged` to `status:review` | Reviewer | No agent already running for this issue |
 
 The Planner is invoked once per SpecPoller cycle with all changed (and approved) spec paths batched into a single invocation. The Engine Core receives the full batch from the SpecPoller synchronously and passes approved paths to a single Planner dispatch. Before dispatching, the Engine Core builds an enriched trigger prompt containing the full content of each changed spec, existing open task issues, and commit SHAs for diff support. See `control-plane-engine-agent-manager.md` § Planner Context Pre-computation for the prompt format and data sources.
 
@@ -111,7 +110,23 @@ The Planner is invoked once per SpecPoller cycle with all changed (and approved)
 
 **Planner idempotency:** The engine does not prevent re-dispatch for the same spec (e.g., a whitespace-only change to an approved spec will re-trigger the Planner). The Planner agent definition is responsible for idempotency — checking existing issues before creating new ones. See `agent-planner.md`.
 
-The Reviewer is invoked per issue — one Reviewer per issue that entered `status:review`.
+#### Completion-dispatch
+
+The Reviewer is dispatched when an Implementor agent session completes, not when a status label changes. This eliminates the race condition where a `status:review` label is set before the PR exists.
+
+**Trigger:** When the Agent Manager reports an Implementor `agentCompleted` event, the Engine Core:
+
+1. Calls `getPRForIssue(issueNumber, { includeDrafts: false })` to check for a linked non-draft PR.
+2. **PR found:** Sets `status:review` on the issue (via `GitHubClient`), updates the IssuePoller snapshot entry to `status:review` (via `updateEntry()`) to prevent a duplicate `issueStatusChanged` on the next poll cycle, emits a synthetic `issueStatusChanged` event (with `isEngineTransition: true`), and dispatches the Reviewer.
+3. **No PR found:** Takes no action. The issue remains `status:in-progress`. Crash recovery detects this (no running agent + `status:in-progress`) and resets to `status:pending`.
+
+This flow also handles re-reviews after `needs-changes`: the Implementor is re-dispatched, pushes fixes to the existing PR, and completes. The engine finds the existing non-draft PR and dispatches the Reviewer.
+
+**`status:review` is not a dispatch trigger.** The IssuePoller tracks `status:review` for TUI display, but it does not trigger Reviewer dispatch. If `status:review` is set externally (e.g., manual label change), no Reviewer is dispatched. The user can manually dispatch a Reviewer via the TUI's retry mechanism if needed.
+
+**Implementor failure:** When the Agent Manager reports an Implementor `agentFailed` event, no PR check or Reviewer dispatch occurs. Crash recovery handles the issue status.
+
+The Reviewer is invoked per issue — one Reviewer per issue where the Implementor completed with a linked PR.
 
 #### User-dispatch
 
@@ -147,9 +162,9 @@ Notifications are dismissed automatically when the underlying issue's status cha
 
 **Event ordering:** For each status change, the Engine Core emits `issueStatusChanged` before any dispatch-tier event (`dispatchReady`, `notification`, or auto-dispatch trigger). This ensures the TUI's store has the updated issue state before processing dispatch events that reference it.
 
-**Dispatch fallthrough:** Status changes to values not listed in any dispatch tier (e.g., `in-progress`) trigger no dispatch action. The `issueStatusChanged` event is still emitted so the TUI can update the issue's state indicator.
+**Dispatch fallthrough:** Status changes to values not listed in any dispatch tier (e.g., `in-progress`, `review`) trigger no dispatch action. The `issueStatusChanged` event is still emitted so the TUI can update the issue's state indicator. Note: `status:review` falls through because Reviewer dispatch is completion-driven (see Completion-dispatch above), not label-driven.
 
-**Removed issue orchestration:** When the IssuePoller reports that an issue has been removed (closed or `task:implement` label removed), the Engine Core handles the response: (1) if an agent is running for the issue, cancel the agent session and emit `agentFailed` (treated as cancellation — worktree preserved if Implementor); then (2) emit `issueRemoved`. This ordering guarantees `agentFailed` is emitted before `issueRemoved` for the same issue, so the TUI can process the failure before the issue is removed from its store.
+**Removed issue orchestration:** When the IssuePoller reports that an issue has been removed (closed or `task:implement` label removed), the Engine Core handles the response: (1) if an agent is running for the issue, cancel the agent session and emit `agentFailed` (treated as cancellation — worktree cleaned up, branch preserved); then (2) emit `issueRemoved`. This ordering guarantees `agentFailed` is emitted before `issueRemoved` for the same issue, so the TUI can process the failure before the issue is removed from its store.
 
 ### Event Emitter
 
@@ -157,11 +172,11 @@ The engine emits typed events for discrete state changes. Events drive reactive 
 
 | Event | Payload | Emitted By |
 |-------|---------|-----------|
-| `issueStatusChanged` | Issue number, title, old status, new status, priority label, creation date, `isRecovery` flag (true for synthetic events from recovery) | IssuePoller (or Engine Core for synthetic recovery events) |
+| `issueStatusChanged` | Issue number, title, old status, new status, priority label, creation date, `isRecovery` flag (true for synthetic events from recovery), `isEngineTransition` flag (true only for the synthetic event from completion-dispatch — when the engine sets `status:review` on Implementor completion) | IssuePoller (or Engine Core for synthetic events: recovery, completion-dispatch) |
 | `specChanged` | File path, frontmatter status, change type (added/modified), commit SHA | Engine Core (from SpecPoller results) |
 | `agentStarted` | Agent type, issue number or spec paths, session ID | Agent Manager |
 | `agentCompleted` | Agent type, issue number or spec paths, session ID, log file path (when logging enabled) | Agent Manager |
-| `agentFailed` | Agent type, issue number or spec paths, error details, session ID, worktree path (Implementor only), log file path (when logging enabled) | Agent Manager |
+| `agentFailed` | Agent type, issue number or spec paths, error details, session ID, branch name (Implementor only — the branch persists after worktree cleanup for inspection), log file path (when logging enabled) | Agent Manager |
 | `agentSkipped` | Agent type, issue number or spec paths (deferred) | Agent Manager (per-issue guard) or Engine Core (Planner concurrency guard) |
 | `dispatchReady` | Issue number, status label | Dispatch Logic |
 | `notification` | Issue number, status label, `contextURL` (issue URL), `clipboardCommand` (optional — present for `needs-refinement`, absent for `blocked` and `approved`), `resolutionGuidance` (optional — present for `needs-refinement` and `blocked`, absent for `approved`). Note: this is a specific engine event type for notify-only tier issues, distinct from the TUI's "notification" concept (the TUI surfaces all engine events as notification entries in the notifications pane). | Dispatch Logic |
@@ -175,9 +190,9 @@ The engine accepts commands that trigger side effects.
 
 | Command | Parameters | Effect |
 |---------|-----------|--------|
-| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies). |
+| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: true })` to determine the worktree strategy: if a linked PR is found (draft or non-draft), the PR branch strategy is used (`branchName` = PR's `headRefName`); otherwise, the fresh branch strategy is used (`branchName` = `issue-<N>-<timestamp>`). See `control-plane.md` § Worktree Isolation. The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies). |
 | `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot or if the issue's status is not `review`. No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
-| `cancelAgent` | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, preserves the worktree. For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`). Emits `agentFailed` with a cancellation error. No-op if no agent is running. |
+| `cancelAgent` | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, removes the worktree (branch preserved for inspection). For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`). Emits `agentFailed` with a cancellation error. No-op if no agent is running. |
 | `cancelPlanner` | None | Cancels the running Planner session if one exists. Emits `agentFailed` with a cancellation error. No-op if no Planner is running. Note: `cancelPlanner` is not exposed in the TUI — there is no keybinding to cancel the Planner. A hung Planner can be stopped by quitting the control plane (which triggers the graceful shutdown sequence, which cancels all agents after `shutdownTimeout`) or by waiting for `maxAgentDuration` timeout. This is a known v1 limitation. |
 | `shutdown` | None | Initiates graceful shutdown |
 
@@ -188,9 +203,9 @@ The engine provides on-demand data fetching for display purposes. Queries are re
 | Query | Parameters | Returns |
 |-------|-----------|---------|
 | `getIssueDetails` | Issue number | Issue body (objective, spec reference, scope, acceptance criteria), labels, creation date |
-| `getPRForIssue` | Issue number | PR number, title, changed files count, CI status, URL. Returns `null` if no linked PR exists. |
+| `getPRForIssue` | Issue number, `includeDrafts` (boolean, default `false`) | PR number, title, changed files count, CI status, URL, `isDraft`, `headRefName`. Returns `null` if no linked PR exists. When `includeDrafts` is `false`, draft PRs are excluded from results. When `true`, draft PRs are included (used by the engine for worktree strategy selection). |
 
-PR linkage is determined by searching for a PR whose body contains a closing keyword referencing the issue number. The match is case-insensitive and supports GitHub's closing keywords: `Closes`, `Fixes`, `Resolves` (and their conjugations: `Close`, `Closed`, `Fix`, `Fixed`, `Resolve`, `Resolved`). The issue number must be followed by whitespace, punctuation, or end of line — not additional digits (word-boundary match). If multiple open PRs match, the first match (by PR number, ascending) is used. Branch name matching is not used because the Implementor renames the working branch (`issue-<N>`) to the convention format (`<type>/<N>-<description>`) before pushing.
+PR linkage is determined by searching for a PR whose body contains a closing keyword referencing the issue number. The match is case-insensitive and supports GitHub's closing keywords: `Closes`, `Fixes`, `Resolves` (and their conjugations: `Close`, `Closed`, `Fix`, `Fixed`, `Resolve`, `Resolved`). The issue number must be followed by whitespace, punctuation, or end of line — not additional digits (word-boundary match). If multiple open PRs match, the first match (by PR number, ascending) is used.
 
 **Pagination:** `getIssueDetails` fetches the issue directly via `issues.get` (no pagination concern). `getPRForIssue` lists open PRs via `pulls.list` with `per_page: 100` without pagination. The IssuePoller's `issues.listForRepo` call also uses `per_page: 100` without pagination. Repositories with more than 100 open task issues or 100 open PRs will have results silently truncated. This is a known v1 limitation — acceptable for the expected scale of managed repositories.
 
@@ -218,7 +233,7 @@ The engine persists a lightweight cache to prevent redundant Planner runs across
 
 The engine must resolve the git repository root at startup. This path is used for:
 
-- Worktree creation (`.worktrees/issue-<N>` is relative to repo root)
+- Worktree creation (`.worktrees/<branchName>` is relative to repo root)
 - Agent definition loading (`.claude/agents/<name>.md` is read from repo root)
 - Planner cache file location (`.agentic-workflow-cache.json` at repo root)
 - Relative `logsDir` resolution
@@ -384,6 +399,8 @@ type IssueStatusChangedEvent = {
   priorityLabel: string;
   createdAt: string; // ISO 8601
   isRecovery?: boolean; // true when emitted as synthetic event from crash recovery
+  isEngineTransition?: boolean; // true when emitted as the synthetic event from completion-dispatch (engine sets status:review on Implementor completion)
+  // isRecovery and isEngineTransition are mutually exclusive — at most one is true on any given event.
 };
 
 type SpecChangedEvent = {
@@ -400,7 +417,7 @@ type AgentStartedEvent = {
   type: 'agentStarted';
   agentType: AgentType;
   issueNumber?: number; // present for Implementor, Reviewer
-  specPaths?: string[]; // present for Planner
+  specPaths?: string[]; // guaranteed present when agentType is 'planner'
   sessionID: string;
 };
 
@@ -420,7 +437,7 @@ type AgentFailedEvent = {
   specPaths?: string[];
   error: string;
   sessionID: string;
-  worktreePath?: string; // present for Implementor
+  branchName?: string; // present for Implementor — the branch persists after worktree cleanup for inspection
   logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
@@ -530,6 +547,8 @@ type PRDetailsResult = {
   changedFilesCount: number;
   ciStatus: 'pending' | 'success' | 'failure';
   url: string;
+  isDraft: boolean;
+  headRefName: string; // branch name — used by engine for worktree strategy (resume from PR branch)
 } | null;
 ```
 
@@ -587,7 +606,7 @@ type Engine = {
   on(handler: (event: EngineEvent) => void): () => void; // returns unsubscribe function
   send(command: EngineCommand): void;
   getIssueDetails(issueNumber: number): Promise<IssueDetailsResult>;
-  getPRForIssue(issueNumber: number): Promise<PRDetailsResult>;
+  getPRForIssue(issueNumber: number, options?: { includeDrafts?: boolean }): Promise<PRDetailsResult>;
   getAgentStream(issueNumber: number): AgentStream;
 };
 
@@ -617,10 +636,15 @@ See `control-plane-engine-pollers.md` for all poller acceptance criteria.
 - [ ] Given a spec's frontmatter status is `approved` and its blob SHA changed, when the Engine Core emits `specChanged`, then the Planner is auto-dispatched with that spec path.
 - [ ] Given a spec's frontmatter status is `draft` and its blob SHA changed, when the Engine Core emits `specChanged`, then the Planner is not dispatched for that spec.
 - [ ] Given multiple approved specs changed in the same SpecPoller cycle, when the Planner is dispatched, then it receives all changed spec paths in a single invocation with an enriched trigger prompt (spec content, existing issues, commit SHAs).
+- [ ] Given the `dispatchImplementor` command is received for issue N, when the Engine Core determines the worktree strategy, then it calls `getPRForIssue(N, { includeDrafts: true })` to detect any linked PR (draft or non-draft) for strategy selection.
 - [ ] Given the `dispatchImplementor` command is received for an issue with a `complexity:simple` label, when the Implementor session is created, then `modelOverride: 'sonnet'` is passed to the `QueryFactory`.
 - [ ] Given the `dispatchImplementor` command is received for an issue with a `complexity:complex` label, when the Implementor session is created, then `modelOverride: 'opus'` is passed to the `QueryFactory`.
 - [ ] Given the `dispatchImplementor` command is received for an issue with no complexity label, when the Implementor session is created, then no `modelOverride` is passed (agent definition default applies).
-- [ ] Given an issue status changed to `status:review`, when the IssuePoller emits the change, then the Reviewer is auto-dispatched for that issue.
+- [ ] Given an Implementor `agentCompleted` event fires for issue N, when the Engine Core calls `getPRForIssue(N, { includeDrafts: false })` and a non-draft PR is found, then the engine sets `status:review` on the issue, updates the IssuePoller snapshot to `status:review`, emits a synthetic `issueStatusChanged` (with `isEngineTransition: true`), and dispatches the Reviewer.
+- [ ] Given the engine sets `status:review` on an issue via completion-dispatch, when the IssuePoller snapshot is updated to match, then the next IssuePoller cycle does not emit a duplicate `issueStatusChanged` for that issue.
+- [ ] Given an Implementor `agentCompleted` event fires for issue N, when the Engine Core calls `getPRForIssue(N, { includeDrafts: false })` and no non-draft PR is found, then no Reviewer is dispatched and no status change occurs.
+- [ ] Given an Implementor `agentFailed` event fires for issue N, when the Engine Core processes the failure, then no PR check or Reviewer dispatch occurs.
+- [ ] Given `status:review` is detected by the IssuePoller (set externally or by the engine on a previous cycle), when the dispatch logic processes the change, then no Reviewer is auto-dispatched — `status:review` is not a dispatch trigger.
 - [ ] Given an issue is `status:pending`, when the change is first detected, then a `dispatchReady` event is emitted.
 - [ ] Given an issue status changes to `status:unblocked` or `status:needs-changes`, when the IssuePoller emits the change, then a `dispatchReady` event is emitted.
 - [ ] Given the `dispatchReviewer` command is received for issue N, when no agent is running for issue N, then a Reviewer session is created.
@@ -647,7 +671,9 @@ See `control-plane-engine-planner-cache.md` for all planner cache acceptance cri
 - [ ] Given `getIssueDetails` is called with an issue number, when the issue exists, then it returns the issue body, labels, and creation date.
 - [ ] Given `getIssueDetails` is called for an issue with a `null` body, when the result is returned, then `body` is an empty string.
 - [ ] Given `getIssueDetails` is called for an issue with labels in mixed format (bare strings and `{ name }` objects), when the result is returned, then `labels` contains extracted name strings from both formats.
-- [ ] Given `getPRForIssue` is called with an issue number, when a linked PR exists (via closing keyword body match), then it returns the PR number, title, changed files count, CI status, and URL.
+- [ ] Given `getPRForIssue` is called with an issue number (default `includeDrafts: false`), when a linked non-draft PR exists (via closing keyword body match), then it returns the PR number, title, changed files count, CI status, URL, `isDraft`, and `headRefName`.
+- [ ] Given `getPRForIssue` is called with `includeDrafts: false`, when only a draft PR is linked, then it returns `null`.
+- [ ] Given `getPRForIssue` is called with `includeDrafts: true`, when a linked draft PR exists, then it returns the PR details including `isDraft: true` and `headRefName`.
 - [ ] Given `getPRForIssue` finds a linked PR, when all check runs have `conclusion: 'success'` and combined status is `'success'`, then `ciStatus` is `'success'`.
 - [ ] Given `getPRForIssue` finds a linked PR, when any check run has `conclusion: 'failure'`, `'cancelled'`, or `'timed_out'`, then `ciStatus` is `'failure'`.
 - [ ] Given `getPRForIssue` finds a linked PR, when any check run has `status` other than `'completed'`, then `ciStatus` is `'pending'`.
@@ -681,7 +707,7 @@ See `control-plane-engine-agent-manager.md` § Agent Session Logging for all age
 
 - [ ] Given `createEngine` is called without an explicit `repoRoot` dependency, when the engine initializes, then it resolves the repository root via `git rev-parse --show-toplevel`.
 - [ ] Given `createEngine` is called with an explicit `repoRoot` dependency, when the engine initializes, then it uses the provided value without running `git rev-parse`.
-- [ ] Given the resolved `repoRoot`, when worktrees are created, then they are located at `{repoRoot}/.worktrees/issue-<N>`.
+- [ ] Given the resolved `repoRoot`, when worktrees are created with fresh branches, then they are located at `{repoRoot}/.worktrees/issue-<N>-<timestamp>`.
 - [ ] Given the resolved `repoRoot`, when the `QueryFactory` loads agent definitions, then it reads from `{repoRoot}/.claude/agents/<name>.md`.
 - [ ] Given the agent definition file does not exist at the expected path or contains malformed YAML, when the engine attempts to dispatch the agent, then the dispatch fails with an error (treated as agent session creation failure).
 - [ ] Given `git rev-parse --show-toplevel` fails (not inside a git repository), when the engine initializes, then it logs an error and exits.

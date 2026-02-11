@@ -54,7 +54,9 @@ hooks:
 
 ### Trigger
 
-The Reviewer agent is invoked when a task issue moves to `status:review`.
+The Reviewer agent is invoked when the engine sets `status:review` on a task issue after an Implementor agent session completes with a linked non-draft PR (see `control-plane-engine.md` § Completion-dispatch). The `status:review` label is not a polling trigger — it is set by the engine atomically with Reviewer dispatch.
+
+The Reviewer can also be re-dispatched manually via the TUI's retry mechanism (`dispatchReviewer` command) when a previous Reviewer session failed and the issue remains `status:review`. See `control-plane-engine.md` § Commands.
 
 ### Inputs
 
