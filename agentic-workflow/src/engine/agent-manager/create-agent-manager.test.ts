@@ -452,15 +452,18 @@ test('it emits agentFailed with branch name when an implementor session fails', 
 // Reviewer dispatch
 // ---------------------------------------------------------------------------
 
-test('it sets the working directory to the repo root for reviewers', async () => {
+test('it creates a worktree and sets the working directory for reviewers', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
 
+  expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-10-branch',
+  });
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '10',
     agent: 'reviewer',
-    cwd: '/repo',
+    cwd: '/repo/.worktrees/issue-10-branch',
   });
 });
 
@@ -498,7 +501,7 @@ test('it passes the issue number as the initial prompt for reviewers', async () 
   });
 });
 
-test('it emits agentCompleted and does not remove worktree for reviewer sessions', async () => {
+test('it emits agentCompleted and removes worktree for reviewer sessions', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
@@ -519,7 +522,80 @@ test('it emits agentCompleted and does not remove worktree for reviewer sessions
     });
   });
 
-  expect(ctx.worktreeManager.removeByPath).not.toHaveBeenCalled();
+  expect(ctx.worktreeManager.removeByPath).toHaveBeenCalledWith('/repo/.worktrees/issue-10-branch');
+});
+
+// ---------------------------------------------------------------------------
+// Reviewer worktree: remote fetch
+// ---------------------------------------------------------------------------
+
+test('it passes fetchRemote to the worktree manager when dispatching a reviewer with fetchRemote true', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+    fetchRemote: true,
+  });
+
+  expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-10-pr-branch',
+    fetchRemote: true,
+  });
+  expect(ctx.queryParams[0]).toMatchObject({
+    cwd: '/repo/.worktrees/issue-10-pr-branch',
+  });
+});
+
+test('it does not pass fetchRemote to the worktree manager when fetchRemote is false', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+    fetchRemote: false,
+  });
+
+  expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-10-pr-branch',
+  });
+});
+
+test('it does not pass fetchRemote to the worktree manager when fetchRemote is not provided', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+  });
+
+  expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-10-pr-branch',
+  });
+});
+
+test('it removes the reviewer worktree on failure', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+    fetchRemote: true,
+  });
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
+  await vi.waitFor(() => {
+    expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
+  });
+
+  ctx.mockQueries[0]?.pushMessage(buildErrorResult());
+  ctx.mockQueries[0]?.end();
+  await vi.waitFor(() => {
+    expect(ctx.events.some((e) => e.type === 'agentFailed')).toBe(true);
+  });
+
+  expect(ctx.worktreeManager.removeByPath).toHaveBeenCalledWith(
+    '/repo/.worktrees/issue-10-pr-branch',
+  );
 });
 
 // ---------------------------------------------------------------------------

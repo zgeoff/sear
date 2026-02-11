@@ -85,6 +85,13 @@ export function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManage
         return { worktreePath, branch: params.branchName, created: true };
       }
 
+      if (params.fetchRemote === true) {
+        // Review branch strategy: fetch from remote then create worktree at remote tracking ref
+        await execGit(['fetch', 'origin', params.branchName]);
+        await execGit(['worktree', 'add', worktreePath, `origin/${params.branchName}`]);
+        return { worktreePath, branch: params.branchName, created: true };
+      }
+
       // PR branch strategy: use existing branch
       await execGit(['worktree', 'add', worktreePath, params.branchName]);
       return { worktreePath, branch: params.branchName, created: false };

@@ -14,6 +14,7 @@ export interface WorktreeManagerDeps {
 export interface CreateForBranchParams {
   branchName: string;
   branchBase?: string; // present for fresh-branch strategy (new branch from base); absent for PR-branch strategy (existing branch)
+  fetchRemote?: boolean; // when true, fetches from origin before creating worktree (review-branch strategy)
 }
 
 export interface WorktreeManager {
