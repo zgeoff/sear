@@ -56,8 +56,7 @@ export const BLOCKLIST_PATTERNS: BlocklistPattern[] = [
 ];
 
 export const ALLOWLIST_PREFIXES: string[] = [
-  // GitHub & Git
-  'gh',
+  // Git
   'git',
   'scripts/workflow/gh.sh',
   './scripts/workflow/gh.sh',
@@ -66,7 +65,6 @@ export const ALLOWLIST_PREFIXES: string[] = [
   'yarn',
 
   // Text processing
-  'cat',
   'head',
   'tail',
   'grep',
@@ -80,6 +78,8 @@ export const ALLOWLIST_PREFIXES: string[] = [
   'wc',
   'jq',
   'xargs',
+  'diff',
+  'tee',
 
   // Shell utilities
   'echo',
@@ -96,9 +96,12 @@ export const ALLOWLIST_PREFIXES: string[] = [
   'basename',
   'dirname',
   'realpath',
+  'find',
 
   // File operations
   'chmod',
   'mkdir',
   'touch',
+  'cp',
+  'mv',
 ];

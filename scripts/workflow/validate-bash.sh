@@ -132,8 +132,7 @@ done
 # quotes (per bash quoting rules). Single-quoted strings are literal.
 
 allowlist=(
-  # ── GitHub & Git ──
-  gh
+  # ── Git ──
   git
   scripts/workflow/gh.sh
   ./scripts/workflow/gh.sh
@@ -142,7 +141,6 @@ allowlist=(
   yarn
 
   # ── Text processing (commonly piped) ──
-  cat
   head
   tail
   grep
@@ -156,6 +154,8 @@ allowlist=(
   wc
   jq
   xargs
+  diff
+  tee
 
   # ── Shell utilities ──
   echo
@@ -172,11 +172,14 @@ allowlist=(
   basename
   dirname
   realpath
+  find
 
   # ── File operations (non-destructive) ──
   chmod
   mkdir
   touch
+  cp
+  mv
 )
 
 # Splits a command string into null-delimited segments on &&, ||, ;, |, and
