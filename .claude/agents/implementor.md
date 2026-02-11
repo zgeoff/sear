@@ -117,10 +117,8 @@ This scenario does NOT use the Complete and Submit procedure. You push fixes to 
 6. Update tests if feedback requires behavioral changes.
 7. Verify all tests pass locally. If tests fail due to your changes, fix and re-run. If failure is outside your scope, treat it as a blocker.
 8. Commit and push fixes to the existing PR branch.
-9. Update label from `status:in-progress` to `status:review`:
-   ```
-   scripts/workflow/gh.sh issue edit <number> --remove-label "status:in-progress" --add-label "status:review"
-   ```
+
+The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists.
 
 ### Complete and Submit
 
@@ -131,7 +129,7 @@ Shared procedure used after implementation for new tasks and resumed-from-unbloc
    - If the failure is in your code, fix and re-run.
    - If the failure is outside your scope (pre-existing failure, broken dependency), treat it as a blocker.
 3. **Open or update the PR:**
-   - **New task:** Create a new branch following the naming convention `<type>/<issue-number>-<short-description>`. Commit your changes. Open a ready-for-review (non-draft) PR:
+   - **New task:** Commit your changes. Open a ready-for-review (non-draft) PR on the current branch:
      ```
      scripts/workflow/gh.sh pr create --head <branch> --base main --title "<type>(<scope>): <description>" --body "Closes #<issue-number>"
      ```
@@ -139,10 +137,8 @@ Shared procedure used after implementation for new tasks and resumed-from-unbloc
      ```
      scripts/workflow/gh.sh pr ready <number>
      ```
-4. **Update label** from `status:in-progress` to `status:review`:
-   ```
-   scripts/workflow/gh.sh issue edit <number> --remove-label "status:in-progress" --add-label "status:review"
-   ```
+
+The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists.
 
 ## Blocker Handling
 
@@ -240,7 +236,6 @@ You are responsible for exactly these label transitions and no others:
 | `status:pending` | `status:in-progress` | Starting a new task |
 | `status:unblocked` | `status:in-progress` | Resuming a previously blocked task |
 | `status:needs-changes` | `status:in-progress` | Resuming after reviewer feedback |
-| `status:in-progress` | `status:review` | Work complete, PR ready |
 | `status:in-progress` | `status:needs-refinement` | Blocked by spec issue |
 | `status:in-progress` | `status:blocked` | Blocked by non-spec issue |
 
@@ -268,8 +263,7 @@ Any unresolved items, blocker references, or follow-up needed.
 - NEVER make interpretive decisions when the spec is ambiguous, contradictory, or incomplete. Escalate as a blocker instead.
 - NEVER submit partial work as complete. If blocked, stop, preserve progress in a draft PR, and surface the blocker.
 - NEVER reprioritize tasks or change task sequencing.
-- NEVER perform status transitions other than the six defined in the Status Transitions table.
+- NEVER perform status transitions other than the five defined in the Status Transitions table.
 - ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations. The workflow steps in this document are the authority for **when** to perform operations; `skill-github-workflow.md` is reference-only (not loaded at runtime).
 - ALWAYS conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - ALWAYS use conventional commit format for commit messages and PR titles.
-- ALWAYS use the branch naming convention `<type>/<issue-number>-<short-description>`.
