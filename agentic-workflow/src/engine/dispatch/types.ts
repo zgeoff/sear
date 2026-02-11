@@ -2,7 +2,6 @@ import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types
 
 export interface AgentManagerDelegate {
   dispatchPlanner: (specPaths: string[]) => Promise<void>;
-  dispatchReviewer: (issueNumber: number) => Promise<void>;
   isPlannerRunning: () => boolean;
 }
 

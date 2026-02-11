@@ -43,7 +43,6 @@ export function createDispatch(
     async handleIssueStatusChanged(event: IssueStatusChangedEvent): Promise<void> {
       await handleIssueStatusChanged(event, {
         emitter,
-        agentManager,
         config,
         activeNotifications,
       });
@@ -144,7 +143,6 @@ function filterApprovedPaths(paths: Set<string>, latestStatuses: Map<string, str
 
 interface HandleIssueStatusChangedDeps {
   emitter: EventEmitter;
-  agentManager: AgentManagerDelegate;
   config: DispatchConfig;
   activeNotifications: Map<number, string>;
 }
@@ -153,7 +151,7 @@ async function handleIssueStatusChanged(
   event: IssueStatusChangedEvent,
   deps: HandleIssueStatusChangedDeps,
 ): Promise<void> {
-  const { emitter, agentManager, config, activeNotifications } = deps;
+  const { emitter, config, activeNotifications } = deps;
   // Dismiss any active notification for this issue if the status changed
   if (activeNotifications.has(event.issueNumber)) {
     activeNotifications.delete(event.issueNumber);
@@ -164,9 +162,6 @@ async function handleIssueStatusChanged(
   }
 
   await match(event.newStatus)
-    .with('review', async () => {
-      await agentManager.dispatchReviewer(event.issueNumber);
-    })
     .with(
       P.when((s) => USER_DISPATCH_STATUSES.includes(s)),
       () => {
@@ -193,7 +188,7 @@ async function handleIssueStatusChanged(
       emitter.emit(notification);
     })
     .otherwise(() => {
-      // Fallthrough -- status changes like 'in-progress' trigger no dispatch action.
+      // Fallthrough -- status changes like 'in-progress', 'review' trigger no dispatch action.
       // The issueStatusChanged event was already emitted by the IssuePoller.
     });
 }

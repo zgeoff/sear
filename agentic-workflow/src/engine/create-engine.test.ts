@@ -418,7 +418,6 @@ test('it is a no-op when dispatching an implementor for an issue not in user-dis
 
   await engine.start();
 
-  // Record queries created during startup (auto-dispatch reviewer for review)
   const queriesAfterStart = mockQueries.length;
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
@@ -535,7 +534,7 @@ test('it does not pass a model override when dispatching an implementor for an i
 // Command routing: dispatchReviewer
 // ---------------------------------------------------------------------------
 
-test('it auto-dispatches a reviewer when the issue is in review status', async () => {
+test('it does not auto-dispatch a reviewer when the issue is in review status', async () => {
   const issues = [buildMockIssueData(42, 'review')];
   const { engine, events } = setupTest(issues);
 
@@ -545,7 +544,7 @@ test('it auto-dispatches a reviewer when the issue is in review status', async (
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   const agentStarted = events.filter((e) => e.type === 'agentStarted');
-  expect(agentStarted.length).toBeGreaterThan(0);
+  expect(agentStarted.length).toBe(0);
 });
 
 test('it is a no-op when dispatching a reviewer for an issue not in review status', async () => {
@@ -737,7 +736,8 @@ test('it cancels a running agent and emits an agent-failed event', async () => {
 
   await engine.start();
 
-  // Wait for auto-dispatch of reviewer (review status triggers auto-dispatch)
+  engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
+
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   // Verify the agent started
@@ -770,7 +770,8 @@ test('it cancels running agents after shutdown timeout expires', async () => {
 
   await engine.start();
 
-  // Wait for auto-dispatch of reviewer
+  engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
+
   await vi.advanceTimersByTimeAsync(50);
 
   const agentStarted = events.filter(
@@ -788,8 +789,6 @@ test('it cancels running agents after shutdown timeout expires', async () => {
       e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
   );
   expect(agentFailed.length).toBe(1);
-
-  vi.useRealTimers();
 });
 
 test('it cancels a running agent when its issue is removed from the poller snapshot', async () => {
@@ -848,7 +847,8 @@ test('it cancels a running agent when its issue is removed from the poller snaps
 
   await engine.start();
 
-  // Wait for the auto-dispatched reviewer to start
+  engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
+
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   const started = events.filter(
