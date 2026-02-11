@@ -129,7 +129,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
         const issues = new Map(state.issues);
         const existing = issues.get(e.issueNumber);
 
-        const shouldClearOverlays = !e.isRecovery;
+        const shouldClearOverlays = !(e.isRecovery || e.isEngineTransition);
 
         const updated = buildTrackedIssue({
           number: e.issueNumber,

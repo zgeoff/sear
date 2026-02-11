@@ -64,7 +64,8 @@ Each package should have:
 
 ```bash
 yarn build          # Build all packages/apps
-yarn test           # Run tests across all packages
+yarn test           # Run tests across all packages (vitest via Turborepo)
+yarn test:sh        # Run BATS shell tests (scripts/**/*.test.sh)
 yarn lint           # Lint all packages
 yarn format         # Format code with Biome
 yarn format:check   # Check formatting without writing
