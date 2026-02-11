@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine — Agent Manager
-version: 0.10.0
+version: 0.11.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -22,7 +22,9 @@ rest of the engine.
 - Must not dispatch more than one agent per task issue at a time.
 - Must remove Implementor and Reviewer worktrees on completion (success or failure). The branch is
   the durable artifact for inspection.
-- Log writing failures are non-fatal — agent session behavior is unaffected.
+- Log writing failures are non-fatal — agent session behavior is unaffected. See
+  [control-plane-engine-agent-session-logging.md](./control-plane-engine-agent-session-logging.md)
+  for the normative definition.
 
 ## Specification
 
@@ -90,11 +92,11 @@ manual resume outside the control plane if needed.
 
 Each agent session receives trigger-specific context as its initial prompt:
 
-| Agent       | Trigger Context                                                                                                                                                                                                                                                                                                 |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Planner     | Enriched prompt containing: full content of each changed spec (with diffs for modified specs), and existing open task issues (number, title, labels, body). See [Planner Context Pre-computation](#planner-context-pre-computation) below.                                                                      |
-| Implementor | Issue number                                                                                                                                                                                                                                                                                                    |
-| Reviewer    | Enriched prompt containing: task issue details (number, title, body, labels), PR metadata (number, title from `getPRForIssue`), per-file PR diffs (filename, status, patch), and prior review submissions and inline comments. See [Reviewer Context Pre-computation](#reviewer-context-pre-computation) below. |
+| Agent       | Trigger Context                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Planner     | Enriched prompt containing: full content of each changed spec (with diffs for modified specs), and existing open task issues (number, title, labels, body). See [control-plane-engine-context-precomputation.md: Planner Context Pre-computation](./control-plane-engine-context-precomputation.md#planner-context-pre-computation).                                                                      |
+| Implementor | Issue number                                                                                                                                                                                                                                                                                                                                                                                              |
+| Reviewer    | Enriched prompt containing: task issue details (number, title, body, labels), PR metadata (number, title from `getPRForIssue`), per-file PR diffs (filename, status, patch), and prior review submissions and inline comments. See [control-plane-engine-context-precomputation.md: Reviewer Context Pre-computation](./control-plane-engine-context-precomputation.md#reviewer-context-pre-computation). |
 
 ### Agent Definition Loading
 
@@ -236,18 +238,18 @@ const q = query({
 
 **Option details:**
 
-| Option                            | Value                                                               | Purpose                                                                                                                                                                                                                                                                                                                                                                         |
-| --------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `prompt`                          | Trigger context string                                              | The initial user message. Enriched prompt with spec content, diffs, and existing issues (Planner — see [Planner Context Pre-computation](#planner-context-pre-computation)), enriched prompt with issue details, PR diffs, and review comments (Reviewer — see [Reviewer Context Pre-computation](#reviewer-context-pre-computation)), or issue number as string (Implementor). |
-| `agent`                           | Agent name from config                                              | Selects which agent definition to use from the `agents` map.                                                                                                                                                                                                                                                                                                                    |
-| `agents`                          | `Record<string, AgentDefinition>`                                   | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). The `model` field may be overridden by `modelOverride` from `QueryFactoryParams`.                                                                                                       |
-| `maxTurns`                        | Integer from frontmatter                                            | Maximum number of agentic turns before the SDK stops the session. Read from the agent definition's frontmatter `maxTurns` field. If absent in frontmatter, omitted from options (SDK default: no limit).                                                                                                                                                                        |
-| `cwd`                             | Worktree or repo root                                               | Implementor, Reviewer: `.worktrees/<branchName>`. Planner: repository root.                                                                                                                                                                                                                                                                                                     |
-| `settingSources`                  | `[]` (empty)                                                        | Intentionally empty. All project-level concerns are handled manually (see [Known Limitations](#known-limitations)).                                                                                                                                                                                                                                                             |
-| `hooks`                           | `{ PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }] }` | Programmatic hooks. The bash validator hook validates every Bash command against a blocklist/allowlist before execution. See Programmatic Hooks.                                                                                                                                                                                                                                |
-| `permissionMode`                  | `'bypassPermissions'`                                               | Agents run non-interactively. All tool invocations are auto-approved.                                                                                                                                                                                                                                                                                                           |
-| `allowDangerouslySkipPermissions` | `true`                                                              | Required safety acknowledgment when using `bypassPermissions` (SDK ≥0.2.x).                                                                                                                                                                                                                                                                                                     |
-| `abortController`                 | `AbortController`                                                   | Cancellation handle. The engine calls `abortController.abort()` for user cancellation, shutdown, and duration timeout.                                                                                                                                                                                                                                                          |
+| Option                            | Value                                                               | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`                          | Trigger context string                                              | The initial user message. Enriched prompt with spec content, diffs, and existing issues (Planner — see [context pre-computation: Planner](./control-plane-engine-context-precomputation.md#planner-context-pre-computation)), enriched prompt with issue details, PR diffs, and review comments (Reviewer — see [context pre-computation: Reviewer](./control-plane-engine-context-precomputation.md#reviewer-context-pre-computation)), or issue number as string (Implementor). |
+| `agent`                           | Agent name from config                                              | Selects which agent definition to use from the `agents` map.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `agents`                          | `Record<string, AgentDefinition>`                                   | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). The `model` field may be overridden by `modelOverride` from `QueryFactoryParams`.                                                                                                                                                                                                         |
+| `maxTurns`                        | Integer from frontmatter                                            | Maximum number of agentic turns before the SDK stops the session. Read from the agent definition's frontmatter `maxTurns` field. If absent in frontmatter, omitted from options (SDK default: no limit).                                                                                                                                                                                                                                                                          |
+| `cwd`                             | Worktree or repo root                                               | Implementor, Reviewer: `.worktrees/<branchName>`. Planner: repository root.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `settingSources`                  | `[]` (empty)                                                        | Intentionally empty. All project-level concerns are handled manually (see [Known Limitations](#known-limitations)).                                                                                                                                                                                                                                                                                                                                                               |
+| `hooks`                           | `{ PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }] }` | Programmatic hooks. The bash validator hook validates every Bash command against a blocklist/allowlist before execution. See Programmatic Hooks.                                                                                                                                                                                                                                                                                                                                  |
+| `permissionMode`                  | `'bypassPermissions'`                                               | Agents run non-interactively. All tool invocations are auto-approved.                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `allowDangerouslySkipPermissions` | `true`                                                              | Required safety acknowledgment when using `bypassPermissions` (SDK ≥0.2.x).                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `abortController`                 | `AbortController`                                                   | Cancellation handle. The engine calls `abortController.abort()` for user cancellation, shutdown, and duration timeout.                                                                                                                                                                                                                                                                                                                                                            |
 
 **Known SDK limitation:** The engine sets `settingSources: []` and handles each project-level
 concern manually: agent definitions are loaded inline (see
@@ -292,117 +294,16 @@ loading failures.
 ### Planner Context Pre-computation
 
 When dispatching the Planner, the Engine Core builds an enriched trigger prompt so the Planner
-starts with all context in hand, avoiding costly tool-call turns for data gathering. The Engine Core
-assembles this prompt before calling the `QueryFactory`.
-
-**Enriched prompt format:**
-
-```
-## Changed Specs
-
-### <filePath> (added)
-<full file content fetched via repos.getContent>
-
-### <filePath> (modified)
-<full file content fetched via repos.getContent>
-
-#### Diff
-<unified diff output from git diff>
-
-## Existing Open Issues
-<JSON array of {number, title, labels, body} for all open task:implement and task:refinement issues>
-```
-
-For added specs, only the full content is included (no diff — all content is new). For modified
-specs, the full content is followed by a unified diff showing what changed since the last successful
-Planner run.
-
-**Data sources:**
-
-| Data            | Source                                                                                                                                                                                                                                                                         | When fetched             |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------ |
-| Spec content    | `GitHubClient.repos.getContent` for each changed spec path, using the current commit SHA as ref                                                                                                                                                                                | At planner dispatch time |
-| Spec diffs      | `git diff <previousCommitSHA>..<currentCommitSHA> -- <path>` for each modified spec. Previous commit SHA: from the planner cache (see `control-plane-engine-planner-cache.md`). Current commit SHA: from the `SpecPollerBatchResult.commitSHA`. Skipped for added specs.       | At planner dispatch time |
-| Existing issues | `GitHubClient.issues.listForRepo` filtered to open issues with `task:implement` or `task:refinement` labels, requesting `number`, `title`, `labels`, and `body` fields. Fetched in a single API call (`per_page: 100`, no pagination — same v1 limitation as the IssuePoller). | At planner dispatch time |
-
-> **Rationale:** Pre-computing diffs in the engine saves the Planner at least one Bash tool-call
-> turn per invocation. The engine runs `git diff` locally — this is a cheap local operation that
-> avoids adding GitHub Compare API calls.
-
-**Error handling:** If spec content or issue list fetching fails (GitHub API error), the Planner
-dispatch fails. This is treated as an agent session creation failure — logged at `error` level,
-retried on the next SpecPoller cycle (the deferred paths mechanism re-adds the spec paths).
+starts with all context in hand. See
+[control-plane-engine-context-precomputation.md: Planner Context Pre-computation](./control-plane-engine-context-precomputation.md#planner-context-pre-computation)
+for the prompt format, data sources, and error handling.
 
 ### Reviewer Context Pre-computation
 
-When dispatching the Reviewer (via completion-dispatch or manual `dispatchReviewer`), the Engine
-Core builds an enriched trigger prompt so the Reviewer starts with task context, PR changes, and
-prior review feedback in hand. The Engine Core assembles this prompt before calling the
-`QueryFactory`. This eliminates the Reviewer's initial data-gathering tool-call turns (issue fetch,
-PR diff, review comment fetch).
-
-The Engine Core already has the PR number and title from the `getPRForIssue` call that precedes
-every Reviewer dispatch (completion-dispatch and manual dispatch both call `getPRForIssue` first).
-The PR number is passed to `getPRFiles` and `getPRReviews` directly — no redundant issue→PR lookup.
-The PR title is used in the prompt header.
-
-**Enriched prompt format:**
-
-```
-## Task Issue #<number> — <title>
-
-<issue body>
-
-### Labels
-<comma-separated label names>
-
-## PR #<prNumber> — <prTitle>
-
-### Changed Files
-
-#### <filename> (<status>)
-```
-
-<patch>
-```
-
-#### <filename> (<status>)
-
-```
-<patch>
-```
-
-### Prior Reviews
-
-#### Review by <author> — <state>
-
-<body>
-
-### Prior Inline Comments
-
-#### <path>:<line> — <author>
-
-<body>
-```
-
-For files with no `patch` (binary files or files exceeding the diff size limit), the file entry
-includes the filename and status but no code block. For first-time reviews with no prior review
-history, the "Prior Reviews" and "Prior Inline Comments" sections are omitted entirely. The
-`createdAt` field from `IssueDetailsResult` is intentionally excluded — it is not useful for code
-review.
-
-**Data sources:**
-
-| Data           | Source                                                                              | When fetched              |
-| -------------- | ----------------------------------------------------------------------------------- | ------------------------- |
-| Issue details  | `getIssueDetails(issueNumber)`                                                      | At Reviewer dispatch time |
-| PR files       | `getPRFiles(prNumber)` — PR number obtained from the preceding `getPRForIssue` call | At Reviewer dispatch time |
-| Review history | `getPRReviews(prNumber)` — same PR number                                           | At Reviewer dispatch time |
-
-**Error handling:** If any fetch fails (GitHub API error), the Reviewer dispatch fails. This is
-treated as an agent session creation failure — logged at `error` level. For completion-dispatch
-failures, the deferred paths mechanism does not apply (that is Planner-specific). No automatic retry
-exists — the user can manually dispatch a Reviewer via the TUI's `dispatchReviewer` command.
+When dispatching the Reviewer, the Engine Core builds an enriched trigger prompt so the Reviewer
+starts with task context, PR changes, and prior review feedback. See
+[control-plane-engine-context-precomputation.md: Reviewer Context Pre-computation](./control-plane-engine-context-precomputation.md#reviewer-context-pre-computation)
+for the prompt format, data sources, and error handling.
 
 ### SDK Types and Isolation
 
@@ -454,97 +355,9 @@ output (issue creation/updates) is observable via the IssuePoller.
 ### Agent Session Logging
 
 When `logging.agentSessions` is enabled, the Agent Manager writes a human-readable transcript of
-each agent session to disk. Logs capture the full SDK message stream — session metadata, assistant
-text, tool invocations, result summaries, and unrecognized message types.
-
-**File lifecycle:**
-
-1. When a session starts (SDK `init` message received), create the log file at
-   `{logsDir}/{timestamp}-{agentType}[-{context}].log` where:
-   - `timestamp` is `Date.now()` (milliseconds since epoch)
-   - `agentType` is `planner`, `implementor`, or `reviewer`
-   - `[-{context}]` is `-{issueNumber}` for Implementor/Reviewer, omitted entirely (including the
-     dash) for Planner
-   - Examples: `1738934400000-implementor-42.log`, `1738934400000-planner.log`
-2. Write the session header immediately.
-3. As each SDK message arrives, format and append it to the file.
-4. When the session ends (success, failure, or cancellation), write a footer with the outcome, then
-   close the file. The footer must be written before the terminal event (`agentCompleted` /
-   `agentFailed`) is emitted, so that `logFilePath` points to a complete file. The `Outcome` line
-   uses one of three values: `completed` (SDK reports success), `failed` (SDK reports error or
-   session throws), or `cancelled` (user cancellation, shutdown, or timeout). Cancellation flows
-   through `agentFailed` at the event level, but the log footer preserves the distinction.
-
-**Log file format:**
-
-```
-=== Agent Session ===
-Type:       planner
-Session ID: abc-123
-Spec Paths: docs/specs/workflow/control-plane-tui.md
-Started:    2026-02-08T19:21:39.000Z
-
-=== Messages ===
-
-[19:21:39] SYSTEM init
-  Model: claude-opus-4-6
-  CWD: /home/geoff/projects/sear
-  Tools: Read, Write, Edit, Bash, Glob, Grep
-
-[19:21:40] ASSISTANT
-  Let me read the spec file to understand the changes.
-
-[19:21:40] ASSISTANT
-  [tool_use] Read
-
-[19:21:42] ASSISTANT
-  I've read the spec. Let me create the task issues...
-
-[19:21:50] RESULT success
-  Duration: 11.0s
-  Cost:     $0.15
-  Turns:    5
-  Tokens:   5000 in / 2000 out
-
-=== Session End ===
-Outcome:  completed
-Finished: 2026-02-08T19:21:50.000Z
-```
-
-**Context-specific header fields:**
-
-| Agent       | Header field                          |
-| ----------- | ------------------------------------- |
-| Planner     | `Spec Paths: {comma-separated paths}` |
-| Implementor | `Issue: #{issueNumber}`               |
-| Reviewer    | `Issue: #{issueNumber}`               |
-
-**Message formatting by type:**
-
-All `[HH:MM:SS]` timestamps are UTC. Each SDK `assistant` message may contain multiple content
-blocks (text and tool_use mixed). The Agent Manager writes one `[HH:MM:SS] ASSISTANT` line per
-content block, not per SDK message.
-
-| SDK Message Type             | Format                                                                                                                                                                                                              |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `system` + `init`            | `[HH:MM:SS] SYSTEM init` followed by model, CWD, available tools                                                                                                                                                    |
-| `assistant` (text block)     | `[HH:MM:SS] ASSISTANT` followed by text content, indented (2 spaces)                                                                                                                                                |
-| `assistant` (tool_use block) | `[HH:MM:SS] ASSISTANT` followed by `[tool_use] {toolName}` (name only, no input/output)                                                                                                                             |
-| `result`                     | `[HH:MM:SS] RESULT {subtype}` followed by available session metadata (duration, cost, turns, token counts — logged if present in the SDK result message)                                                            |
-| All other types              | `[HH:MM:SS] UNKNOWN {type}` followed by raw JSON of the message. This intentionally includes SDK message types like `user` and `tool_result` — they receive the generic treatment rather than dedicated formatting. |
-
-**Error handling:** Log writing failures are non-fatal. If the `logsDir` directory cannot be created
-or the log file cannot be opened, the Agent Manager skips logging for the remainder of that session
-— no `logFilePath` is included in the terminal event. If a write fails mid-session (e.g., disk
-full), the Agent Manager disables logging for the remainder of that session and logs a warning via
-the structured logger. The `logFilePath` field is still included in the terminal event, pointing to
-the partial file — a partial transcript is more useful than no transcript. In all cases, agent
-session behavior is unaffected.
-
-**Log file path in events:** When agent session logging is enabled, `AgentCompletedEvent` and
-`AgentFailedEvent` include a `logFilePath` field with the absolute path to the session log file. The
-field is absent when: logging is disabled, the log file could not be created, or the session ended
-before the SDK `init` message was received (no file was opened).
+each agent session to disk. See
+[control-plane-engine-agent-session-logging.md](./control-plane-engine-agent-session-logging.md) for
+file lifecycle, log file format, message formatting, error handling, and log file path in events.
 
 ### Type Definitions
 
@@ -653,71 +466,15 @@ type AgentStream = AsyncIterable<string> | null;
 - [ ] Given `getAgentStream` is called for an issue with no running agent, when called, then it
       returns `null`.
 
-### Planner Context Pre-computation
+### Context Pre-computation
 
-- [ ] Given the Engine Core dispatches the Planner, when it builds the trigger prompt, then the
-      prompt includes the full content of each changed spec fetched via `repos.getContent`.
-- [ ] Given the Engine Core dispatches the Planner, when it builds the trigger prompt, then the
-      prompt includes a JSON array of all open `task:implement` and `task:refinement` issues with
-      number, title, labels, and body fields.
-- [ ] Given the Engine Core dispatches the Planner with modified specs, when it builds the trigger
-      prompt, then the prompt includes a unified diff for each modified spec computed via `git diff`
-      using the cached and current commit SHAs.
-- [ ] Given the Engine Core dispatches the Planner with added specs only, when it builds the trigger
-      prompt, then no diffs are included (only full content).
-- [ ] Given a spec content fetch fails during planner dispatch, when the error is caught, then the
-      dispatch fails (treated as agent session creation failure) and the spec paths are re-added to
-      the deferred buffer.
-
-### Reviewer Context Pre-computation
-
-- [ ] Given the Engine Core dispatches the Reviewer (via completion-dispatch or manual
-      `dispatchReviewer`), when it builds the trigger prompt, then the prompt includes the issue
-      body and labels fetched via `getIssueDetails`.
-- [ ] Given the Engine Core dispatches the Reviewer, when it builds the trigger prompt, then the
-      prompt includes per-file patches fetched via `getPRFiles` using the PR number from the
-      preceding `getPRForIssue` call.
-- [ ] Given the Engine Core dispatches the Reviewer, when it builds the trigger prompt, then the
-      prompt includes prior review submissions and inline comments fetched via `getPRReviews`.
-- [ ] Given the Engine Core dispatches the Reviewer on a first-time review (no prior reviews or
-      comments), when `getPRReviews` returns empty arrays, then the "Prior Reviews" and "Prior
-      Inline Comments" sections are omitted from the prompt.
-- [ ] Given a PR file entry has no `patch` (binary file or diff size limit exceeded), when the
-      enriched prompt is built, then the file entry includes the filename and status but no code
-      block.
-- [ ] Given any fetch fails during Reviewer dispatch (issue details, PR files, or review history),
-      when the error is caught, then the dispatch fails (treated as agent session creation failure).
+See `control-plane-engine-context-precomputation.md` for all planner and reviewer context
+pre-computation acceptance criteria.
 
 ### Agent Session Logging
 
-- [ ] Given `logging.agentSessions` is `true`, when an agent session receives the SDK init message,
-      then a log file is created at `{logsDir}/{timestamp}-{agentType}[-{context}].log` with a
-      session header containing agent type, session ID, and context-specific fields (Spec Paths for
-      Planner, Issue number for Implementor/Reviewer).
-- [ ] Given `logging.agentSessions` is `true`, when SDK messages arrive during the session, then
-      each message is formatted and appended to the log file as it arrives (stream-write, not
-      buffered).
-- [ ] Given `logging.agentSessions` is `true`, when an assistant message contains text blocks, then
-      the text is written indented after `[HH:MM:SS] ASSISTANT`. When it contains tool_use blocks,
-      then only the tool name is written (no input/output).
-- [ ] Given `logging.agentSessions` is `true`, when an SDK message of a type without dedicated
-      formatting is received (including `user` and `tool_result`), then it is written as
-      `[HH:MM:SS] UNKNOWN {type}` followed by the raw JSON of the message.
-- [ ] Given `logging.agentSessions` is `true`, when an agent session completes or fails, then a
-      footer with the outcome is appended before the terminal event is emitted, and the
-      `agentCompleted`/`agentFailed` event includes `logFilePath`.
-- [ ] Given `logging.agentSessions` is `false` (default), when an agent session runs, then no log
-      file is created and agent events do not include `logFilePath`.
-- [ ] Given `logging.agentSessions` is `true` and the `logsDir` directory does not exist, when a
-      session starts, then the directory is created automatically.
-- [ ] Given `logging.agentSessions` is `true`, when the log file cannot be created, then the Agent
-      Manager skips logging for the remainder of that session and the agent session continues
-      unaffected.
-- [ ] Given `logging.agentSessions` is `true`, when a write fails mid-session, then the Agent
-      Manager disables logging for the remainder of that session, logs a warning, and `logFilePath`
-      in the terminal event still points to the partial file.
-- [ ] Given `logging.agentSessions` is `true` and two agents run concurrently, when both sessions
-      produce output, then each session writes to its own independent log file.
+See `control-plane-engine-agent-session-logging.md` for all agent session logging acceptance
+criteria.
 
 ## Known Limitations
 
@@ -732,6 +489,8 @@ type AgentStream = AsyncIterable<string> | null;
 
 - `control-plane-engine.md` — Parent engine spec (event types, command interface, configuration)
 - `control-plane-engine-recovery.md` — Crash recovery behavior after agent failure
+- `control-plane-engine-context-precomputation.md` — Planner and Reviewer enriched trigger prompts
+- `control-plane-engine-agent-session-logging.md` — Agent session transcript logging
 - `control-plane.md` — Parent architecture spec (worktree isolation)
 - `@anthropic-ai/claude-agent-sdk` (≥0.2.x) — v1 `query()` API for agent invocations
 - `gray-matter` — YAML frontmatter parser for agent definition files
@@ -744,5 +503,8 @@ type AgentStream = AsyncIterable<string> | null;
 - [control-plane-engine.md: Configuration](./control-plane-engine.md#configuration) — Agent names,
   `maxAgentDuration`, logging settings
 - `control-plane-engine-recovery.md` — Crash recovery triggered after agent completion
+- `control-plane-engine-context-precomputation.md` — Enriched trigger prompt formats and data
+  sources
+- `control-plane-engine-agent-session-logging.md` — Log file lifecycle, format, and error handling
 - `agent-hook-bash-validator-script.md` — Shell script implementation of the bash validator (for
   interactive use outside the control plane)

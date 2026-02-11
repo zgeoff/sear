@@ -48,7 +48,7 @@ The cache stores the SpecPoller's snapshot at the time the Planner was last succ
 the specs directory tree SHA, per-file blob SHAs with frontmatter status, and the commit SHA from
 the `SpecPollerBatchResult`. The `commitSHA` field is used as the "previous" commit SHA when
 building the Planner's enriched trigger prompt (see
-[control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation))
+[control-plane-engine-context-precomputation.md: Planner Context Pre-computation](./control-plane-engine-context-precomputation.md#planner-context-pre-computation))
 — it enables the Planner to compute diffs between the last planned state and the current state. The
 on-disk format is a JSON serialization of `PlannerCacheEntry` (see
 [Type Definitions](#type-definitions) below).

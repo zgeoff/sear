@@ -41,7 +41,7 @@ assigning multiple tasks to one agent.
 The agent definition (`.claude/agents/implementor.md`) implements these constraints as frontmatter.
 The Engine overrides the model at dispatch time based on the task's complexity label (see
 [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic)). See
-[control-plane-engine-agent-manager.md: Frontmatter Field Mapping](./control-plane-engine-agent-manager.md#frontmatter-field-mapping)
+[control-plane-engine-agent-manager.md: Agent Definition Loading](./control-plane-engine-agent-manager.md#agent-definition-loading)
 for how the Engine parses frontmatter.
 
 ## Trigger

@@ -39,7 +39,7 @@ priority.
 | Permission model | Non-interactive with bash validation    | Runs unattended; bash validator enforces command safety             |
 
 The agent definition (`.claude/agents/planner.md`) implements these constraints as frontmatter. See
-[control-plane-engine-agent-manager.md: Frontmatter Field Mapping](./control-plane-engine-agent-manager.md#frontmatter-field-mapping)
+[control-plane-engine-agent-manager.md: Agent Definition Loading](./control-plane-engine-agent-manager.md#agent-definition-loading)
 for how the Engine parses them.
 
 ## Trigger
@@ -55,7 +55,7 @@ When multiple specs change in the same poll cycle, they are all included in a si
 ### Injected Context
 
 The Engine Core pre-computes and injects the following into the Planner's trigger prompt (see
-[control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation)):
+[control-plane-engine-context-precomputation.md: Planner Context Pre-computation](./control-plane-engine-context-precomputation.md#planner-context-pre-computation)):
 
 1. **Spec content:** Full content of each changed spec, including frontmatter, acceptance criteria,
    and dependencies. The Planner does not need to read spec files from disk.
@@ -248,7 +248,7 @@ On every run, the Planner returns one of:
 - Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against
   blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and
   `agent-hook-bash-validator-script.md` (shell implementation).
-- [control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation)
+- [control-plane-engine-context-precomputation.md: Planner Context Pre-computation](./control-plane-engine-context-precomputation.md#planner-context-pre-computation)
   — Engine builds the enriched trigger prompt.
 - `control-plane-engine-planner-cache.md` — Planner cache for diff computation (last successful run
   state).

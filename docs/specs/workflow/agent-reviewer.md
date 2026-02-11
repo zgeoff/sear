@@ -45,7 +45,7 @@ never merges — that is the Human's responsibility.
 | Permission model | Non-interactive with bash validation    | Runs unattended; bash validator enforces command safety |
 
 The agent definition (`.claude/agents/reviewer.md`) implements these constraints as frontmatter. See
-[control-plane-engine-agent-manager.md: Frontmatter Field Mapping](./control-plane-engine-agent-manager.md#frontmatter-field-mapping)
+[control-plane-engine-agent-manager.md: Agent Definition Loading](./control-plane-engine-agent-manager.md#agent-definition-loading)
 for how the Engine parses them.
 
 ## Trigger
@@ -59,7 +59,7 @@ trigger mechanism).
 The Engine injects the following into the agent's session at dispatch time (see
 [control-plane-engine-agent-manager.md: Trigger Context](./control-plane-engine-agent-manager.md#trigger-context),
 [Project Context Injection](./control-plane-engine-agent-manager.md#project-context-injection), and
-[Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation)):
+[Reviewer Context Pre-computation](./control-plane-engine-context-precomputation.md#reviewer-context-pre-computation)):
 
 1. **Trigger prompt:** An enriched prompt containing:
    - **Task issue details** — number, title, body (objective, spec reference, scope, acceptance
@@ -217,7 +217,7 @@ as its final text output to the invoking process.
 - `CLAUDE.md` — Code style, naming conventions, and patterns that the agent checks against.
 - `workflow-contracts.md` — Shared data formats: Review Approval Template, Review Rejection
   Template, Reviewer Completion Output, Scope Enforcement Rules.
-- [control-plane-engine-agent-manager.md: Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation)
+- [control-plane-engine-context-precomputation.md: Reviewer Context Pre-computation](./control-plane-engine-context-precomputation.md#reviewer-context-pre-computation)
   — Enriched prompt format and data sources.
 - Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against
   blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and

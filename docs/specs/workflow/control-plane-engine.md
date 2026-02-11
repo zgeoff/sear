@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine
-version: 0.15.0
+version: 0.15.1
 last_updated: 2026-02-12
 status: approved
 ---
@@ -158,7 +158,7 @@ into a single invocation. The Engine Core receives the full batch from the SpecP
 and passes approved paths to a single Planner dispatch. Before dispatching, the Engine Core builds
 an enriched trigger prompt containing the full content of each changed spec, existing open task
 issues, and commit SHAs for diff support. See
-[control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation)
+[control-plane-engine-context-precomputation.md: Planner Context Pre-computation](./control-plane-engine-context-precomputation.md#planner-context-pre-computation)
 for the prompt format and data sources.
 
 **Planner concurrency guard:** Only one Planner session may run at a time. If a SpecPoller cycle
@@ -192,7 +192,7 @@ changes.
    snapshot entry to `status:review` (via `updateEntry()`) to prevent a duplicate
    `issueStatusChanged` on the next poll cycle, emits a synthetic `issueStatusChanged` event (with
    `isEngineTransition: true`), builds an enriched Reviewer trigger prompt (see
-   [control-plane-engine-agent-manager.md: Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation)),
+   [control-plane-engine-context-precomputation.md: Reviewer Context Pre-computation](./control-plane-engine-context-precomputation.md#reviewer-context-pre-computation)),
    and dispatches the Reviewer.
 3. **No PR found:** Takes no action. The issue remains `status:in-progress`. Crash recovery detects
    this (no running agent + `status:in-progress`) and resets to `status:pending`.
@@ -294,13 +294,13 @@ Zustand store. Streaming agent output is handled separately via the stream acces
 
 The engine accepts commands that trigger side effects.
 
-| Command               | Parameters   | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). Worktree strategy is selected based on whether a linked PR exists. See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation) for strategy overview and [control-plane-engine-agent-manager.md: Agent Lifecycle](./control-plane-engine-agent-manager.md#agent-lifecycle) for implementation. The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies).                       |
-| `dispatchReviewer`    | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, if the issue's status is not `review`, or if no linked open PR is found (the Reviewer requires a PR branch to check out). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: false })` to obtain the PR's `headRefName` for the worktree, then builds an enriched trigger prompt via `getIssueDetails`, `getPRFiles`, and `getPRReviews` (see [control-plane-engine-agent-manager.md: Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation)). The Agent Manager fetches the branch from the remote and creates a worktree at `origin/<headRefName>`. See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation). No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
-| `cancelAgent`         | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, removes the worktree (branch preserved for inspection). For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`), removes the worktree (branch preserved for inspection). Emits `agentFailed` with a cancellation error. No-op if no agent is running.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `cancelPlanner`       | None         | Cancels the running Planner session if one exists. Emits `agentFailed` with a cancellation error. No-op if no Planner is running. Not exposed in the TUI (see [Known Limitations](#known-limitations)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `shutdown`            | None         | Initiates graceful shutdown                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Command               | Parameters   | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). Worktree strategy is selected based on whether a linked PR exists. See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation) for strategy overview and [control-plane-engine-agent-manager.md: Agent Lifecycle](./control-plane-engine-agent-manager.md#agent-lifecycle) for implementation. The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies).                                         |
+| `dispatchReviewer`    | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, if the issue's status is not `review`, or if no linked open PR is found (the Reviewer requires a PR branch to check out). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: false })` to obtain the PR's `headRefName` for the worktree, then builds an enriched trigger prompt via `getIssueDetails`, `getPRFiles`, and `getPRReviews` (see [control-plane-engine-context-precomputation.md: Reviewer Context Pre-computation](./control-plane-engine-context-precomputation.md#reviewer-context-pre-computation)). The Agent Manager fetches the branch from the remote and creates a worktree at `origin/<headRefName>`. See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation). No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
+| `cancelAgent`         | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, removes the worktree (branch preserved for inspection). For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`), removes the worktree (branch preserved for inspection). Emits `agentFailed` with a cancellation error. No-op if no agent is running.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `cancelPlanner`       | None         | Cancels the running Planner session if one exists. Emits `agentFailed` with a cancellation error. No-op if no Planner is running. Not exposed in the TUI (see [Known Limitations](#known-limitations)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `shutdown`            | None         | Initiates graceful shutdown                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Query Interface
 
@@ -366,9 +366,10 @@ tracking active sessions, monitoring completion, managing worktrees, exposing li
 streams, and handling session logging. See
 [control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md) for agent lifecycle
 steps, agent definition loading, programmatic hooks (bash validator), SDK session configuration,
-stream accessor, agent session logging, and related type definitions. The `AgentManagerConfig` type
-(defined in the sub-spec) carries `repoRoot`, `maxAgentDuration`, and logging settings derived from
-`EngineConfig`.
+stream accessor, and related type definitions. See
+[control-plane-engine-agent-session-logging.md](./control-plane-engine-agent-session-logging.md) for
+log file lifecycle, format, and error handling. The `AgentManagerConfig` type (defined in the
+sub-spec) carries `repoRoot`, `maxAgentDuration`, and logging settings derived from `EngineConfig`.
 
 ### Recovery
 
@@ -484,8 +485,8 @@ The engine logs structured events at the following levels:
 
 Entries with level `(file)` represent disk writes handled by the Agent Manager, not the structured
 logger. See
-[control-plane-engine-agent-manager.md: Agent Session Logging](./control-plane-engine-agent-manager.md#agent-session-logging)
-for format details.
+[control-plane-engine-agent-session-logging.md](./control-plane-engine-agent-session-logging.md) for
+format details.
 
 ### Error Handling
 
@@ -920,11 +921,15 @@ See `control-plane-engine-planner-cache.md` for all planner cache acceptance cri
 Stream accessor (`getAgentStream`) acceptance criteria are in
 [control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md).
 
+### Context Pre-computation
+
+See `control-plane-engine-context-precomputation.md` for all planner and reviewer context
+pre-computation acceptance criteria.
+
 ### Agent Session Logging
 
-See
-[control-plane-engine-agent-manager.md: Agent Session Logging](./control-plane-engine-agent-manager.md#agent-session-logging)
-for all agent session logging acceptance criteria.
+See `control-plane-engine-agent-session-logging.md` for all agent session logging acceptance
+criteria.
 
 ### Operational
 
@@ -998,7 +1003,11 @@ for all agent session logging acceptance criteria.
   [control-plane-engine-agent-manager.md: Programmatic Hooks](./control-plane-engine-agent-manager.md#programmatic-hooks).
 - `control-plane-engine-pollers.md` — IssuePoller and SpecPoller sub-spec
 - `control-plane-engine-agent-manager.md` — Agent Manager sub-spec (lifecycle, SDK sessions,
-  definition loading, hooks, streams, logging)
+  definition loading, hooks, streams)
+- [control-plane-engine-context-precomputation.md](./control-plane-engine-context-precomputation.md)
+  — Planner and Reviewer enriched trigger prompts
+- [control-plane-engine-agent-session-logging.md](./control-plane-engine-agent-session-logging.md) —
+  Agent session transcript logging
 - `control-plane-engine-recovery.md` — Recovery sub-spec (startup and crash recovery)
 - `control-plane-engine-planner-cache.md` — Planner Cache sub-spec
 - `control-plane.md` — Parent architecture spec (dispatch tiers, worktree isolation, recovery
@@ -1013,7 +1022,11 @@ for all agent session logging acceptance criteria.
 - `control-plane-engine-pollers.md` — Poller behavior, snapshot state, change detection, type
   definitions
 - `control-plane-engine-agent-manager.md` — Agent lifecycle, SDK session configuration, stream
-  accessor, session logging
+  accessor
+- [control-plane-engine-context-precomputation.md](./control-plane-engine-context-precomputation.md)
+  — Planner and Reviewer enriched trigger prompt formats, data sources
+- [control-plane-engine-agent-session-logging.md](./control-plane-engine-agent-session-logging.md) —
+  Log file lifecycle, format, message formatting
 - `control-plane-engine-recovery.md` — Startup and crash recovery behavior
 - `control-plane-engine-planner-cache.md` — Planner cache format, seeding, write behavior
 - `control-plane-tui.md` — TUI specification (consumes the engine's four interfaces: events,
