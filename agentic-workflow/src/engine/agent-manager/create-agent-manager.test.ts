@@ -416,7 +416,7 @@ test('it emits agentCompleted and removes worktree when an implementor session s
   expect(ctx.manager.isRunning(42)).toBe(false);
 });
 
-test('it emits agentFailed with worktree path and preserves worktree when an implementor session fails', async () => {
+test('it emits agentFailed with branch name when an implementor session fails', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({
@@ -439,7 +439,7 @@ test('it emits agentFailed with worktree path and preserves worktree when an imp
       issueNumber: 42,
       error: 'Agent session ended with error',
       sessionID: 'session-1',
-      worktreePath: '/repo/.worktrees/issue-42-1700000000',
+      branchName: 'issue-42-1700000000',
     });
   });
 
@@ -627,7 +627,7 @@ test('it cancels a running agent session and emits agentFailed', async () => {
       issueNumber: 42,
       error: 'Cancelled by user',
       sessionID: 'session-1',
-      worktreePath: '/repo/.worktrees/issue-42-1700000000',
+      branchName: 'issue-42-1700000000',
     });
   });
 
@@ -961,7 +961,7 @@ test('it includes the session ID in the agentFailed event for implementor failur
 // Does not include worktreePath for non-implementor failures
 // ---------------------------------------------------------------------------
 
-test('it does not include worktreePath in agentFailed events for reviewers', async () => {
+test('it does not include branchName in agentFailed events for reviewers', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchReviewer({ issueNumber: 10 });
@@ -977,10 +977,10 @@ test('it does not include worktreePath in agentFailed events for reviewers', asy
   });
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
-  expect(failed).not.toHaveProperty('worktreePath');
+  expect(failed).not.toHaveProperty('branchName');
 });
 
-test('it does not include worktreePath in agentFailed events for planners', async () => {
+test('it does not include branchName in agentFailed events for planners', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
@@ -996,7 +996,7 @@ test('it does not include worktreePath in agentFailed events for planners', asyn
   });
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
-  expect(failed).not.toHaveProperty('worktreePath');
+  expect(failed).not.toHaveProperty('branchName');
 });
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ export interface AgentSessionTracker {
   abortController: AbortController;
   timer: ReturnType<typeof setTimeout>;
   worktreePath?: string;
+  branchName?: string;
   issueNumber?: number;
   specPaths?: string[];
   outputChunks: string[];

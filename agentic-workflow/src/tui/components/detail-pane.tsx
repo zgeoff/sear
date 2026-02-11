@@ -179,8 +179,8 @@ function buildFailureLines(issue: TrackedIssue, failure: LastFailure): string[] 
     `Error: ${failure.error}`,
     `Session: ${failure.sessionID}`,
   ];
-  if (failure.worktreePath) {
-    lines.push(`Worktree: ${failure.worktreePath}`);
+  if (failure.branchName) {
+    lines.push(`Branch: ${failure.branchName}`);
   }
   if (failure.logFilePath) {
     lines.push(`Log: ${buildOSC8Link(`file://${failure.logFilePath}`, failure.logFilePath)}`);

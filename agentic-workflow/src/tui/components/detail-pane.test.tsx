@@ -385,7 +385,7 @@ test('it shows error details when an issue has a failure from an implementor', a
         agentType: 'implementor',
         error: 'process crashed',
         sessionID: 'sess-abc-123',
-        worktreePath: '/home/user/.worktrees/issue-1',
+        branchName: 'issue-1-1700000000',
       },
     });
   }
@@ -397,11 +397,11 @@ test('it shows error details when an issue has a failure from an implementor', a
     expect(frame).toContain('Implementor');
     expect(frame).toContain('process crashed');
     expect(frame).toContain('sess-abc-123');
-    expect(frame).toContain('/home/user/.worktrees/issue-1');
+    expect(frame).toContain('issue-1-1700000000');
   });
 });
 
-test('it shows error details without a worktree path when a reviewer fails', async () => {
+test('it shows error details without a branch name when a reviewer fails', async () => {
   const { store, emit, lastFrame } = setupTest();
 
   emit({

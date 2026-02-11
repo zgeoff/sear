@@ -543,7 +543,7 @@ test('it does not include the spec count when a task agent completes', () => {
 // agentFailed
 // ---------------------------------------------------------------------------
 
-test('it records a failure with worktree path when an implementor fails', () => {
+test('it records a failure with branch name when an implementor fails', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -560,7 +560,7 @@ test('it records a failure with worktree path when an implementor fails', () => 
     issueNumber: 1,
     error: 'process crashed',
     sessionID: 'sess-1',
-    worktreePath: '/home/user/.worktrees/issue-1',
+    branchName: 'issue-1-1700000000',
   } satisfies AgentFailedEvent);
 
   const issue = store.getState().issues.get(1);
@@ -569,11 +569,11 @@ test('it records a failure with worktree path when an implementor fails', () => 
     agentType: 'implementor',
     error: 'process crashed',
     sessionID: 'sess-1',
-    worktreePath: '/home/user/.worktrees/issue-1',
+    branchName: 'issue-1-1700000000',
   });
 });
 
-test('it records a failure without worktree path when a reviewer fails', () => {
+test('it records a failure without branch name when a reviewer fails', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));

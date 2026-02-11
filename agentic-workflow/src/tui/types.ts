@@ -6,7 +6,7 @@ export interface LastFailure {
   agentType: TaskAgentType;
   error: string;
   sessionID: string;
-  worktreePath?: string;
+  branchName?: string;
   logFilePath?: string;
 }
 

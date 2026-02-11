@@ -68,6 +68,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent: agentImplementor,
         issueNumber,
         worktreePath: worktreeResult.worktreePath,
+        branchName: worktreeResult.branch,
         ...(params.modelOverride !== undefined && { modelOverride: params.modelOverride }),
       });
 
@@ -208,6 +209,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       outputListeners: new Set(),
       done: false,
       ...(params.worktreePath !== undefined && { worktreePath: params.worktreePath }),
+      ...(params.branchName !== undefined && { branchName: params.branchName }),
       ...(params.issueNumber !== undefined && { issueNumber: params.issueNumber }),
       ...(params.specPaths !== undefined && { specPaths: params.specPaths }),
     };
@@ -521,6 +523,7 @@ interface StartSessionParams {
   issueNumber?: number;
   specPaths?: string[];
   worktreePath?: string;
+  branchName?: string;
   modelOverride?: 'sonnet' | 'opus' | 'haiku';
 }
 
@@ -694,7 +697,7 @@ function buildFailedEvent(
     ...(tracker.issueNumber !== undefined && { issueNumber: tracker.issueNumber }),
     ...(tracker.specPaths && { specPaths: tracker.specPaths }),
     ...(tracker.agentType === 'implementor' &&
-      tracker.worktreePath && { worktreePath: tracker.worktreePath }),
+      tracker.branchName && { branchName: tracker.branchName }),
     ...(logFilePath !== undefined && { logFilePath }),
   };
 }
