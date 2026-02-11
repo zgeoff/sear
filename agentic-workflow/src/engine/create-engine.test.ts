@@ -407,9 +407,9 @@ test('it is a no-op when dispatching an implementor for an issue not in the snap
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 999 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  expect(mockQueries.length).toBe(queriesBefore);
+  await vi.waitFor(() => {
+    expect(mockQueries.length).toBe(queriesBefore);
+  });
 });
 
 test('it is a no-op when dispatching an implementor for an issue not in user-dispatch status', async () => {
@@ -422,10 +422,10 @@ test('it is a no-op when dispatching an implementor for an issue not in user-dis
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // No new queries beyond what startup created
-  expect(mockQueries.length).toBe(queriesAfterStart);
+  await vi.waitFor(() => {
+    // No new queries beyond what startup created
+    expect(mockQueries.length).toBe(queriesAfterStart);
+  });
 });
 
 test('it dispatches an implementor for an in-progress issue with no running agent', async () => {
@@ -438,9 +438,9 @@ test('it dispatches an implementor for an in-progress issue with no running agen
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  expect(mockQueries.length).toBeGreaterThan(queriesBeforeDispatch);
+  await vi.waitFor(() => {
+    expect(mockQueries.length).toBeGreaterThan(queriesBeforeDispatch);
+  });
 
   const agentStarted = events.filter(
     (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
@@ -457,22 +457,22 @@ test('it skips dispatching an implementor for an in-progress issue with a runnin
   // First dispatch: starts the agent (in-progress with no agent running)
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const agentStarted = events.filter(
-    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
-  );
-  expect(agentStarted.length).toBe(1);
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
 
   // Second dispatch: agent is now running, should be skipped by agent manager
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const agentSkipped = events.filter(
-    (e) => e.type === 'agentSkipped' && 'issueNumber' in e && e.issueNumber === 42,
-  );
-  expect(agentSkipped.length).toBe(1);
+  await vi.waitFor(() => {
+    const agentSkipped = events.filter(
+      (e) => e.type === 'agentSkipped' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentSkipped.length).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -489,11 +489,11 @@ test('it passes a sonnet model override when dispatching an implementor for a si
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
-  expect(implementorParams.length).toBe(1);
-  expect(implementorParams[0]).toMatchObject({ modelOverride: 'sonnet' });
+  await vi.waitFor(() => {
+    const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+    expect(implementorParams.length).toBe(1);
+    expect(implementorParams[0]).toMatchObject({ modelOverride: 'sonnet' });
+  });
 });
 
 test('it passes an opus model override when dispatching an implementor for a complex-complexity issue', async () => {
@@ -506,11 +506,11 @@ test('it passes an opus model override when dispatching an implementor for a com
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
-  expect(implementorParams.length).toBe(1);
-  expect(implementorParams[0]).toMatchObject({ modelOverride: 'opus' });
+  await vi.waitFor(() => {
+    const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+    expect(implementorParams.length).toBe(1);
+    expect(implementorParams[0]).toMatchObject({ modelOverride: 'opus' });
+  });
 });
 
 test('it does not pass a model override when dispatching an implementor for an issue without a complexity label', async () => {
@@ -523,11 +523,11 @@ test('it does not pass a model override when dispatching an implementor for an i
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
-  expect(implementorParams.length).toBe(1);
-  expect(implementorParams[0]).not.toHaveProperty('modelOverride');
+  await vi.waitFor(() => {
+    const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+    expect(implementorParams.length).toBe(1);
+    expect(implementorParams[0]).not.toHaveProperty('modelOverride');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -540,11 +540,10 @@ test('it does not auto-dispatch a reviewer when the issue is in review status', 
 
   await engine.start();
 
-  // Wait for async agent monitoring to process
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const agentStarted = events.filter((e) => e.type === 'agentStarted');
-  expect(agentStarted.length).toBe(0);
+  await vi.waitFor(() => {
+    const agentStarted = events.filter((e) => e.type === 'agentStarted');
+    expect(agentStarted.length).toBe(0);
+  });
 });
 
 test('it is a no-op when dispatching a reviewer for an issue not in review status', async () => {
@@ -556,9 +555,9 @@ test('it is a no-op when dispatching a reviewer for an issue not in review statu
 
   engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  expect(mockQueries.length).toBe(queriesAfterStart);
+  await vi.waitFor(() => {
+    expect(mockQueries.length).toBe(queriesAfterStart);
+  });
 });
 
 test('it is a no-op when dispatching a reviewer for an issue not in snapshot', async () => {
@@ -568,9 +567,9 @@ test('it is a no-op when dispatching a reviewer for an issue not in snapshot', a
 
   engine.send({ command: 'dispatchReviewer', issueNumber: 999 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  expect(mockQueries.length).toBe(0);
+  await vi.waitFor(() => {
+    expect(mockQueries.length).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -597,8 +596,6 @@ test('it stops pollers and completes when no agents are running', async () => {
   await engine.start();
 
   engine.send({ command: 'shutdown' });
-
-  await new Promise((resolve) => setTimeout(resolve, 50));
 });
 
 // ---------------------------------------------------------------------------
@@ -720,9 +717,9 @@ test('it dispatches an implementor agent when the issue is in a user-dispatch st
 
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  expect(mockQueries.length).toBeGreaterThan(queriesBeforeDispatch);
+  await vi.waitFor(() => {
+    expect(mockQueries.length).toBeGreaterThan(queriesBeforeDispatch);
+  });
 
   const agentStarted = events.filter(
     (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
@@ -738,24 +735,24 @@ test('it cancels a running agent and emits an agent-failed event', async () => {
 
   engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Verify the agent started
-  const agentStarted = events.filter(
-    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
-  );
-  expect(agentStarted.length).toBe(1);
+  await vi.waitFor(() => {
+    // Verify the agent started
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
 
   engine.send({ command: 'cancelAgent', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  const agentFailed = events.filter(
-    (e): e is AgentFailedEvent =>
-      e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
-  );
-  expect(agentFailed.length).toBe(1);
-  expect(agentFailed[0]?.error).toContain('Cancelled');
+  await vi.waitFor(() => {
+    const agentFailed = events.filter(
+      (e): e is AgentFailedEvent =>
+        e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentFailed.length).toBe(1);
+    expect(agentFailed[0]?.error).toContain('Cancelled');
+  });
 });
 
 test('it cancels running agents after shutdown timeout expires', async () => {
@@ -792,6 +789,8 @@ test('it cancels running agents after shutdown timeout expires', async () => {
 });
 
 test('it cancels a running agent when its issue is removed from the poller snapshot', async () => {
+  vi.useFakeTimers();
+
   const octokit = createMockGitHubClient();
   const mockQueries: MockQuery[] = [];
   const worktreeManager = createMockWorktreeManager();
@@ -849,15 +848,15 @@ test('it cancels a running agent when its issue is removed from the poller snaps
 
   engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
 
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await vi.advanceTimersByTimeAsync(0);
 
   const started = events.filter(
     (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
   );
   expect(started.length).toBe(1);
 
-  // Wait for the next poll cycle (1 second interval) to detect issue removal
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  // Advance past the poll interval (1 second) to trigger the second cycle
+  await vi.advanceTimersByTimeAsync(1500);
 
   const issueRemoved = events.filter((e) => e.type === 'issueRemoved');
   expect(issueRemoved.length).toBe(1);
@@ -1025,15 +1024,14 @@ test('it reports only changed files when the cache has a different tree', async 
 
   await engine.start();
 
-  // Wait for planner agent to complete
-  await new Promise((resolve) => setTimeout(resolve, 50));
-
-  // Should see a specChanged event only for the new file, not for control-plane.md
-  const specChanged = events.filter((e) => e.type === 'specChanged');
-  expect(specChanged.length).toBe(1);
-  expect(specChanged[0]).toMatchObject({
-    filePath: 'docs/specs/new-spec.md',
-    frontmatterStatus: 'approved',
+  await vi.waitFor(() => {
+    // Should see a specChanged event only for the new file, not for control-plane.md
+    const specChanged = events.filter((e) => e.type === 'specChanged');
+    expect(specChanged.length).toBe(1);
+    expect(specChanged[0]).toMatchObject({
+      filePath: 'docs/specs/new-spec.md',
+      frontmatterStatus: 'approved',
+    });
   });
 });
 
@@ -1068,14 +1066,13 @@ test('it writes the cache file when the planner completes successfully', async (
 
   await engine.start();
 
-  // Wait for the planner to complete and cache to be written
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  // Verify the planner completed
-  const completed = events.filter(
-    (e): e is AgentCompletedEvent => e.type === 'agentCompleted' && e.agentType === 'planner',
-  );
-  expect(completed.length).toBe(1);
+  await vi.waitFor(() => {
+    // Verify the planner completed
+    const completed = events.filter(
+      (e): e is AgentCompletedEvent => e.type === 'agentCompleted' && e.agentType === 'planner',
+    );
+    expect(completed.length).toBe(1);
+  });
 
   // Verify cache file was written with PlannerCacheEntry format
   const raw = await readFile('/tmp/test-repo/.agentic-workflow-cache.json', 'utf-8');
@@ -1117,8 +1114,10 @@ test('it does not write the cache file when the planner fails', async () => {
 
   await engine.start();
 
-  // Wait for planner to start
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await vi.waitFor(() => {
+    // Wait for planner to start
+    expect(mockQueries.length).toBeGreaterThan(0);
+  });
 
   // Fail the planner by ending the query with an execution error
   const plannerQuery = mockQueries[0];
@@ -1126,13 +1125,13 @@ test('it does not write the cache file when the planner fails', async () => {
   plannerQuery.pushMessage({ type: 'result', subtype: 'error_during_execution' });
   plannerQuery.end();
 
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  // Verify the planner failed
-  const failed = events.filter(
-    (e): e is AgentFailedEvent => e.type === 'agentFailed' && e.agentType === 'planner',
-  );
-  expect(failed.length).toBe(1);
+  await vi.waitFor(() => {
+    // Verify the planner failed
+    const failed = events.filter(
+      (e): e is AgentFailedEvent => e.type === 'agentFailed' && e.agentType === 'planner',
+    );
+    expect(failed.length).toBe(1);
+  });
 
   // Verify no cache file was written
   const exists = vol.existsSync('/tmp/test-repo/.agentic-workflow-cache.json');
@@ -1262,9 +1261,11 @@ test('it includes the full content of each changed spec in the planner prompt', 
   });
 
   await engine.start();
-  await new Promise((resolve) => setTimeout(resolve, 100));
 
-  expect(capturedPrompts.length).toBeGreaterThan(0);
+  await vi.waitFor(() => {
+    expect(capturedPrompts.length).toBeGreaterThan(0);
+  });
+
   const prompt = capturedPrompts[0];
   invariant(prompt, 'prompt must exist');
   expect(prompt).toContain('## Changed Specs');
@@ -1308,9 +1309,11 @@ test('it includes a unified diff for modified specs in the planner prompt', asyn
   });
 
   await engine.start();
-  await new Promise((resolve) => setTimeout(resolve, 100));
 
-  expect(capturedPrompts.length).toBeGreaterThan(0);
+  await vi.waitFor(() => {
+    expect(capturedPrompts.length).toBeGreaterThan(0);
+  });
+
   const prompt = capturedPrompts[0];
   invariant(prompt, 'prompt must exist');
   expect(prompt).toContain('### docs/specs/my-spec.md (modified)');
@@ -1331,9 +1334,11 @@ test('it does not include a diff section for added specs in the planner prompt',
   });
 
   await engine.start();
-  await new Promise((resolve) => setTimeout(resolve, 100));
 
-  expect(capturedPrompts.length).toBeGreaterThan(0);
+  await vi.waitFor(() => {
+    expect(capturedPrompts.length).toBeGreaterThan(0);
+  });
+
   const prompt = capturedPrompts[0];
   invariant(prompt, 'prompt must exist');
   expect(prompt).toContain('### docs/specs/new-spec.md (added)');
@@ -1368,9 +1373,11 @@ test('it includes existing open task issues as a JSON array in the planner promp
   });
 
   await engine.start();
-  await new Promise((resolve) => setTimeout(resolve, 100));
 
-  expect(capturedPrompts.length).toBeGreaterThan(0);
+  await vi.waitFor(() => {
+    expect(capturedPrompts.length).toBeGreaterThan(0);
+  });
+
   const prompt = capturedPrompts[0];
   invariant(prompt, 'prompt must exist');
   expect(prompt).toContain('## Existing Open Issues');
@@ -1481,11 +1488,10 @@ test('it re-adds spec paths to the deferred buffer when spec content fetch fails
 
   await engine.start();
 
-  // Wait for the failed dispatch attempt
-  await new Promise((resolve) => setTimeout(resolve, 100));
-
-  // No planner should have been dispatched (the prompt build failed)
-  expect(capturedPrompts.length).toBe(0);
+  await vi.waitFor(() => {
+    // No planner should have been dispatched (the prompt build failed)
+    expect(capturedPrompts.length).toBe(0);
+  });
 
   // The spec paths should be re-added to the deferred buffer.
   // On the next spec poller cycle, the deferred paths will be re-dispatched.
@@ -1545,7 +1551,13 @@ test('it dispatches the reviewer when an implementor completes with a linked non
 
   // Dispatch an implementor
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
 
   const implementorQuery = mockQueries.at(-1);
   invariant(implementorQuery, 'implementor query must exist');
@@ -1554,7 +1566,11 @@ test('it dispatches the reviewer when an implementor completes with a linked non
   implementorQuery.pushMessage({ type: 'result', subtype: 'success' });
   implementorQuery.end();
 
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await vi.waitFor(() => {
+    // Verify the Reviewer was dispatched (a new query was created after the implementor)
+    const reviewerParams = capturedQueryParams.filter((p) => p.agent === 'reviewer');
+    expect(reviewerParams.length).toBeGreaterThan(0);
+  });
 
   // Verify status:review was set via GitHub API
   expect(octokit.issues.removeLabel).toHaveBeenCalledWith(
@@ -1574,12 +1590,7 @@ test('it dispatches the reviewer when an implementor completes with a linked non
   );
   expect(syntheticEvents).toHaveLength(1);
 
-  // Verify the Reviewer was dispatched (a new query was created after the implementor)
-  const reviewerParams = capturedQueryParams.filter((p) => p.agent === 'reviewer');
-  expect(reviewerParams.length).toBeGreaterThan(0);
-
   engine.send({ command: 'shutdown' });
-  await new Promise((resolve) => setTimeout(resolve, 50));
 });
 
 // ---------------------------------------------------------------------------
@@ -1612,7 +1623,13 @@ test('it does not emit a duplicate status change when the poller runs after comp
 
   // Dispatch an implementor
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
 
   const implementorQuery = mockQueries.at(-1);
   invariant(implementorQuery, 'implementor query must exist');
@@ -1621,7 +1638,12 @@ test('it does not emit a duplicate status change when the poller runs after comp
   implementorQuery.pushMessage({ type: 'result', subtype: 'success' });
   implementorQuery.end();
 
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await vi.waitFor(() => {
+    const completed = events.filter(
+      (e) => e.type === 'agentCompleted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(completed.length).toBe(1);
+  });
 
   // Simulate next poller cycle: issue now appears as status:review from GitHub
   vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
@@ -1644,7 +1666,6 @@ test('it does not emit a duplicate status change when the poller runs after comp
   expect(statusEvents[0]?.isEngineTransition).toBe(true);
 
   engine.send({ command: 'shutdown' });
-  await new Promise((resolve) => setTimeout(resolve, 50));
 });
 
 // ---------------------------------------------------------------------------
@@ -1665,7 +1686,13 @@ test('it does not dispatch a reviewer when an implementor completes with no link
 
   // Dispatch an implementor
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
 
   const paramsBeforeCompletion = capturedQueryParams.length;
 
@@ -1676,7 +1703,12 @@ test('it does not dispatch a reviewer when an implementor completes with no link
   implementorQuery.pushMessage({ type: 'result', subtype: 'success' });
   implementorQuery.end();
 
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await vi.waitFor(() => {
+    const completed = events.filter(
+      (e) => e.type === 'agentCompleted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(completed.length).toBe(1);
+  });
 
   // No reviewer should have been dispatched (no new queries beyond the implementor)
   const reviewerParams = capturedQueryParams
@@ -1699,7 +1731,6 @@ test('it does not dispatch a reviewer when an implementor completes with no link
   expect(reviewLabelCalls).toHaveLength(0);
 
   engine.send({ command: 'shutdown' });
-  await new Promise((resolve) => setTimeout(resolve, 50));
 });
 
 // ---------------------------------------------------------------------------
@@ -1722,7 +1753,13 @@ test('it does not check for a PR or dispatch a reviewer when an implementor fail
 
   // Dispatch an implementor
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
 
   // Clear the pulls.list call count from dispatch (which uses includeDrafts: true for worktree strategy)
   vi.mocked(octokit.pulls.list).mockClear();
@@ -1736,7 +1773,12 @@ test('it does not check for a PR or dispatch a reviewer when an implementor fail
   implementorQuery.pushMessage({ type: 'result', subtype: 'error_during_execution' });
   implementorQuery.end();
 
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await vi.waitFor(() => {
+    const agentFailed = events.filter(
+      (e) => e.type === 'agentFailed' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentFailed.length).toBe(1);
+  });
 
   // No PR check should have been performed for the failure path
   // (The completion-dispatch only fires on agentCompleted, not agentFailed)
@@ -1754,5 +1796,4 @@ test('it does not check for a PR or dispatch a reviewer when an implementor fail
   expect(syntheticEvents).toHaveLength(0);
 
   engine.send({ command: 'shutdown' });
-  await new Promise((resolve) => setTimeout(resolve, 50));
 });

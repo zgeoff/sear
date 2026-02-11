@@ -507,6 +507,16 @@ test('it updates the store when an event is processed', () => {
 });
 ```
 
+### Use `vi.waitFor` instead of manual `setTimeout` delays
+
+Never use `await new Promise((resolve) => setTimeout(resolve, N))` to wait for async operations in tests. Use `vi.waitFor` to poll until assertions pass:
+
+```ts
+await vi.waitFor(() => {
+  expect(events.some((e) => e.type === 'agentStarted')).toBe(true);
+});
+```
+
 ### Never test logging
 
 Do not spy on `console.log`, `console.error`, or similar logging functions. Do not assert that a logger or `logError` callback was called. Logging is an implementation detail — tests should verify observable behavior (return values, thrown errors, state changes).
