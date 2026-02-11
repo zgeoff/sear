@@ -108,7 +108,15 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
     return snapshot;
   }
 
-  return { poll, getSnapshot, getSnapshotMap };
+  function updateEntry(issueNumber: number, update: Partial<IssueSnapshot>): void {
+    const existing = snapshot.get(issueNumber);
+    if (!existing) {
+      return;
+    }
+    snapshot.set(issueNumber, { ...existing, ...update });
+  }
+
+  return { poll, getSnapshot, getSnapshotMap, updateEntry };
 }
 
 // ---------------------------------------------------------------------------

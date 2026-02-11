@@ -445,3 +445,97 @@ test('it returns a snapshot that reflects the latest poll results', async () => 
   await poller.poll();
   expect(poller.getSnapshot().size).toBe(2);
 });
+
+// ---------------------------------------------------------------------------
+// IssuePoller — updateEntry updates the snapshot without emitting events
+// ---------------------------------------------------------------------------
+
+test('it updates the status label in the snapshot when updateEntry is called', async () => {
+  const issues = [buildIssue({ number: 1 })];
+  const { poller } = setupTest({ issues });
+
+  await poller.poll();
+  expect(poller.getSnapshot().get(1)?.statusLabel).toBe('pending');
+
+  poller.updateEntry(1, { statusLabel: 'review' });
+
+  expect(poller.getSnapshot().get(1)?.statusLabel).toBe('review');
+});
+
+test('it preserves other snapshot fields when updateEntry changes the status label', async () => {
+  const issues = [
+    buildIssue({
+      number: 1,
+      title: 'My task',
+      labels: [{ name: 'task:implement' }, { name: 'status:pending' }, { name: 'priority:high' }],
+      created_at: '2026-01-15T10:30:00Z',
+    }),
+  ];
+  const { poller } = setupTest({ issues });
+
+  await poller.poll();
+
+  poller.updateEntry(1, { statusLabel: 'review' });
+
+  const snap = poller.getSnapshot().get(1);
+  expect(snap).toStrictEqual({
+    issueNumber: 1,
+    title: 'My task',
+    statusLabel: 'review',
+    priorityLabel: 'priority:high',
+    complexityLabel: '',
+    createdAt: '2026-01-15T10:30:00Z',
+  });
+});
+
+test('it is a no-op when updateEntry is called for an issue not in the snapshot', async () => {
+  const { poller } = setupTest();
+
+  await poller.poll();
+
+  // Should not throw
+  poller.updateEntry(999, { statusLabel: 'review' });
+
+  expect(poller.getSnapshot().size).toBe(0);
+});
+
+test('it prevents a duplicate issueStatusChanged when the poller runs after updateEntry', async () => {
+  const issues = [
+    buildIssue({
+      number: 1,
+      labels: [
+        { name: 'task:implement' },
+        { name: 'status:in-progress' },
+        { name: 'priority:medium' },
+      ],
+    }),
+  ];
+  const { octokit, events, poller } = setupTest({ issues });
+
+  // First poll — detects new issue
+  await poller.poll();
+  events.length = 0;
+
+  // Simulate completion-dispatch: update snapshot to status:review
+  poller.updateEntry(1, { statusLabel: 'review' });
+
+  // Simulate next poll: GitHub now returns the issue as status:review
+  vi.mocked(octokit.issues.listForRepo).mockResolvedValue({
+    data: [
+      buildIssue({
+        number: 1,
+        labels: [
+          { name: 'task:implement' },
+          { name: 'status:review' },
+          { name: 'priority:medium' },
+        ],
+      }),
+    ],
+  });
+
+  await poller.poll();
+
+  // No issueStatusChanged should be emitted because the snapshot already has status:review
+  const changed = statusChangedEvents(events);
+  expect(changed).toHaveLength(0);
+});
