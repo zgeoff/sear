@@ -534,7 +534,7 @@ test('it does not pass a model override when dispatching an implementor for an i
 // Command routing: dispatchReviewer
 // ---------------------------------------------------------------------------
 
-test('it auto-dispatches a reviewer when the issue is in review status', async () => {
+test('it does not auto-dispatch a reviewer when the issue is in review status', async () => {
   const issues = [buildMockIssueData(42, 'review')];
   const { engine, events } = setupTest(issues);
 
@@ -544,7 +544,7 @@ test('it auto-dispatches a reviewer when the issue is in review status', async (
   await new Promise((resolve) => setTimeout(resolve, 50));
 
   const agentStarted = events.filter((e) => e.type === 'agentStarted');
-  expect(agentStarted.length).toBeGreaterThan(0);
+  expect(agentStarted.length).toBe(0);
 });
 
 test('it is a no-op when dispatching a reviewer for an issue not in review status', async () => {
