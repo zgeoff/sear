@@ -103,7 +103,7 @@ Each `task:implement` issue receives exactly four labels: type (`task:implement`
 
 ### Phase 5: Report Summary
 
-After all issues are created/updated/closed, the Planner outputs a summary using the Planning Summary Format (see `workflow-contracts.md` § Planning Summary Format) as its final text output.
+After all issues are created/updated/closed, the Planner outputs a planning summary as its final text output (see § Completion Output).
 
 ## Complexity Assessment
 
@@ -131,6 +131,13 @@ When the Planner encounters ambiguity, contradiction, or a gap in the spec that 
 3. Continue creating tasks for unambiguous sections.
 
 Refinement issues default to `priority:high` because they block task creation. Use `priority:medium` only if the ambiguous section does not block critical-path work.
+
+## Completion Output
+
+On every run, the Planner returns one of:
+
+- **Planning Summary** (see `workflow-contracts.md` § Planning Summary Format) — when at least one spec passed its gates and decomposition ran.
+- **Gate Failure reports only** (see `workflow-contracts.md` § Planning Gate Failure Format) — when all specs failed their gates.
 
 ## Acceptance Criteria
 
