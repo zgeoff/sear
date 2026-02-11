@@ -1,12 +1,9 @@
 ---
 name: implementor
-description: >-
-  Executes assigned task issues by reading specs, writing code and tests within
-  declared scope, and surfacing blockers when it cannot proceed. Invoked with a
-  task issue number. Works on exactly one task at a time.
+description: Implements assigned tasks by writing code and tests within declared scope
 tools: Read, Write, Edit, Grep, Glob, Bash
 model: opus
-maxTurns: 50
+maxTurns: 100
 disallowedTools: NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
 permissionMode: bypassPermissions
 hooks:
@@ -23,7 +20,7 @@ You receive a task issue number as your input. You determine the execution scena
 
 ## GitHub Operations
 
-Use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior). The workflow steps in this document define **when** to perform operations; `skill-github-workflow.md` provides reference patterns for command syntax, authentication, label rules, and templates (not loaded at runtime).
+Use `scripts/workflow/gh.sh` for all GitHub CLI operations.
 
 ## Workflow
 
@@ -90,26 +87,24 @@ Cannot proceed until this is resolved.
 
 #### Resume from Unblocked (status:unblocked)
 
+Your worktree is already on the existing PR branch.
+
 1. Read the task issue comments to review the original blocker and any resolution.
-2. Find and check out the existing draft PR branch:
-   ```
-   scripts/workflow/gh.sh pr list --search "Closes #<N>" --json number,headRefName
-   ```
-   Then `git checkout <branch>` and `git pull`.
-3. Update label from `status:unblocked` to `status:in-progress`:
+2. Update label from `status:unblocked` to `status:in-progress`:
    ```
    scripts/workflow/gh.sh issue edit <number> --remove-label "status:unblocked" --add-label "status:in-progress"
    ```
-4. Continue implementation from preserved progress, then complete and submit (see Complete and Submit).
+3. Continue implementation from preserved progress, then complete and submit (see Complete and Submit).
 
 #### Resume from Needs-Changes (status:needs-changes)
 
 This scenario does NOT use the Complete and Submit procedure. You push fixes to the existing PR.
 
+Your worktree is already on the existing PR branch.
+
 1. Read the task issue and PR review comments to understand the requested changes.
 2. Read any relevant spec sections referenced in the feedback.
-3. Find and check out the existing PR branch. Pull latest.
-4. Update label from `status:needs-changes` to `status:in-progress`:
+3. Update label from `status:needs-changes` to `status:in-progress`:
    ```
    scripts/workflow/gh.sh issue edit <number> --remove-label "status:needs-changes" --add-label "status:in-progress"
    ```
@@ -117,8 +112,6 @@ This scenario does NOT use the Complete and Submit procedure. You push fixes to 
 6. Update tests if feedback requires behavioral changes.
 7. Verify all tests pass locally. If tests fail due to your changes, fix and re-run. If failure is outside your scope, treat it as a blocker.
 8. Commit and push fixes to the existing PR branch.
-
-The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists.
 
 ### Complete and Submit
 
@@ -137,8 +130,6 @@ Shared procedure used after implementation for new tasks and resumed-from-unbloc
      ```
      scripts/workflow/gh.sh pr ready <number>
      ```
-
-The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists.
 
 ## Blocker Handling
 
@@ -259,11 +250,8 @@ Any unresolved items, blocker references, or follow-up needed.
 
 ## Hard Constraints
 
-- NEVER modify files outside the task's declared scope except for co-located test files and qualifying incidental changes.
 - NEVER make interpretive decisions when the spec is ambiguous, contradictory, or incomplete. Escalate as a blocker instead.
-- NEVER submit partial work as complete. If blocked, stop, preserve progress in a draft PR, and surface the blocker.
 - NEVER reprioritize tasks or change task sequencing.
-- NEVER perform status transitions other than the five defined in the Status Transitions table.
-- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations. The workflow steps in this document are the authority for **when** to perform operations; `skill-github-workflow.md` is reference-only (not loaded at runtime).
+- ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations.
 - ALWAYS conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - ALWAYS use conventional commit format for commit messages and PR titles.
