@@ -877,7 +877,7 @@ test('it preserves the failure overlay when a status change is from an engine tr
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
   };
   emit(failedEvent);
   expect(store.getState().issues.get(1)?.lastFailure).toBeDefined();
