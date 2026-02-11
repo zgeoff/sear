@@ -812,10 +812,11 @@ test('it does not show a copy indicator for notifications without a clipboard co
 // ---------------------------------------------------------------------------
 
 test('it shows newest notifications at the top of the list', () => {
+  // Store convention: newest at index 0, oldest at end
   const notifications: Notification[] = [
-    buildTypedNotification('dispatchReady', 'notif-1'),
-    buildTypedNotification('dispatchReady', 'notif-2'),
     buildTypedNotification('recoveryPerformed', 'notif-3'),
+    buildTypedNotification('dispatchReady', 'notif-2'),
+    buildTypedNotification('dispatchReady', 'notif-1'),
   ];
 
   const { lastFrame } = setupRenderTest({ notifications });
@@ -824,7 +825,7 @@ test('it shows newest notifications at the top of the list', () => {
   const recoveryPos = frame.indexOf('recovered from stale');
   const readyPos = frame.indexOf('ready for dispatch');
 
-  // notif-3 (recovery) is newest, should appear first (top)
+  // notif-3 (recovery) is newest (index 0), should appear first (top)
   expect(recoveryPos).toBeLessThan(readyPos);
 });
 
@@ -925,15 +926,16 @@ test('it does nothing when navigating with an empty notification list', () => {
 // ---------------------------------------------------------------------------
 
 test('it opens the context URL when Enter is pressed on a notification with a URL', () => {
+  // Store convention: newest at index 0
   const notifications: Notification[] = [
-    buildTypedNotification('dispatchReady', 'notif-1'),
     {
       ...buildTypedNotification('specChanged', 'notif-2'),
       contextURL: 'https://github.com/owner/repo/commit/abc123',
     },
+    buildTypedNotification('dispatchReady', 'notif-1'),
   ];
 
-  // selectedIndex 0 in the reversed list = notif-2 (newest)
+  // selectedIndex 0 = notif-2 (newest, at top)
   const { sendInput, openURL } = setupInputTest(notifications, 0);
 
   sendInput('', { return: true });
