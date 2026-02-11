@@ -329,7 +329,15 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
 
     emitter.emit(buildFailedEvent(tracker, errorMessage ?? 'Unknown error', logFilePath));
-    // Implementor worktrees are preserved on failure (no cleanup)
+
+    if (
+      (tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
+      tracker.worktreePath !== undefined
+    ) {
+      worktreeManager.removeByPath(tracker.worktreePath).catch(() => {
+        // Worktree cleanup failure is non-fatal
+      });
+    }
   }
 
   function removeFromTracking(tracker: AgentSessionTracker): void {

@@ -401,7 +401,7 @@ test('it shows error details when an issue has a failure from an implementor', a
   });
 });
 
-test('it shows error details without a branch name when a reviewer fails', async () => {
+test('it shows error details with branch name when a reviewer fails', async () => {
   const { store, emit, lastFrame } = setupTest();
 
   emit({

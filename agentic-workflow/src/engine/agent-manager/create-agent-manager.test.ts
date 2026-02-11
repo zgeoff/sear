@@ -443,7 +443,9 @@ test('it emits agentFailed with branch name when an implementor session fails', 
     });
   });
 
-  expect(ctx.worktreeManager.removeByPath).not.toHaveBeenCalled();
+  expect(ctx.worktreeManager.removeByPath).toHaveBeenCalledWith(
+    '/repo/.worktrees/issue-42-1700000000',
+  );
 });
 
 // ---------------------------------------------------------------------------
