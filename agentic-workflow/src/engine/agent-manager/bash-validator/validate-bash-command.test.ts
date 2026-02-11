@@ -287,8 +287,12 @@ test('it allows a yarn test command', () => {
   expect(validateBashCommand('yarn test')).toStrictEqual({ allowed: true });
 });
 
-test('it allows a gh pr list command', () => {
-  expect(validateBashCommand('gh pr list')).toStrictEqual({ allowed: true });
+test('it blocks gh pr list command (gh prefix removed in v0.2.0)', () => {
+  const result = validateBashCommand('gh pr list');
+  expect(result).toStrictEqual({
+    allowed: false,
+    reason: "Blocked: 'gh' is not in the allowed command list",
+  });
 });
 
 test('it allows an echo command', () => {
@@ -319,6 +323,26 @@ test('it allows touch command', () => {
   expect(validateBashCommand('touch file.txt')).toStrictEqual({ allowed: true });
 });
 
+test('it allows diff command', () => {
+  expect(validateBashCommand('diff file1.txt file2.txt')).toStrictEqual({ allowed: true });
+});
+
+test('it allows tee command', () => {
+  expect(validateBashCommand('echo hello | tee output.txt')).toStrictEqual({ allowed: true });
+});
+
+test('it allows find command', () => {
+  expect(validateBashCommand('find . -name "*.ts"')).toStrictEqual({ allowed: true });
+});
+
+test('it allows cp command', () => {
+  expect(validateBashCommand('cp source.txt dest.txt')).toStrictEqual({ allowed: true });
+});
+
+test('it allows mv command', () => {
+  expect(validateBashCommand('mv old.txt new.txt')).toStrictEqual({ allowed: true });
+});
+
 // ── Allowlist: Unrecognized prefixes ────────────────────────────────────────
 
 test('it blocks a command with an unrecognized prefix', () => {
@@ -337,10 +361,20 @@ test('it blocks curl as a standalone command (not piped to shell)', () => {
   });
 });
 
+test('it blocks cat command (cat prefix removed in v0.2.0)', () => {
+  const result = validateBashCommand('cat file.txt');
+  expect(result).toStrictEqual({
+    allowed: false,
+    reason: "Blocked: 'cat' is not in the allowed command list",
+  });
+});
+
 // ── Command segmentation: Pipe ──────────────────────────────────────────────
 
 test('it allows a piped command where all segments have allowlisted prefixes', () => {
-  const result = validateBashCommand('gh pr list --json number | jq .[].number');
+  const result = validateBashCommand(
+    'scripts/workflow/gh.sh pr list --json number | jq .[].number',
+  );
   expect(result).toStrictEqual({ allowed: true });
 });
 
