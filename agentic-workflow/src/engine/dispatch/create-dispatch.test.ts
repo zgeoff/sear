@@ -374,18 +374,6 @@ test('it clears the deferred buffer after successful Planner dispatch', async ()
 });
 
 // ---------------------------------------------------------------------------
-// Issue status changed — auto-dispatch Reviewer
-// ---------------------------------------------------------------------------
-
-test('it auto-dispatches the Reviewer when an issue enters review status', async () => {
-  const { dispatch, agentManager } = setupTest();
-
-  await dispatch.handleIssueStatusChanged(buildIssueStatusChanged({ newStatus: 'review' }));
-
-  expect(agentManager.dispatchReviewer).toHaveBeenCalledWith(42);
-});
-
-// ---------------------------------------------------------------------------
 // Issue status changed — user-dispatch (dispatchReady)
 // ---------------------------------------------------------------------------
 
@@ -633,7 +621,7 @@ test('it does not emit notificationDismissed twice for the same issue without a 
 });
 
 // ---------------------------------------------------------------------------
-// Issue status changed — fallthrough (in-progress)
+// Issue status changed — fallthrough (in-progress, review)
 // ---------------------------------------------------------------------------
 
 test('it triggers no dispatch action for in-progress status', async () => {
@@ -641,6 +629,22 @@ test('it triggers no dispatch action for in-progress status', async () => {
 
   await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'in-progress', issueNumber: 50 }),
+  );
+
+  expect(agentManager.dispatchReviewer).not.toHaveBeenCalled();
+  expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
+
+  const dispatchEvents = events.filter(
+    (e) => e.type === 'dispatchReady' || e.type === 'notification' || e.type === 'agentSkipped',
+  );
+  expect(dispatchEvents).toHaveLength(0);
+});
+
+test('it triggers no dispatch action for review status', async () => {
+  const { dispatch, agentManager, events } = setupTest();
+
+  await dispatch.handleIssueStatusChanged(
+    buildIssueStatusChanged({ newStatus: 'review', issueNumber: 51 }),
   );
 
   expect(agentManager.dispatchReviewer).not.toHaveBeenCalled();

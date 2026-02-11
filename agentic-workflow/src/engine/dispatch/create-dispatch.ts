@@ -153,7 +153,7 @@ async function handleIssueStatusChanged(
   event: IssueStatusChangedEvent,
   deps: HandleIssueStatusChangedDeps,
 ): Promise<void> {
-  const { emitter, agentManager, config, activeNotifications } = deps;
+  const { emitter, config, activeNotifications } = deps;
   // Dismiss any active notification for this issue if the status changed
   if (activeNotifications.has(event.issueNumber)) {
     activeNotifications.delete(event.issueNumber);
@@ -164,9 +164,6 @@ async function handleIssueStatusChanged(
   }
 
   await match(event.newStatus)
-    .with('review', async () => {
-      await agentManager.dispatchReviewer(event.issueNumber);
-    })
     .with(
       P.when((s) => USER_DISPATCH_STATUSES.includes(s)),
       () => {
@@ -193,7 +190,7 @@ async function handleIssueStatusChanged(
       emitter.emit(notification);
     })
     .otherwise(() => {
-      // Fallthrough -- status changes like 'in-progress' trigger no dispatch action.
+      // Fallthrough -- status changes like 'in-progress' and 'review' trigger no dispatch action.
       // The issueStatusChanged event was already emitted by the IssuePoller.
     });
 }
