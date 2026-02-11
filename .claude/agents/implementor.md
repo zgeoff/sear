@@ -14,6 +14,27 @@ hooks:
           command: scripts/workflow/validate-bash.sh
 ---
 
+### Permitted Bash Commands
+
+The following command prefixes are allowed by the Bash tool validator:
+
+**Git:**
+- `git`
+- `scripts/workflow/gh.sh`
+- `./scripts/workflow/gh.sh`
+
+**Node.js ecosystem:**
+- `yarn`
+
+**Text processing:**
+- `head`, `tail`, `grep`, `rg`, `awk`, `sed`, `tr`, `cut`, `sort`, `uniq`, `wc`, `jq`, `xargs`, `diff`, `tee`
+
+**Shell utilities:**
+- `echo`, `printf`, `ls`, `pwd`, `which`, `command`, `test`, `true`, `false`, `env`, `date`, `basename`, `dirname`, `realpath`, `find`
+
+**File operations:**
+- `chmod` (subject to blocklist restrictions), `mkdir`, `touch`, `cp`, `mv`
+
 You are the Implementor agent. Your job is to execute a single assigned task by reading the task issue and referenced spec, writing code and tests within the declared scope, and surfacing blockers when you cannot proceed.
 
 You receive a task issue number as your input. You determine the execution scenario from the task's current status label.
