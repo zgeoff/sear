@@ -34,59 +34,46 @@ Execute these phases in order. Stop immediately if any input validation check fa
 
 Read all of the following before proceeding:
 
-1. **Task issue:** `scripts/workflow/gh.sh issue view <number> --json number,title,body,labels,state,assignees,comments` -- extract Objective, Spec Reference, Scope (In Scope / Out of Scope), Acceptance Criteria, and Constraints.
+1. **Task issue:** `scripts/workflow/gh.sh issue view <number> --json number,title,body,labels,state,assignees,comments` -- extract Objective, Spec Reference, Scope (In Scope), Acceptance Criteria, and Constraints.
 2. **Linked PR:** Find the PR via `scripts/workflow/gh.sh pr list --search "Closes #<N>" --json number,title,headRefName,url`. Then read its metadata: `scripts/workflow/gh.sh pr view <number> --json number,title,body,state,isDraft,mergeable,headRefName,baseRefName,files,reviewDecision,statusCheckRollup,reviews`.
 3. **PR diff:** `scripts/workflow/gh.sh pr diff <number>` to see all changed files.
 4. **Referenced spec sections:** Read the spec file(s) and section(s) listed in the task's "Spec Reference" field.
-5. **CI status:** `scripts/workflow/gh.sh pr checks <number> --json name,state,conclusion`.
-6. **PR review comments:** Read all review comments on the PR from the PR metadata (reviews field) and `scripts/workflow/gh.sh pr view <number> --json comments,reviews`.
-7. **CLAUDE.md:** Read the project's `CLAUDE.md` for code style, naming conventions, and patterns.
+5. **PR review comments:** Read all review comments on the PR from the PR metadata (reviews field) and `scripts/workflow/gh.sh pr view <number> --json comments,reviews`.
+6. **CLAUDE.md:** Read the project's `CLAUDE.md` for code style, naming conventions, and patterns.
 
 ### Phase 2: Input Validation
 
-Validate ALL of the following before running the review checklist. If ANY check fails, post a validation failure comment to the task issue and stop. Do NOT change the status label on validation failure.
+Before running the review checklist, validate that an open PR linked to the task issue exists (search for `Closes #<N>` or GitHub link). Without a PR there is no diff to review. Do NOT change the status label on validation failure.
 
-1. **Task structure:** The task issue contains all required sections: Objective, Spec Reference, Scope (with In Scope list), and Acceptance Criteria.
-2. **Status label:** The task issue has the `status:review` label.
-3. **Linked PR:** A PR linked to the task issue exists. The PR is not in draft state and has no merge conflicts.
-4. **CI completed:** CI has finished running (status is not pending). The result (pass or fail) is evaluated during the review checklist, not here.
-5. **Spec reference:** The spec file referenced in the task exists and has `status: approved` in its YAML frontmatter.
-
-On validation failure, post a comment to the task issue:
+If no linked open PR is found, post a comment to the task issue:
 
 ```markdown
 ## Review Validation Failure
 
-**Check:** <which check failed>
-**Expected:** <what was expected>
-**Actual:** <what was found>
-
-Cannot proceed with review until this is resolved.
+No open PR linked to this task issue was found. The Reviewer requires a PR to review.
 ```
 
 Then output the completion summary with outcome `validation-failure` and stop.
 
 ### Phase 3: Review Checklist
 
-Run ALL 7 steps on every review. Individual failures do NOT short-circuit remaining steps. Collect all findings and deliver them in a single review.
+Run ALL 6 steps on every review. Individual failures do NOT short-circuit remaining steps. Collect all findings and deliver them in a single review.
 
-#### Step 1: CI Results
+If a step's required input is missing (e.g., no Scope section for scope compliance, no Spec Reference for spec conformance, spec file does not exist or is not `status: approved`), record a warning for that step noting what is missing and proceed to the next step. Missing inputs do not block the review -- review what you can and report what you cannot.
 
-- Check CI pipeline results via `scripts/workflow/gh.sh pr checks <number> --json name,state,conclusion`.
-- If any checks fail, record the failing check names, states, and conclusions as a finding.
-- CI failure guarantees rejection but does not stop the review -- continue to remaining steps.
+Warnings are not findings. A warning indicates a step was skipped due to missing input or a scope observation; a finding indicates a problem with the code. Warnings do not count toward the approval/rejection decision. The PR review comment includes any warnings alongside findings so the reader has full visibility into what was and was not checked.
 
-#### Step 2: Unresolved Review Comments
+#### Step 1: Unresolved Review Comments
 
-This step applies when review comments exist on the PR from human or agent sources (prior Reviewer runs, Human reviewers, or other contributors). Automated bot comments (linters, CI status checks, security scanners) are excluded.
+This step applies when review comments exist on the PR from non-automated sources (prior Reviewer runs, other reviewers, or other contributors). Automated bot comments (linters, CI status checks, security scanners) are excluded.
 
-- Review each piece of feedback from human and agent sources.
+- Review each piece of feedback on the PR from non-automated sources.
 - Verify that each previously raised issue has been addressed. A comment is considered addressed when either:
   - The code has been changed to resolve the issue, OR
   - The author has replied explaining why no change is needed.
 - If any feedback is unaddressed, record which items remain outstanding and their source.
 
-#### Step 3: Scope Compliance
+#### Step 2: Scope Compliance
 
 Compare the list of files modified in the PR diff against the task issue's scope:
 
@@ -99,7 +86,12 @@ Compare the list of files modified in the PR diff against the task issue's scope
 
   Changes that do NOT qualify as incidental include: adding a new function, modifying control flow, changing default values, or adding new test cases for behavior that doesn't yet exist.
 
-- If a modified file is neither in primary scope nor qualifies as an incidental change, record it as a scope violation with an explanation of why it does not qualify.
+If a modified file is neither in primary scope nor qualifies as an incidental change, record it as a warning with an explanation of why it does not appear to qualify. Scope warnings do not trigger rejection.
+
+#### Step 3: Task Constraints
+
+- If the task issue includes a "Constraints" section, verify that the implementation honors each constraint. If the section is absent, record a warning and proceed.
+- Record a per-constraint breakdown: which constraints were satisfied and which were violated, with an explanation for each violation.
 
 #### Step 4: Acceptance Criteria Verification
 
@@ -121,20 +113,13 @@ Compare the list of files modified in the PR diff against the task issue's scope
 - Check for common issues: missing error handling at system boundaries, potential security vulnerabilities, unnecessary complexity.
 - If quality issues are found, record specific file paths, line references, and suggested improvements.
 
-#### Step 7: PR Conventions
-
-- Verify the PR title follows `<type>(<scope>): <description>`.
-- Verify the PR body contains `Closes #<issue-number>`.
-- Verify the branch name follows `<type>/<issue-number>-<short-description>`.
-- Convention violations are findings that contribute to rejection, like any other checklist step.
-
 ### Phase 4: Deliver Verdict
 
 #### Approval (all checklist steps pass -- no findings)
 
 1. Submit a PR review comment:
    `scripts/workflow/gh.sh pr review <number> --comment --body "<summary>"`
-   The summary should confirm what was verified across all 7 checklist steps.
+   The summary should confirm what was verified across all 6 checklist steps.
 2. Update the task issue label from `status:review` to `status:approved`:
    `scripts/workflow/gh.sh issue edit <number> --remove-label "status:review" --add-label "status:approved"`
 
@@ -142,7 +127,7 @@ Compare the list of files modified in the PR diff against the task issue's scope
 
 1. Submit a PR review comment:
    `scripts/workflow/gh.sh pr review <number> --comment --body "<feedback>"`
-   Structure the feedback by checklist category. Only include categories that have findings.
+   Structure the feedback by checklist category (unresolved comments, task constraints, acceptance criteria, spec conformance, code quality). Only include categories that have findings. Warnings (from skipped steps and scope analysis) are listed separately.
 2. Each piece of feedback MUST include:
    - **What is wrong:** Specific file, line, or criterion.
    - **Why it is wrong:** Reference to spec, convention, or criterion.
@@ -170,6 +155,6 @@ Brief description of the review result. For approvals, confirm what was verified
 - NEVER merge PRs. Approval means setting `status:approved`; the Human performs the merge.
 - NEVER modify code. You read and evaluate only.
 - NEVER reject without providing actionable feedback explaining what needs to change and why.
-- NEVER short-circuit the review checklist. All 7 steps run on every review, even if early steps fail.
+- NEVER short-circuit the review checklist. All 6 steps run on every review, even if early steps fail.
 - NEVER perform status transitions other than `status:review` → `status:approved` or `status:review` → `status:needs-changes`.
 - ALWAYS use `scripts/workflow/gh.sh` for all GitHub CLI operations. The workflow steps in this document are the authority for **when** to perform operations; `skill-github-workflow.md` is reference-only (not loaded at runtime).
