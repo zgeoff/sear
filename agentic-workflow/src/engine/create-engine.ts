@@ -173,7 +173,13 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       });
     },
     async dispatchReviewer(command: DispatchReviewerCommand): Promise<void> {
-      await handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
+      await handleDispatchReviewer({
+        issueNumber: command.issueNumber,
+        issuePoller,
+        agentManager,
+        queriesConfig,
+        logger,
+      });
     },
     async cancelAgent(command: CancelAgentCommand): Promise<void> {
       try {
@@ -443,7 +449,7 @@ async function handleImplementorCompleted(
     });
 
     // Dispatch the Reviewer
-    await deps.agentManager.dispatchReviewer({ issueNumber });
+    await deps.agentManager.dispatchReviewer({ issueNumber, branchName: prDetails.headRefName });
   } catch (error) {
     deps.logger.error('Completion-dispatch failed', {
       issueNumber,
@@ -525,13 +531,16 @@ async function handleDispatchImplementor(params: HandleDispatchImplementorParams
   }
 }
 
-async function handleDispatchReviewer(
-  issueNumber: number,
-  issuePoller: IssuePoller,
-  agentManager: AgentManager,
-  logger: Logger,
-): Promise<void> {
-  const issue = issuePoller.getSnapshot().get(issueNumber);
+interface HandleDispatchReviewerParams {
+  issueNumber: number;
+  issuePoller: IssuePoller;
+  agentManager: AgentManager;
+  queriesConfig: QueriesConfig;
+  logger: Logger;
+}
+
+async function handleDispatchReviewer(params: HandleDispatchReviewerParams): Promise<void> {
+  const issue = params.issuePoller.getSnapshot().get(params.issueNumber);
 
   if (!issue) {
     return;
@@ -541,10 +550,24 @@ async function handleDispatchReviewer(
   }
 
   try {
-    await agentManager.dispatchReviewer({ issueNumber });
+    const prDetails = await getPRForIssue(params.queriesConfig, params.issueNumber, {
+      includeDrafts: false,
+    });
+
+    if (!prDetails) {
+      params.logger.error('Cannot dispatch reviewer — no PR found for issue', {
+        issueNumber: params.issueNumber,
+      });
+      return;
+    }
+
+    await params.agentManager.dispatchReviewer({
+      issueNumber: params.issueNumber,
+      branchName: prDetails.headRefName,
+    });
   } catch (error) {
-    logger.error('Failed to dispatch reviewer', {
-      issueNumber,
+    params.logger.error('Failed to dispatch reviewer', {
+      issueNumber: params.issueNumber,
       error: String(error),
     });
   }

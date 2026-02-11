@@ -461,7 +461,7 @@ test('it shows the log file path when a failure includes session log information
         agentType: 'implementor',
         error: 'process crashed',
         sessionID: 'sess-abc-123',
-        worktreePath: '/home/user/.worktrees/issue-1',
+        branchName: 'issue-1-1700000000',
         logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
       },
     });
@@ -566,7 +566,7 @@ test('it shows the failure overlay regardless of the issue status label', async 
         agentType: 'implementor',
         error: 'crashed',
         sessionID: 'sess-777',
-        worktreePath: '/tmp/wt',
+        branchName: 'issue-1-1700000000',
       },
     });
   }
@@ -853,7 +853,7 @@ test('it applies scroll windowing to the failure overlay', async () => {
         agentType: 'implementor',
         error: 'process crashed',
         sessionID: 'sess-abc-123',
-        worktreePath: '/home/user/.worktrees/issue-1',
+        branchName: 'issue-1-1700000000',
         logFilePath: '/logs/agent.log',
       },
     });

@@ -1611,7 +1611,7 @@ test('it includes logFilePath pointing to the partial file when a write fails mi
 test('it names reviewer log files with the issue number as context', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 7 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 7, branchName: 'issue-7-1700000000' });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);

@@ -116,7 +116,7 @@ test('it preserves the failure overlay when a status change is from crash recove
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
   };
   emit(failedEvent);
   expect(store.getState().issues.get(1)?.lastFailure).toBeDefined();
@@ -139,7 +139,7 @@ test('it clears the failure overlay when a non-recovery status change is receive
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
   };
   emit(failedEvent);
 
@@ -619,7 +619,7 @@ test('it records the log file path in the failure when an agent fails with sessi
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
     logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
   } satisfies AgentFailedEvent);
 
