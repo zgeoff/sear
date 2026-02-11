@@ -864,6 +864,62 @@ test('it preserves resolution guidance on a recovery status change', () => {
   expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Waiting on dependency');
 });
 
+test('it preserves the failure overlay when a status change is from an engine transition', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
+
+  const failedEvent: AgentFailedEvent = {
+    type: 'agentFailed',
+    agentType: 'implementor',
+    issueNumber: 1,
+    error: 'timeout',
+    sessionID: 'sess-1',
+    worktreePath: '/tmp/wt',
+  };
+  emit(failedEvent);
+  expect(store.getState().issues.get(1)?.lastFailure).toBeDefined();
+
+  emit(
+    buildIssueStatusChanged({
+      issueNumber: 1,
+      newStatus: 'review',
+      isEngineTransition: true,
+    }),
+  );
+
+  const issue = store.getState().issues.get(1);
+  expect(issue?.lastFailure).toBeDefined();
+  expect(issue?.lastFailure?.error).toBe('timeout');
+});
+
+test('it preserves resolution guidance when an engine transition status change is received', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'blocked' }));
+
+  const event: NotificationEvent = {
+    type: 'notification',
+    issueNumber: 3,
+    statusLabel: 'blocked',
+    contextURL: 'https://github.com/owner/repo/issues/3',
+    resolutionGuidance: 'Waiting on dependency',
+  };
+  emit(event);
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Waiting on dependency');
+
+  emit(
+    buildIssueStatusChanged({
+      issueNumber: 3,
+      newStatus: 'pending',
+      isEngineTransition: true,
+    }),
+  );
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Waiting on dependency');
+});
+
 // ---------------------------------------------------------------------------
 // Other events
 // ---------------------------------------------------------------------------
