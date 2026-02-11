@@ -113,6 +113,63 @@ export interface PullsGetResult {
   data: PullData;
 }
 
+export interface PullsListFilesParams {
+  [key: string]: unknown;
+  owner: string;
+  repo: string;
+  pull_number: number;
+  per_page: number;
+}
+
+export interface PullFileEntry {
+  filename: string;
+  status: string;
+  patch?: string;
+}
+
+export interface PullsListFilesResult {
+  data: PullFileEntry[];
+}
+
+export interface PullsListReviewsParams {
+  [key: string]: unknown;
+  owner: string;
+  repo: string;
+  pull_number: number;
+  per_page: number;
+}
+
+export interface PullReview {
+  id: number;
+  user: { login: string } | null;
+  state: string;
+  body: string | null;
+}
+
+export interface PullsListReviewsResult {
+  data: PullReview[];
+}
+
+export interface PullsListReviewCommentsParams {
+  [key: string]: unknown;
+  owner: string;
+  repo: string;
+  pull_number: number;
+  per_page: number;
+}
+
+export interface PullReviewComment {
+  id: number;
+  user: { login: string } | null;
+  body: string | null;
+  path: string;
+  line: number | null;
+}
+
+export interface PullsListReviewCommentsResult {
+  data: PullReviewComment[];
+}
+
 // ---------------------------------------------------------------------------
 // Repos
 // ---------------------------------------------------------------------------
@@ -244,6 +301,11 @@ export interface GitHubClient {
   pulls: {
     list: (params: PullsListParams) => Promise<PullsListResult>;
     get: (params: PullsGetParams) => Promise<PullsGetResult>;
+    listFiles: (params: PullsListFilesParams) => Promise<PullsListFilesResult>;
+    listReviews: (params: PullsListReviewsParams) => Promise<PullsListReviewsResult>;
+    listReviewComments: (
+      params: PullsListReviewCommentsParams,
+    ) => Promise<PullsListReviewCommentsResult>;
   };
   repos: {
     getCombinedStatusForRef: (

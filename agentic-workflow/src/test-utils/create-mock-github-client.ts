@@ -12,6 +12,9 @@ export function createMockGitHubClient(): GitHubClient {
     pulls: {
       list: vi.fn(),
       get: vi.fn(),
+      listFiles: vi.fn(),
+      listReviews: vi.fn(),
+      listReviewComments: vi.fn(),
     },
     repos: {
       getCombinedStatusForRef: vi.fn(),

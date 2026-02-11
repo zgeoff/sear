@@ -16,7 +16,13 @@ type MockFn = ReturnType<typeof vi.fn>;
 
 interface MockOctokitShape {
   issues: { get: MockFn; listForRepo: MockFn; addLabels: MockFn; removeLabel: MockFn };
-  pulls: { list: MockFn; get: MockFn };
+  pulls: {
+    list: MockFn;
+    get: MockFn;
+    listFiles: MockFn;
+    listReviews: MockFn;
+    listReviewComments: MockFn;
+  };
   repos: { getCombinedStatusForRef: MockFn; getContent: MockFn };
   checks: { listForRef: MockFn };
   git: { getTree: MockFn; getRef: MockFn };
@@ -39,6 +45,9 @@ function setupTest(): {
     pulls: {
       list: vi.fn(),
       get: vi.fn(),
+      listFiles: vi.fn(),
+      listReviews: vi.fn(),
+      listReviewComments: vi.fn(),
     },
     repos: {
       getCombinedStatusForRef: vi.fn(),
@@ -249,6 +258,108 @@ test('it delegates pull request retrieval and returns the narrowed result', asyn
   expect(result.data.title).toBe('Fix bug');
   expect(result.data.changed_files).toBe(3);
   expect(result.data.head.sha).toBe('abc123');
+});
+
+test('it delegates pull request files listing and returns the narrowed result', async () => {
+  const { client, mockOctokit } = setupTest();
+
+  mockOctokit.pulls.listFiles.mockResolvedValue({
+    data: [
+      {
+        filename: 'src/index.ts',
+        status: 'modified',
+        patch: '@@ -1,3 +1,3 @@\n-old\n+new',
+        additions: 1,
+        deletions: 1,
+      },
+      { filename: 'package.json', status: 'added', patch: undefined, additions: 10, deletions: 0 },
+    ],
+  });
+
+  const params = { owner: 'o', repo: 'r', pull_number: 10, per_page: 100 };
+  const result = await client.pulls.listFiles(params);
+
+  expect(mockOctokit.pulls.listFiles).toHaveBeenCalledWith(params);
+  expect(result.data).toHaveLength(2);
+  expect(result.data[0]?.filename).toBe('src/index.ts');
+  expect(result.data[0]?.status).toBe('modified');
+  expect(result.data[0]?.patch).toBe('@@ -1,3 +1,3 @@\n-old\n+new');
+  expect(result.data[1]?.filename).toBe('package.json');
+  expect(result.data[1]?.status).toBe('added');
+  expect(result.data[1]?.patch).toBeUndefined();
+});
+
+test('it delegates pull request reviews listing and returns the narrowed result', async () => {
+  const { client, mockOctokit } = setupTest();
+
+  mockOctokit.pulls.listReviews.mockResolvedValue({
+    data: [
+      {
+        id: 1,
+        user: { login: 'reviewer1' },
+        state: 'APPROVED',
+        body: 'Looks good',
+        submitted_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 2,
+        user: { login: 'reviewer2' },
+        state: 'CHANGES_REQUESTED',
+        body: null,
+        submitted_at: '2026-01-02T00:00:00Z',
+      },
+    ],
+  });
+
+  const params = { owner: 'o', repo: 'r', pull_number: 10, per_page: 100 };
+  const result = await client.pulls.listReviews(params);
+
+  expect(mockOctokit.pulls.listReviews).toHaveBeenCalledWith(params);
+  expect(result.data).toHaveLength(2);
+  expect(result.data[0]?.id).toBe(1);
+  expect(result.data[0]?.user).toStrictEqual({ login: 'reviewer1' });
+  expect(result.data[0]?.state).toBe('APPROVED');
+  expect(result.data[0]?.body).toBe('Looks good');
+  expect(result.data[1]?.id).toBe(2);
+  expect(result.data[1]?.body).toBeNull();
+});
+
+test('it delegates pull request review comments listing and returns the narrowed result', async () => {
+  const { client, mockOctokit } = setupTest();
+
+  mockOctokit.pulls.listReviewComments.mockResolvedValue({
+    data: [
+      {
+        id: 1,
+        user: { login: 'commenter1' },
+        body: 'Please fix this',
+        path: 'src/index.ts',
+        line: 42,
+        created_at: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 2,
+        user: { login: 'commenter2' },
+        body: 'Outdated comment',
+        path: 'src/old.ts',
+        line: undefined,
+        created_at: '2026-01-02T00:00:00Z',
+      },
+    ],
+  });
+
+  const params = { owner: 'o', repo: 'r', pull_number: 10, per_page: 100 };
+  const result = await client.pulls.listReviewComments(params);
+
+  expect(mockOctokit.pulls.listReviewComments).toHaveBeenCalledWith(params);
+  expect(result.data).toHaveLength(2);
+  expect(result.data[0]?.id).toBe(1);
+  expect(result.data[0]?.user).toStrictEqual({ login: 'commenter1' });
+  expect(result.data[0]?.body).toBe('Please fix this');
+  expect(result.data[0]?.path).toBe('src/index.ts');
+  expect(result.data[0]?.line).toBe(42);
+  expect(result.data[1]?.id).toBe(2);
+  expect(result.data[1]?.line).toBeNull();
 });
 
 // ---------------------------------------------------------------------------
