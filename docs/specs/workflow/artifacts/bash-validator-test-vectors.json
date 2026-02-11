@@ -147,7 +147,7 @@
   {
     "command": "gh pr list",
     "expected": "block",
-    "description": "Allowlist: gh command removed in v0.2.0"
+    "description": "Allowlist: bare gh is not allowlisted"
   },
   {
     "command": "scripts/workflow/gh.sh issue list",
@@ -162,7 +162,7 @@
   {
     "command": "cat README.md",
     "expected": "block",
-    "description": "Allowlist: cat command removed in v0.2.0"
+    "description": "Allowlist: cat is not allowlisted"
   },
   {
     "command": "echo hello world",
@@ -187,27 +187,27 @@
   {
     "command": "diff file1.txt file2.txt",
     "expected": "allow",
-    "description": "Allowlist: diff text processing command added in v0.2.0"
+    "description": "Allowlist: diff text processing command"
   },
   {
     "command": "echo hello | tee output.txt",
     "expected": "allow",
-    "description": "Allowlist: tee text processing command added in v0.2.0"
+    "description": "Allowlist: tee text processing command"
   },
   {
     "command": "find . -name \"*.ts\"",
     "expected": "allow",
-    "description": "Allowlist: find shell utility added in v0.2.0"
+    "description": "Allowlist: find shell utility"
   },
   {
     "command": "cp source.txt dest.txt",
     "expected": "allow",
-    "description": "Allowlist: cp file operation added in v0.2.0"
+    "description": "Allowlist: cp file operation"
   },
   {
     "command": "mv old.txt new.txt",
     "expected": "allow",
-    "description": "Allowlist: mv file operation added in v0.2.0"
+    "description": "Allowlist: mv file operation"
   },
   {
     "command": "ls -la",
@@ -232,7 +232,7 @@
   {
     "command": "gh pr list --json number | jq .[].number",
     "expected": "block",
-    "description": "Segmentation: piped commands with unrecognized prefix (gh removed in v0.2.0)"
+    "description": "Segmentation: piped commands with unrecognized gh prefix"
   },
   {
     "command": "git add . && git commit -m \"msg\"",
@@ -332,7 +332,7 @@
   {
     "command": "gh issue comment 1 --body \"docs: sudo usage\"",
     "expected": "block",
-    "description": "Quote masking: gh prefix removed in v0.2.0 (sudo is masked correctly)"
+    "description": "Quote masking: bare gh prefix is not allowlisted (sudo inside quotes is masked correctly)"
   },
   {
     "command": "git commit -m \"kill orphan timers\" && git push",

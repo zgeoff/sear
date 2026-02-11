@@ -168,8 +168,50 @@ run_validator() {
   [[ "$status" -eq 0 ]]
 }
 
-@test "it allows gh commands" {
+@test "it allows the workflow gh.sh script" {
+  run_validator "scripts/workflow/gh.sh issue view 1"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows the workflow gh.sh script with dot-slash prefix" {
+  run_validator "./scripts/workflow/gh.sh issue view 1"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it blocks bare gh commands" {
   run_validator "gh pr list"
+  [[ "$status" -eq 2 ]]
+  [[ "$output" == *"gh"* ]]
+}
+
+@test "it blocks cat commands" {
+  run_validator "cat file.txt"
+  [[ "$status" -eq 2 ]]
+  [[ "$output" == *"cat"* ]]
+}
+
+@test "it allows diff commands" {
+  run_validator "diff file1.txt file2.txt"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows tee commands" {
+  run_validator "echo hello | tee output.txt"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows find commands" {
+  run_validator 'find . -name "*.ts"'
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows cp commands" {
+  run_validator "cp source.txt dest.txt"
+  [[ "$status" -eq 0 ]]
+}
+
+@test "it allows mv commands" {
+  run_validator "mv old.txt new.txt"
   [[ "$status" -eq 0 ]]
 }
 
@@ -188,7 +230,7 @@ run_validator() {
 # ─── Command Segmentation ────────────────────────────────────────────────────
 
 @test "it allows piped commands where all segments have allowlisted prefixes" {
-  run_validator "gh pr list --json number | jq .[].number"
+  run_validator "scripts/workflow/gh.sh pr list --json number | jq .[].number"
   [[ "$status" -eq 0 ]]
 }
 
