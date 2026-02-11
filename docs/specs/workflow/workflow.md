@@ -64,7 +64,7 @@ See `agent-implementor.md` for full behavior specification.
 
 #### Reviewer
 
-Agent that reviews completed work before integration. Verifies tests pass, checks acceptance criteria, evaluates code quality and spec conformance, and confirms scope compliance. Approves work for Human integration or rejects with actionable feedback.
+Agent that reviews completed work before integration. Checks acceptance criteria, evaluates code quality and spec conformance, and confirms scope compliance. Approves work for Human integration or rejects with actionable feedback.
 
 Does not merge — approval means setting `status:approved`. The Human performs the merge.
 
@@ -217,7 +217,6 @@ Quality gates define what must be true before transitioning between phases. A tr
 
 #### Review to Integrate
 
-- CI passes
 - All acceptance criteria verified by Reviewer
 - Code quality and spec conformance confirmed
 - No unresolved review comments
@@ -298,7 +297,6 @@ Label definitions (names, descriptions, colors) and the setup script are specifi
 
 - [ ] Given a spec without `status: approved`, when the Planner is invoked, then it stops without creating task issues.
 - [ ] Given a task issue missing a required section (Objective, Spec Reference, Scope, or Acceptance Criteria), when an agent validates inputs, then it posts a validation failure and stops.
-- [ ] Given a PR that has not passed CI, when the Reviewer evaluates it, then the review results in rejection regardless of other criteria.
 - [ ] Given a task without `status:approved`, when the Human attempts to integrate, then the quality gate from Review to Integrate is not satisfied.
 
 ### Status Transitions
