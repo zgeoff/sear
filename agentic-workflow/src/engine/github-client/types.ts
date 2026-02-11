@@ -81,6 +81,7 @@ export interface PullsListParams {
 export interface PullsListItem {
   number: number;
   body: string | null;
+  draft: boolean;
 }
 
 export interface PullsListResult {
@@ -96,6 +97,7 @@ export interface PullsGetParams {
 
 export interface PullHeadRef {
   sha: string;
+  ref: string;
 }
 
 export interface PullData {
@@ -104,6 +106,7 @@ export interface PullData {
   changed_files: number;
   html_url: string;
   head: PullHeadRef;
+  draft: boolean;
 }
 
 export interface PullsGetResult {

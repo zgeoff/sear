@@ -203,8 +203,8 @@ test('it returns null when no pull request links to the issue', async () => {
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 30, body: 'Closes #99' },
-      { number: 31, body: 'Unrelated PR' },
+      { number: 30, body: 'Closes #99', draft: false },
+      { number: 31, body: 'Unrelated PR', draft: false },
     ],
   });
 
@@ -226,8 +226,8 @@ test('it avoids false matches when the issue number is a prefix of another numbe
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 50, body: 'Closes #42' },
-      { number: 51, body: 'Closes #421' },
+      { number: 50, body: 'Closes #42', draft: false },
+      { number: 51, body: 'Closes #421', draft: false },
     ],
   });
 
@@ -322,7 +322,7 @@ test('it skips pull requests with a null body', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 110, body: null }],
+    data: [{ number: 110, body: null, draft: false }],
   });
 
   const result = await getPRForIssue(config, 10);

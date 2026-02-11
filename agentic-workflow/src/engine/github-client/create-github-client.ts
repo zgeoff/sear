@@ -83,6 +83,7 @@ export function createGitHubClient(config: GitHubClientConfig): GitHubClient {
           data: response.data.map((pr) => ({
             number: pr.number,
             body: pr.body,
+            draft: pr.draft ?? false,
           })),
         };
       },
@@ -95,7 +96,8 @@ export function createGitHubClient(config: GitHubClientConfig): GitHubClient {
             title: response.data.title,
             changed_files: response.data.changed_files,
             html_url: response.data.html_url,
-            head: { sha: response.data.head.sha },
+            head: { sha: response.data.head.sha, ref: response.data.head.ref },
+            draft: response.data.draft ?? false,
           },
         };
       },
