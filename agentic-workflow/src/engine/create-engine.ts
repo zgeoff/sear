@@ -164,7 +164,13 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 
   const commandDispatcher = createCommandDispatcher({
     async dispatchImplementor(command: DispatchImplementorCommand): Promise<void> {
-      await handleDispatchImplementor(command.issueNumber, issuePoller, agentManager, logger);
+      await handleDispatchImplementor({
+        issueNumber: command.issueNumber,
+        issuePoller,
+        agentManager,
+        queriesConfig,
+        logger,
+      });
     },
     async dispatchReviewer(command: DispatchReviewerCommand): Promise<void> {
       await handleDispatchReviewer(command.issueNumber, issuePoller, agentManager, logger);
@@ -475,13 +481,16 @@ const COMPLEXITY_MODEL_OVERRIDES: Record<string, 'sonnet' | 'opus'> = {
   'complexity:complex': 'opus',
 };
 
-async function handleDispatchImplementor(
-  issueNumber: number,
-  issuePoller: IssuePoller,
-  agentManager: AgentManager,
-  logger: Logger,
-): Promise<void> {
-  const issue = issuePoller.getSnapshot().get(issueNumber);
+interface HandleDispatchImplementorParams {
+  issueNumber: number;
+  issuePoller: IssuePoller;
+  agentManager: AgentManager;
+  queriesConfig: QueriesConfig;
+  logger: Logger;
+}
+
+async function handleDispatchImplementor(params: HandleDispatchImplementorParams): Promise<void> {
+  const issue = params.issuePoller.getSnapshot().get(params.issueNumber);
 
   if (!issue) {
     return;
@@ -497,13 +506,20 @@ async function handleDispatchImplementor(
   const modelOverride = COMPLEXITY_MODEL_OVERRIDES[issue.complexityLabel];
 
   try {
-    await agentManager.dispatchImplementor({
-      issueNumber,
+    const prDetails = await getPRForIssue(params.queriesConfig, params.issueNumber, {
+      includeDrafts: true,
+    });
+    const branchStrategy = buildBranchStrategy(params.issueNumber, prDetails);
+
+    await params.agentManager.dispatchImplementor({
+      issueNumber: params.issueNumber,
+      branchName: branchStrategy.branchName,
+      ...(branchStrategy.branchBase !== undefined && { branchBase: branchStrategy.branchBase }),
       ...(modelOverride !== undefined && { modelOverride }),
     });
   } catch (error) {
-    logger.error('Failed to dispatch implementor', {
-      issueNumber,
+    params.logger.error('Failed to dispatch implementor', {
+      issueNumber: params.issueNumber,
       error: String(error),
     });
   }
@@ -532,6 +548,29 @@ async function handleDispatchReviewer(
       error: String(error),
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Branch strategy
+// ---------------------------------------------------------------------------
+
+interface BranchStrategy {
+  branchName: string;
+  branchBase?: string;
+}
+
+function buildBranchStrategy(issueNumber: number, prDetails: PRDetailsResult): BranchStrategy {
+  if (prDetails) {
+    // PR-branch strategy: resume on existing PR branch
+    return { branchName: prDetails.headRefName };
+  }
+
+  // Fresh-branch strategy: new branch from main with timestamp for uniqueness
+  const timestamp = Date.now();
+  return {
+    branchName: `issue-${issueNumber}-${timestamp}`,
+    branchBase: 'main',
+  };
 }
 
 // ---------------------------------------------------------------------------

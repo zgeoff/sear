@@ -11,7 +11,14 @@ export interface WorktreeManagerDeps {
   execGit?: ExecGit;
 }
 
+export interface CreateForBranchParams {
+  branchName: string;
+  branchBase?: string; // present for fresh-branch strategy (new branch from base); absent for PR-branch strategy (existing branch)
+}
+
 export interface WorktreeManager {
   createOrReuse: (issueNumber: number) => Promise<WorktreeResult>;
+  createForBranch: (params: CreateForBranchParams) => Promise<WorktreeResult>;
   remove: (issueNumber: number) => Promise<void>;
+  removeByPath: (worktreePath: string) => Promise<void>;
 }

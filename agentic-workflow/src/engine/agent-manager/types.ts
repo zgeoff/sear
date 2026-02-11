@@ -57,6 +57,8 @@ export interface AgentManagerDeps {
 
 export interface DispatchImplementorParams {
   issueNumber: number;
+  branchName: string;
+  branchBase?: string; // present for fresh-branch strategy (new branch from base); absent for PR-branch strategy (existing branch)
   modelOverride?: 'sonnet' | 'opus';
 }
 

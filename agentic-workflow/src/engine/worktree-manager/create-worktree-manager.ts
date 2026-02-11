@@ -1,7 +1,13 @@
 import { execFile } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { ExecGit, WorktreeManager, WorktreeManagerDeps, WorktreeResult } from './types.ts';
+import type {
+  CreateForBranchParams,
+  ExecGit,
+  WorktreeManager,
+  WorktreeManagerDeps,
+  WorktreeResult,
+} from './types.ts';
 
 const execFileAsync: typeof execFile.__promisify__ = promisify(execFile);
 
@@ -63,8 +69,33 @@ export function createWorktreeManager(deps: WorktreeManagerDeps): WorktreeManage
       return { worktreePath, branch, created: true };
     },
 
+    async createForBranch(params: CreateForBranchParams): Promise<WorktreeResult> {
+      const worktreePath = resolve(repoRoot, '.worktrees', params.branchName);
+
+      if (params.branchBase !== undefined) {
+        // Fresh branch strategy: create new branch from base
+        await execGit([
+          'worktree',
+          'add',
+          '-b',
+          params.branchName,
+          worktreePath,
+          params.branchBase,
+        ]);
+        return { worktreePath, branch: params.branchName, created: true };
+      }
+
+      // PR branch strategy: use existing branch
+      await execGit(['worktree', 'add', worktreePath, params.branchName]);
+      return { worktreePath, branch: params.branchName, created: false };
+    },
+
     async remove(issueNumber: number): Promise<void> {
       const worktreePath = buildWorktreePath(repoRoot, issueNumber);
+      await execGit(['worktree', 'remove', worktreePath, '--force']);
+    },
+
+    async removeByPath(worktreePath: string): Promise<void> {
       await execGit(['worktree', 'remove', worktreePath, '--force']);
     },
   };
