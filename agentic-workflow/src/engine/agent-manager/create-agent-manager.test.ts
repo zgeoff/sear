@@ -724,8 +724,6 @@ test('it cancels a session that exceeds the max duration', async () => {
     error: expect.stringContaining('exceeded max duration'),
   });
   expect(ctx.manager.isRunning(42)).toBe(false);
-
-  vi.useRealTimers();
 });
 
 // ---------------------------------------------------------------------------
