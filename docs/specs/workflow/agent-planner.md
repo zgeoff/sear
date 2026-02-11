@@ -13,10 +13,10 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 
 ## Constraints
 
-- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
+- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see [skill-github-workflow.md: Authentication](./skill-github-workflow.md#authentication) for wrapper behavior).
 - Must not narrate reasoning between tool calls. Output only: gate check results, issue action summaries (created/updated/closed with number and title), and the final planning summary. No exploratory commentary.
 - Must not make interpretive decisions about spec intent. Ambiguity, contradiction, or gaps must produce `task:refinement` issues, not guesses.
-- The agent definition body must include the permitted bash command list from `agent-hook-bash-validator.md` § Allowlist Prefixes to prevent wasted turns on blocked commands.
+- The agent definition body must include the permitted bash command list from [agent-hook-bash-validator.md: Allowlist Prefixes](./agent-hook-bash-validator.md#allowlist-prefixes) to prevent wasted turns on blocked commands.
 
 ## Agent Profile
 
@@ -27,11 +27,11 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 | Turn budget | 50 | Bounded analysis with batch issue creation |
 | Permission model | Non-interactive with bash validation | Runs unattended; bash validator enforces command safety |
 
-The agent definition (`.claude/agents/planner.md`) implements these constraints as frontmatter. See `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses them.
+The agent definition (`.claude/agents/planner.md`) implements these constraints as frontmatter. See [control-plane-engine-agent-manager.md: Frontmatter Field Mapping](./control-plane-engine-agent-manager.md#frontmatter-field-mapping) for how the Engine parses them.
 
 ## Trigger
 
-The Planner is invoked when one or more specification files are committed or updated in `docs/specs/`. The trigger mechanism is defined by the Engine (see `control-plane-engine.md` § Spec Polling).
+The Planner is invoked when one or more specification files are committed or updated in `docs/specs/`. The trigger mechanism is defined by the Engine (see [control-plane-engine.md: Spec Polling](./control-plane-engine.md#spec-polling)).
 
 When multiple specs change in the same poll cycle, they are all included in a single invocation.
 
@@ -39,7 +39,7 @@ When multiple specs change in the same poll cycle, they are all included in a si
 
 ### Injected Context
 
-The Engine Core pre-computes and injects the following into the Planner's trigger prompt (see `control-plane-engine-agent-manager.md` § Planner Context Pre-computation):
+The Engine Core pre-computes and injects the following into the Planner's trigger prompt (see [control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation)):
 
 1. **Spec content:** Full content of each changed spec, including frontmatter, acceptance criteria, and dependencies. The Planner does not need to read spec files from disk.
 2. **Spec diffs:** For modified specs, a unified diff showing what changed since the last successful Planner run. Added specs have no diff.
@@ -60,7 +60,7 @@ Before decomposition, the Planner validates the following quality gates for each
 1. Spec frontmatter `status` is `approved`.
 2. No open `task:refinement` issues exist for this spec.
 
-For each spec that fails a gate, the Planner outputs a failure report using the Planning Gate Failure Format (see `workflow-contracts.md` § Planning Gate Failure Format). If all specs fail, the Planner stops after reporting all failures.
+For each spec that fails a gate, the Planner outputs a failure report using the Planning Gate Failure Format (see [workflow-contracts.md: Planning Gate Failure Format](./workflow-contracts.md#planning-gate-failure-format)). If all specs fail, the Planner stops after reporting all failures.
 
 ## Decomposition Process
 
@@ -97,13 +97,13 @@ Break remaining work into tasks. Each task must be:
 
 ### Phase 4: Create GitHub Issues
 
-Create each task issue using the Task Issue Template (see `workflow-contracts.md` § Task Issue Template).
+Create each task issue using the Task Issue Template (see [workflow-contracts.md: Task Issue Template](./workflow-contracts.md#task-issue-template)).
 
 Each `task:implement` issue receives exactly four labels: type (`task:implement`), status (`status:pending`), priority, and complexity. Each `task:refinement` issue receives exactly three labels (no complexity).
 
 ### Phase 5: Report Summary
 
-After all issues are created/updated/closed, the Planner outputs a planning summary as its final text output (see § Completion Output).
+After all issues are created/updated/closed, the Planner outputs a planning summary as its final text output (see [Completion Output](#completion-output)).
 
 ## Complexity Assessment
 
@@ -112,7 +112,7 @@ For each task, the Planner assigns a complexity label that determines the Implem
 - `complexity:simple` — Single-file changes, mechanical transformations, straightforward CRUD, boilerplate. The Implementor runs with Sonnet.
 - `complexity:complex` — Multi-file coordination, architectural decisions, nuanced logic, non-trivial error handling. The Implementor runs with Opus.
 
-When in doubt, prefer `complexity:complex` — the cost of under-resourcing a task (wasted turns, poor output) exceeds the cost of over-resourcing (higher token cost). See `script-label-setup.md` for label definitions and `control-plane-engine.md` § Dispatch Logic for how the engine maps complexity labels to model overrides.
+When in doubt, prefer `complexity:complex` — the cost of under-resourcing a task (wasted turns, poor output) exceeds the cost of over-resourcing (higher token cost). See `script-label-setup.md` for label definitions and [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) for how the engine maps complexity labels to model overrides.
 
 ## Priority Assignment
 
@@ -126,7 +126,7 @@ The Planner sequences tasks so that foundational work is created first as `prior
 
 When the Planner encounters ambiguity, contradiction, or a gap in the spec that prevents task decomposition:
 
-1. Create a `task:refinement` issue using the Refinement Issue Template (see `workflow-contracts.md` § Refinement Issue Template).
+1. Create a `task:refinement` issue using the Refinement Issue Template (see [workflow-contracts.md: Refinement Issue Template](./workflow-contracts.md#refinement-issue-template)).
 2. Do not create tasks that depend on the ambiguous section until the spec is clarified.
 3. Continue creating tasks for unambiguous sections.
 
@@ -136,8 +136,8 @@ Refinement issues default to `priority:high` because they block task creation. U
 
 On every run, the Planner returns one of:
 
-- **Planning Summary** (see `workflow-contracts.md` § Planning Summary Format) — when at least one spec passed its gates and decomposition ran.
-- **Gate Failure reports only** (see `workflow-contracts.md` § Planning Gate Failure Format) — when all specs failed their gates.
+- **Planning Summary** (see [workflow-contracts.md: Planning Summary Format](./workflow-contracts.md#planning-summary-format)) — when at least one spec passed its gates and decomposition ran.
+- **Gate Failure reports only** (see [workflow-contracts.md: Planning Gate Failure Format](./workflow-contracts.md#planning-gate-failure-format)) — when all specs failed their gates.
 
 ## Acceptance Criteria
 
@@ -164,7 +164,7 @@ On every run, the Planner returns one of:
 - Label setup — All workflow labels must exist in the repository (see `script-label-setup.md`).
 - `workflow-contracts.md` — Shared data formats: Task Issue Template, Refinement Issue Template, Planning Gate Failure Format, Planning Summary Format.
 - Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
-- `control-plane-engine-agent-manager.md` § Planner Context Pre-computation — Engine builds the enriched trigger prompt.
+- [control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation) — Engine builds the enriched trigger prompt.
 - `control-plane-engine-planner-cache.md` — Planner cache for diff computation (last successful run state).
 
 ## References
@@ -173,4 +173,4 @@ On every run, the Planner returns one of:
 - `docs/specs/workflow/script-label-setup.md` — Label definitions for the repository
 - `docs/specs/workflow/skill-github-workflow.md` — GitHub Workflow Skill spec (reference for `gh` command patterns and label rules; not loaded at runtime)
 - `docs/specs/workflow/github-cli.md` — GitHub CLI wrapper spec
-- `control-plane-engine.md` § Dispatch Logic — Planner auto-dispatch and complexity-based model override
+- [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) — Planner auto-dispatch and complexity-based model override

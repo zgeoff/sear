@@ -40,7 +40,7 @@ The wrapper ensures a valid GitHub App token is available (generating and cachin
 gh issue create --title "<title>" --body "<body>" --label "<label>" --label "<label>" ...
 ```
 
-Issue body template: see [references/templates.md](references/templates.md) § "Issue Body Template".
+Issue body template: see [references/templates.md: Issue Body Template](references/templates.md#issue-body-template).
 
 ### Read
 

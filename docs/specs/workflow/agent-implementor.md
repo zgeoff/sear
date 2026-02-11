@@ -14,12 +14,12 @@ Agent that executes assigned tasks by reading task issues and referenced specs, 
 ## Constraints
 
 - Must work on exactly one task at a time.
-- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
+- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see [skill-github-workflow.md: Authentication](./skill-github-workflow.md#authentication) for wrapper behavior).
 - Must conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - Must use conventional commit format for commit messages and PR titles.
 - Must not reprioritize tasks or change task sequencing. Executes what is assigned.
 - Must not make interpretive decisions when the spec is ambiguous, contradictory, or incomplete. Escalate as a blocker instead.
-- The agent definition body must include the permitted bash command list from `agent-hook-bash-validator.md` § Allowlist Prefixes to prevent wasted turns on blocked commands.
+- The agent definition body must include the permitted bash command list from [agent-hook-bash-validator.md: Allowlist Prefixes](./agent-hook-bash-validator.md#allowlist-prefixes) to prevent wasted turns on blocked commands.
 
 ## Agent Profile
 
@@ -30,7 +30,7 @@ Agent that executes assigned tasks by reading task issues and referenced specs, 
 | Turn budget | 100 | Open-ended implementation work requires higher budget than analysis |
 | Permission model | Non-interactive with bash validation | Runs unattended; bash validator enforces command safety |
 
-The agent definition (`.claude/agents/implementor.md`) implements these constraints as frontmatter. The Engine overrides the model at dispatch time based on the task's complexity label (see `control-plane-engine.md` § Dispatch Logic). See `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses frontmatter.
+The agent definition (`.claude/agents/implementor.md`) implements these constraints as frontmatter. The Engine overrides the model at dispatch time based on the task's complexity label (see [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic)). See [control-plane-engine-agent-manager.md: Frontmatter Field Mapping](./control-plane-engine-agent-manager.md#frontmatter-field-mapping) for how the Engine parses frontmatter.
 
 ## Trigger
 
@@ -44,11 +44,11 @@ The agent determines the scenario from the task's current status label.
 
 ## Inputs
 
-The Engine injects the following into the agent's session at dispatch time (see `control-plane-engine-agent-manager.md` § Trigger Context and § Project Context Injection):
+The Engine injects the following into the agent's session at dispatch time (see [control-plane-engine-agent-manager.md: Trigger Context](./control-plane-engine-agent-manager.md#trigger-context) and [Project Context Injection](./control-plane-engine-agent-manager.md#project-context-injection)):
 
 1. **Trigger prompt:** The task issue number (e.g., `"42"`).
 2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended to the agent's system prompt.
-3. **Working directory:** A git worktree (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). For new tasks, the worktree is on a fresh branch. For resumed tasks (`status:unblocked`, `status:needs-changes`), the worktree is on the existing PR branch.
+3. **Working directory:** A git worktree (see [control-plane-engine-agent-manager.md: Agent Lifecycle](./control-plane-engine-agent-manager.md#agent-lifecycle), step 2). For new tasks, the worktree is on a fresh branch. For resumed tasks (`status:unblocked`, `status:needs-changes`), the worktree is on the existing PR branch.
 
 The agent fetches all remaining data via tool calls: the task issue body, referenced spec sections, in-scope file state, and (for resumed tasks) existing PR and review comments.
 
@@ -61,7 +61,7 @@ Before starting work, the agent validates:
 3. **Status label** — The task's current status label is one of: `status:pending`, `status:unblocked`, `status:needs-changes`.
 4. **Existing PR** (resume only) — For `status:unblocked` or `status:needs-changes`, a PR linked to the task issue exists.
 
-If any check fails, the agent posts a comment using the Validation Failure Comment format (see `workflow-contracts.md` § Validation Failure Comment) and stops. The agent does not change the status label on validation failure.
+If any check fails, the agent posts a comment using the Validation Failure Comment format (see [workflow-contracts.md: Validation Failure Comment](./workflow-contracts.md#validation-failure-comment)) and stops. The agent does not change the status label on validation failure.
 
 ## Execution Scenarios
 
@@ -79,7 +79,7 @@ The worktree is on the existing PR branch. The agent reviews the original blocke
 
 The worktree is on the existing PR branch. The agent reads the PR review comments to understand requested changes, transitions the label to `status:in-progress`, then addresses each review comment within scope. Fixes are pushed to the existing PR — no new PR is opened, and the draft-to-ready conversion does not apply (the PR is already ready-for-review).
 
-If a review comment requests changes to out-of-scope files, the agent posts an escalation comment (see `workflow-contracts.md` § Escalation Comment Format) explaining the scope constraint and continues with in-scope fixes.
+If a review comment requests changes to out-of-scope files, the agent posts an escalation comment (see [workflow-contracts.md: Escalation Comment Format](./workflow-contracts.md#escalation-comment-format)) explaining the scope constraint and continues with in-scope fixes.
 
 ### Test Verification
 
@@ -91,18 +91,18 @@ When the agent encounters something that prevents continued progress:
 
 1. Stop work immediately.
 2. Open a draft PR to preserve progress (if no PR exists yet).
-3. Post a blocker comment on the task issue using the Blocker Comment Format (see `workflow-contracts.md` § Blocker Comment Format).
+3. Post a blocker comment on the task issue using the Blocker Comment Format (see [workflow-contracts.md: Blocker Comment Format](./workflow-contracts.md#blocker-comment-format)).
 4. Transition the label from `status:in-progress` to:
    - `status:needs-refinement` for spec blockers (ambiguity, contradiction, gap)
    - `status:blocked` for non-spec blockers (external dependency, technical constraint)
 
 ### Escalations
 
-When the agent identifies a non-blocking issue (e.g., scope conflict with another task, priority conflict, judgment call), it posts an escalation comment using the Escalation Comment Format (see `workflow-contracts.md` § Escalation Comment Format) and continues working. Escalations do not stop work and do not change the status label. If the issue later prevents progress, it becomes a blocker.
+When the agent identifies a non-blocking issue (e.g., scope conflict with another task, priority conflict, judgment call), it posts an escalation comment using the Escalation Comment Format (see [workflow-contracts.md: Escalation Comment Format](./workflow-contracts.md#escalation-comment-format)) and continues working. Escalations do not stop work and do not change the status label. If the issue later prevents progress, it becomes a blocker.
 
 ## Scope Enforcement
 
-The agent must only modify files listed in the task issue's "In Scope" section, subject to the scope enforcement rules defined in `workflow-contracts.md` § Scope Enforcement Rules (primary scope, co-located test files, incidental changes).
+The agent must only modify files listed in the task issue's "In Scope" section, subject to the scope enforcement rules defined in [workflow-contracts.md: Scope Enforcement Rules](./workflow-contracts.md#scope-enforcement-rules) (primary scope, co-located test files, incidental changes).
 
 When non-incidental changes to out-of-scope files are needed:
 - If it blocks progress: treat as a blocker (type: `technical-constraint`).
@@ -122,7 +122,7 @@ The agent must not perform any other status transitions.
 
 ## Completion Output
 
-On every run (success, blocker, or validation failure), the agent returns the Implementor Completion Output (see `workflow-contracts.md` § Implementor Completion Output) as its final text output to the invoking process.
+On every run (success, blocker, or validation failure), the agent returns the Implementor Completion Output (see [workflow-contracts.md: Implementor Completion Output](./workflow-contracts.md#implementor-completion-output)) as its final text output to the invoking process.
 
 ## Acceptance Criteria
 

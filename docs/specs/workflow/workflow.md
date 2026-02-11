@@ -158,7 +158,7 @@ Task status is tracked via mutually exclusive `status:*` labels on GitHub Issues
 | `status:review` | `status:needs-changes` | Reviewer rejects with feedback |
 | `status:needs-changes` | `status:in-progress` | Implementor addresses feedback |
 
-No other agent-initiated transitions are valid. The engine performs two administrative overrides outside this table: `in-progress → pending` (recovery) and `in-progress → review` (completion-dispatch) — see `control-plane-engine-recovery.md` and `control-plane-engine.md` § Completion-dispatch. The full transition table is also defined in `skill-github-workflow.md`.
+No other agent-initiated transitions are valid. The engine performs two administrative overrides outside this table: `in-progress → pending` (recovery) and `in-progress → review` (completion-dispatch) — see [control-plane-engine-recovery.md](./control-plane-engine-recovery.md) and [control-plane-engine.md: Completion-dispatch](./control-plane-engine.md#completion-dispatch). The full transition table is also defined in [skill-github-workflow.md](./skill-github-workflow.md).
 
 ```mermaid
 stateDiagram-v2
@@ -213,7 +213,7 @@ Quality gates define what must be true before transitioning between phases. A tr
 - Tests pass locally
 - PR opened (not draft) and linked to task issue via `Closes #<N>`
 - Changes are within declared scope or qualify as incidental (minimal, directly required by in-scope changes, non-behavioral — see `agent-implementor.md` for full definition)
-- Branch name follows the engine's dispatch convention (`issue-<N>-<timestamp>` for new tasks, PR's head branch for resume scenarios — see `control-plane.md` § Worktree Isolation)
+- Branch name follows the engine's dispatch convention (`issue-<N>-<timestamp>` for new tasks, PR's head branch for resume scenarios — see [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation))
 
 #### Review to Integrate
 
@@ -290,7 +290,7 @@ Label definitions (names, descriptions, colors) and the setup script are specifi
 - [ ] Given a new specification with `status: approved`, when committed to `docs/specs/`, then the Planner is triggered and produces GitHub Issues for unsatisfied acceptance criteria.
 - [ ] Given a task issue created by the Planner, when inspected, then it has exactly one type label, one status label, and one priority label.
 - [ ] Given a task assigned to an Implementor, when the Implementor starts work, then the task label transitions from `status:pending` to `status:in-progress` before any code changes are made.
-- [ ] Given an Implementor completes work on a task, when a non-draft PR is linked to the task issue, then the task transitions to `status:review` and the Reviewer is dispatched (see `control-plane-engine.md` § Completion-dispatch for the engine mechanism).
+- [ ] Given an Implementor completes work on a task, when a non-draft PR is linked to the task issue, then the task transitions to `status:review` and the Reviewer is dispatched (see [control-plane-engine.md: Completion-dispatch](./control-plane-engine.md#completion-dispatch) for the engine mechanism).
 - [ ] Given a Reviewer that approves a PR, when the task label transitions to `status:approved`, then the Human can merge the PR and close the issue.
 
 ### Quality Gates

@@ -97,7 +97,7 @@ Related specs, external docs, prior art.
 Every normative behavior has exactly one home in the spec corpus. When another spec needs to mention a behavior owned elsewhere:
 
 1. Write a one-sentence summary of **what** happens (not **how**).
-2. Add a section-level cross-reference: `See <spec-name> § <section> for full behavior.`
+2. Add a section-level cross-reference: `See [<Spec Name>: <Section>](./<spec-name>#<section-anchor>) for full behavior.`
 
 Do not copy procedures, tables, or step lists. If you're writing more than two sentences about a behavior with a normative home elsewhere, you are duplicating.
 

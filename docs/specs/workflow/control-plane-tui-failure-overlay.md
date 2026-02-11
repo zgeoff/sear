@@ -35,7 +35,7 @@ lastFailure?: {
 };
 ```
 
-This field is defined on `TrackedIssue` in `control-plane-tui.md` § Type Definitions.
+This field is defined on `TrackedIssue` in [control-plane-tui.md: Type Definitions](./control-plane-tui.md#type-definitions).
 
 For Planner `agentFailed` events, the store sets `plannerRunning: false` and adds a notification, but does **not** record `lastFailure` on any issue.
 
@@ -54,7 +54,7 @@ For Planner `agentFailed` events, the store sets `plannerRunning: false` and add
 
 ### Issue List Rendering
 
-When an issue has `lastFailure` set, the issue list renders it with an **error indicator** regardless of the issue's GitHub status label (`statusLabel`). The error indicator takes precedence over all status-based indicators (see state indicator table in `control-plane-tui.md` § Issue List Pane).
+When an issue has `lastFailure` set, the issue list renders it with an **error indicator** regardless of the issue's GitHub status label (`statusLabel`). The error indicator takes precedence over all status-based indicators (see state indicator table in [control-plane-tui.md: Issue List Pane](./control-plane-tui.md#issue-list-pane)).
 
 The issue remains in its normal sort position — failure does not change sort order. Active agents are still pinned above failed issues.
 
@@ -78,7 +78,7 @@ When the user presses Enter on a failed issue:
 2. On `y`: Clear `lastFailure` on the issue. Dispatch the appropriate agent — `dispatchImplementor` for Implementor failures, `dispatchReviewer` for Reviewer failures.
 3. On `n` or `Escape`: Dismiss the prompt. `lastFailure` remains set.
 
-The confirmation prompt follows the same rendering and exclusivity rules as all other prompts (see `control-plane-tui.md` § Keyboard Controls).
+The confirmation prompt follows the same rendering and exclusivity rules as all other prompts (see [control-plane-tui.md: Keyboard Controls](./control-plane-tui.md#keyboard-controls)).
 
 ## Acceptance Criteria
 
@@ -120,4 +120,4 @@ The confirmation prompt follows the same rendering and exclusivity rules as all 
 ## References
 
 - `control-plane-engine-recovery.md` — Crash recovery (resets GitHub status to `pending` after agent failure, `isRecovery` flag on synthetic events)
-- `control-plane-tui.md` § State Management — Event handler table, `TrackedIssue` type definition
+- [control-plane-tui.md: State Management](./control-plane-tui.md#state-management) — Event handler table, `TrackedIssue` type definition

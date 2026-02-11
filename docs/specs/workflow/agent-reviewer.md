@@ -14,10 +14,10 @@ Agent that reviews completed implementation work against acceptance criteria, sp
 ## Constraints
 
 - Must not merge PRs. Approval means setting `status:approved`; the Human performs the merge.
-- Must never reject without providing actionable feedback explaining what needs to change and why. Each piece of feedback must include what is wrong, why it is wrong, and what to change (see `workflow-contracts.md` § Review Rejection Template).
-- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
+- Must never reject without providing actionable feedback explaining what needs to change and why. Each piece of feedback must include what is wrong, why it is wrong, and what to change (see [workflow-contracts.md: Review Rejection Template](./workflow-contracts.md#review-rejection-template)).
+- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see [skill-github-workflow.md: Authentication](./skill-github-workflow.md#authentication) for wrapper behavior).
 - Scope issues are reported as warnings, not as findings that trigger rejection.
-- The agent definition body must include the permitted bash command list from `agent-hook-bash-validator.md` § Allowlist Prefixes to prevent wasted turns on blocked commands.
+- The agent definition body must include the permitted bash command list from [agent-hook-bash-validator.md: Allowlist Prefixes](./agent-hook-bash-validator.md#allowlist-prefixes) to prevent wasted turns on blocked commands.
 - Must read the full source file for any file with non-trivial changes; the injected diff is for triage and identification only.
 - Must read changed test files in full to assess coverage, assertion quality, and setup correctness.
 - Must cross-reference each prior review comment against the current diff during re-reviews; comments referencing unmodified code must be investigated.
@@ -32,15 +32,15 @@ Agent that reviews completed implementation work against acceptance criteria, sp
 | Turn budget | 50 | Bounded analysis, not open-ended work |
 | Permission model | Non-interactive with bash validation | Runs unattended; bash validator enforces command safety |
 
-The agent definition (`.claude/agents/reviewer.md`) implements these constraints as frontmatter. See `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses them.
+The agent definition (`.claude/agents/reviewer.md`) implements these constraints as frontmatter. See [control-plane-engine-agent-manager.md: Frontmatter Field Mapping](./control-plane-engine-agent-manager.md#frontmatter-field-mapping) for how the Engine parses them.
 
 ## Trigger
 
-The Reviewer is invoked with a task issue number when the task has `status:review` (see `control-plane-engine.md` § Completion-dispatch for trigger mechanism).
+The Reviewer is invoked with a task issue number when the task has `status:review` (see [control-plane-engine.md: Completion-dispatch](./control-plane-engine.md#completion-dispatch) for trigger mechanism).
 
 ## Inputs
 
-The Engine injects the following into the agent's session at dispatch time (see `control-plane-engine-agent-manager.md` § Trigger Context, § Project Context Injection, and § Reviewer Context Pre-computation):
+The Engine injects the following into the agent's session at dispatch time (see [control-plane-engine-agent-manager.md: Trigger Context](./control-plane-engine-agent-manager.md#trigger-context), [Project Context Injection](./control-plane-engine-agent-manager.md#project-context-injection), and [Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation)):
 
 1. **Trigger prompt:** An enriched prompt containing:
    - **Task issue details** — number, title, body (objective, spec reference, scope, acceptance criteria), and labels.
@@ -48,7 +48,7 @@ The Engine injects the following into the agent's session at dispatch time (see 
    - **PR diffs** — per-file patches (filename, status, unified diff) for all changed files in the linked PR.
    - **Prior review history** — review submissions (author, state, body) and inline comments (author, body, path, line) from prior Reviewer runs and Human reviewers. Empty on first review.
 2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended to the agent's system prompt.
-3. **Working directory:** A git worktree checked out to the PR branch at the latest remote state (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). The Reviewer reads the implementation files as they exist on the PR branch, not on `main`.
+3. **Working directory:** A git worktree checked out to the PR branch at the latest remote state (see [control-plane-engine-agent-manager.md: Agent Lifecycle](./control-plane-engine-agent-manager.md#agent-lifecycle), step 2). The Reviewer reads the implementation files as they exist on the PR branch, not on `main`.
 
 PR existence is guaranteed by the engine's dispatch preconditions — both completion-dispatch and manual `dispatchReviewer` verify a linked PR before dispatching.
 
@@ -67,7 +67,7 @@ Applies when review comments exist on the PR from non-automated sources (prior R
 
 ### 2. Scope Compliance
 
-Compare files modified in the PR diff against the task issue's scope, applying the scope enforcement rules defined in `workflow-contracts.md` § Scope Enforcement Rules.
+Compare files modified in the PR diff against the task issue's scope, applying the scope enforcement rules defined in [workflow-contracts.md: Scope Enforcement Rules](./workflow-contracts.md#scope-enforcement-rules).
 
 If a modified file is neither in primary scope, a co-located test file, nor an incidental change, record it as a warning (not a finding) with an explanation.
 
@@ -92,9 +92,9 @@ Verify code follows the project's style, naming conventions, and patterns define
 
 ## Approval and Rejection
 
-**Approval:** When all checklist steps pass (no findings), the agent submits a PR review comment using the Review Approval Template (see `workflow-contracts.md` § Review Approval Template) and transitions the task label from `status:review` to `status:approved`. The label is the canonical approval signal.
+**Approval:** When all checklist steps pass (no findings), the agent submits a PR review comment using the Review Approval Template (see [workflow-contracts.md: Review Approval Template](./workflow-contracts.md#review-approval-template)) and transitions the task label from `status:review` to `status:approved`. The label is the canonical approval signal.
 
-**Rejection:** When one or more checklist steps have findings, the agent submits a PR review comment using the Review Rejection Template (see `workflow-contracts.md` § Review Rejection Template) and transitions the task label from `status:review` to `status:needs-changes`.
+**Rejection:** When one or more checklist steps have findings, the agent submits a PR review comment using the Review Rejection Template (see [workflow-contracts.md: Review Rejection Template](./workflow-contracts.md#review-rejection-template)) and transitions the task label from `status:review` to `status:needs-changes`.
 
 ## Status Transitions
 
@@ -107,7 +107,7 @@ The agent must not perform any other status transitions.
 
 ## Completion Output
 
-On every run (approval or rejection), the agent returns the Reviewer Completion Output (see `workflow-contracts.md` § Reviewer Completion Output) as its final text output to the invoking process.
+On every run (approval or rejection), the agent returns the Reviewer Completion Output (see [workflow-contracts.md: Reviewer Completion Output](./workflow-contracts.md#reviewer-completion-output)) as its final text output to the invoking process.
 
 ## Acceptance Criteria
 
@@ -135,7 +135,7 @@ On every run (approval or rejection), the agent returns the Reviewer Completion 
 - `scripts/workflow/gh.sh` — Authenticated `gh` CLI wrapper (see `docs/specs/workflow/github-cli.md`). All GitHub operations (label changes, issue comments, PR reviews).
 - `CLAUDE.md` — Code style, naming conventions, and patterns that the agent checks against.
 - `workflow-contracts.md` — Shared data formats: Review Approval Template, Review Rejection Template, Reviewer Completion Output, Scope Enforcement Rules.
-- `control-plane-engine-agent-manager.md` § Reviewer Context Pre-computation — Enriched prompt format and data sources.
+- [control-plane-engine-agent-manager.md: Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation) — Enriched prompt format and data sources.
 - Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
 
 ## References

@@ -29,7 +29,7 @@ When the engine dispatches an agent:
    - **Fresh branch** (Implementor, no linked PR — new task or retry): The Engine Core generates `issue-<N>-<timestamp>` as `branchName` with `branchBase: 'main'`. The Agent Manager creates the worktree via `git worktree add .worktrees/<branchName> -b <branchName> <branchBase>`.
    - **PR branch** (Implementor, linked PR exists — resume from `needs-changes` or `unblocked`): The Engine Core provides the PR's `headRefName` as `branchName` with no `branchBase`. The Agent Manager creates the worktree via `git worktree add .worktrees/<branchName> <branchName>`.
    - **Review branch** (Reviewer — always has a linked PR): The Engine Core provides the PR's `headRefName` as `branchName` with `fetchRemote: true`. The Agent Manager fetches the branch from the remote (`git fetch origin <branchName>`) and creates the worktree from the remote tracking ref (`git worktree add .worktrees/<branchName> origin/<branchName>`). This ensures the Reviewer sees the latest pushed state, even if the branch was modified outside the local repository.
-   See `control-plane.md` § Worktree Isolation.
+   See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation).
 3. **Create session** — Create an agent session via `query()` from `@anthropic-ai/claude-agent-sdk`. The engine loads the agent definition inline (see Agent Definition Loading) and passes it to the SDK via the `agents` option. See SDK Session Configuration below for the full call signature.
 4. **Capture session ID** — The SDK returns a `session_id` in its init message. Store this alongside the session handle.
 5. **Track** — Record the agent session as running for this issue/spec, including the session handle, session ID, and branch name (if Implementor or Reviewer).
@@ -40,10 +40,10 @@ When the engine dispatches an agent:
    - If Implementor or Reviewer, remove the worktree via `git worktree remove` (success or failure — the branch persists for inspection).
    - If session succeeded: emit `agentCompleted`.
    - If session failed: emit `agentFailed` with session ID and branch name (Implementor and Reviewer).
-   - **Completion-dispatch (Implementor success only):** After emitting `agentCompleted` for an Implementor, the Agent Manager reports the completion to the Engine Core. The Engine Core checks for a linked non-draft PR and, if found, sets `status:review` on the issue, emits a synthetic `issueStatusChanged` (with `isEngineTransition: true`), and dispatches the Reviewer. See `control-plane-engine.md` § Completion-dispatch.
-   - **Crash recovery (Implementor only):** After emitting `agentFailed`/`agentCompleted`, the Agent Manager reports the completion to the Engine Core. The Engine Core invokes Recovery to check if the issue is still `status:in-progress` and, if so, resets it to `status:pending`, emits `recoveryPerformed` and a synthetic `issueStatusChanged`. See `control-plane-engine-recovery.md`. The Agent Manager does not perform recovery directly — it reports completion and the Engine Core mediates. Note: if completion-dispatch already set `status:review`, crash recovery does not fire (the issue is no longer `status:in-progress`).
+   - **Completion-dispatch (Implementor success only):** After emitting `agentCompleted` for an Implementor, the Agent Manager reports the completion to the Engine Core. The Engine Core checks for a linked non-draft PR and, if found, sets `status:review` on the issue, emits a synthetic `issueStatusChanged` (with `isEngineTransition: true`), and dispatches the Reviewer. See [control-plane-engine.md: Completion-dispatch](./control-plane-engine.md#completion-dispatch).
+   - **Crash recovery (Implementor only):** After emitting `agentFailed`/`agentCompleted`, the Agent Manager reports the completion to the Engine Core. The Engine Core invokes Recovery to check if the issue is still `status:in-progress` and, if so, resets it to `status:pending`, emits `recoveryPerformed` and a synthetic `issueStatusChanged`. See [control-plane-engine-recovery.md](./control-plane-engine-recovery.md). The Agent Manager does not perform recovery directly — it reports completion and the Engine Core mediates. Note: if completion-dispatch already set `status:review`, crash recovery does not fire (the issue is no longer `status:in-progress`).
    - **Planner sessions** skip crash recovery and completion-dispatch entirely (no associated issue).
-   - **Reviewer sessions** skip crash recovery (issue stays `status:review`; see `control-plane-engine-recovery.md` § Reviewer Failure) and skip completion-dispatch.
+   - **Reviewer sessions** skip crash recovery (issue stays `status:review`; see [control-plane-engine-recovery.md: Reviewer Failure](./control-plane-engine-recovery.md#reviewer-failure)) and skip completion-dispatch.
 
 **Session resume:** The SDK supports resuming a failed session via `resume: sessionId`. The engine does not resume sessions automatically — it always starts fresh sessions. However, the session ID from a failed run is included in the `agentFailed` event so the TUI can surface it to the user for manual resume outside the control plane if needed.
 
@@ -53,9 +53,9 @@ Each agent session receives trigger-specific context as its initial prompt:
 
 | Agent | Trigger Context |
 |-------|----------------|
-| Planner | Enriched prompt containing: full content of each changed spec (with diffs for modified specs), and existing open task issues (number, title, labels, body). See Planner Context Pre-computation below. |
+| Planner | Enriched prompt containing: full content of each changed spec (with diffs for modified specs), and existing open task issues (number, title, labels, body). See [Planner Context Pre-computation](#planner-context-pre-computation) below. |
 | Implementor | Issue number |
-| Reviewer | Enriched prompt containing: task issue details (number, title, body, labels), PR metadata (number, title from `getPRForIssue`), per-file PR diffs (filename, status, patch), and prior review submissions and inline comments. See Reviewer Context Pre-computation below. |
+| Reviewer | Enriched prompt containing: task issue details (number, title, body, labels), PR metadata (number, title from `getPRForIssue`), per-file PR diffs (filename, status, patch), and prior review submissions and inline comments. See [Reviewer Context Pre-computation](#reviewer-context-pre-computation) below. |
 
 ### Agent Definition Loading
 
@@ -106,7 +106,7 @@ The `QueryFactory` receives a `PreToolUse` hook callback at construction time an
 1. Extracts the `command` string from the hook input's `tool_input`.
 2. Runs the command through the blocklist (same ERE patterns as the shell script, evaluated via RegExp).
 3. If no blocklist match, segments the command (quote-aware splitting on `&&`, `||`, `;`, `|`, newlines) and checks each segment's first word against the allowlist.
-4. Returns `{ decision: 'approve' }` to allow, or `{ decision: 'block', reason: '<message>' }` to reject. The `reason` string must use the exact error message format defined in `agent-hook-bash-validator.md` § Error Message Format (`Blocked: matches dangerous pattern '<pattern>'` for blocklist, `Blocked: '<command>' is not in the allowed command list` for allowlist).
+4. Returns `{ decision: 'approve' }` to allow, or `{ decision: 'block', reason: '<message>' }` to reject. The `reason` string must use the exact error message format defined in [agent-hook-bash-validator.md: Error Message Format](./agent-hook-bash-validator.md#error-message-format) (`Blocked: matches dangerous pattern '<pattern>'` for blocklist, `Blocked: '<command>' is not in the allowed command list` for allowlist).
 
 The hook callback signature follows the SDK's `HookCallback` type:
 
@@ -122,7 +122,7 @@ type HookCallback = (
 
 ### SDK Session Configuration
 
-The Agent Manager creates agent sessions using the v1 `query()` function from `@anthropic-ai/claude-agent-sdk`. The engine loads agent definitions inline (see Agent Definition Loading above) and passes them via the `agents` option. Project context files (CLAUDE.md) are loaded manually and appended to the agent's system prompt (see Project Context Injection below). The engine controls session-level options (working directory, permissions, cancellation) directly.
+The Agent Manager creates agent sessions using the v1 `query()` function from `@anthropic-ai/claude-agent-sdk`. The engine loads agent definitions inline (see [Agent Definition Loading](#agent-definition-loading) above) and passes them via the `agents` option. Project context files (CLAUDE.md) are loaded manually and appended to the agent's system prompt (see [Project Context Injection](#project-context-injection) below). The engine controls session-level options (working directory, permissions, cancellation) directly.
 
 **Call signature:**
 
@@ -155,12 +155,12 @@ const q = query({
 
 | Option | Value | Purpose |
 |--------|-------|---------|
-| `prompt` | Trigger context string | The initial user message. Enriched prompt with spec content, diffs, and existing issues (Planner — see Planner Context Pre-computation), enriched prompt with issue details, PR diffs, and review comments (Reviewer — see Reviewer Context Pre-computation), or issue number as string (Implementor). |
+| `prompt` | Trigger context string | The initial user message. Enriched prompt with spec content, diffs, and existing issues (Planner — see [Planner Context Pre-computation](#planner-context-pre-computation)), enriched prompt with issue details, PR diffs, and review comments (Reviewer — see [Reviewer Context Pre-computation](#reviewer-context-pre-computation)), or issue number as string (Implementor). |
 | `agent` | Agent name from config | Selects which agent definition to use from the `agents` map. |
 | `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). The `model` field may be overridden by `modelOverride` from `QueryFactoryParams`. |
 | `maxTurns` | Integer from frontmatter | Maximum number of agentic turns before the SDK stops the session. Read from the agent definition's frontmatter `maxTurns` field. If absent in frontmatter, omitted from options (SDK default: no limit). |
 | `cwd` | Worktree or repo root | Implementor, Reviewer: `.worktrees/<branchName>`. Planner: repository root. |
-| `settingSources` | `[]` (empty) | Intentionally empty. The SDK's `settingSources: ['project']` resolution hangs indefinitely when `cwd` is a git worktree (see Known SDK Limitation below). All project-level concerns are handled manually: agent definitions via inline loading, project context (CLAUDE.md) via `contextPaths`, hooks via the programmatic `hooks` option, and `permissionMode` via the explicit option. |
+| `settingSources` | `[]` (empty) | Intentionally empty. The SDK's `settingSources: ['project']` resolution hangs indefinitely when `cwd` is a git worktree (see [Known SDK Limitation](#sdk-session-configuration) below). All project-level concerns are handled manually: agent definitions via inline loading, project context (CLAUDE.md) via `contextPaths`, hooks via the programmatic `hooks` option, and `permissionMode` via the explicit option. |
 | `hooks` | `{ PreToolUse: [{ matcher: 'Bash', hooks: [bashValidatorHook] }] }` | Programmatic hooks. The bash validator hook validates every Bash command against a blocklist/allowlist before execution. See Programmatic Hooks. |
 | `permissionMode` | `'bypassPermissions'` | Agents run non-interactively. All tool invocations are auto-approved. |
 | `allowDangerouslySkipPermissions` | `true` | Required safety acknowledgment when using `bypassPermissions` (SDK ≥0.2.x). |
@@ -419,7 +419,7 @@ type AgentManagerConfig = {
 // createAgentManager(config: AgentManagerConfig, queryFactory: QueryFactory): AgentManager
 // The Agent Manager does not need GitHubClient, owner, or repo directly —
 // crash recovery and completion-dispatch are mediated by the Engine Core
-// (see control-plane-engine-recovery.md, control-plane-engine.md § Completion-dispatch).
+// (see control-plane-engine-recovery.md, [control-plane-engine.md: Completion-dispatch](./control-plane-engine.md#completion-dispatch)).
 // The Agent Manager reports completions via callbacks provided by the Engine Core.
 //
 // Worktree creation and cleanup are handled by the Agent Manager. The Engine Core
@@ -508,7 +508,7 @@ type AgentStream = AsyncIterable<string> | null;
 
 ## References
 
-- `control-plane-engine.md` § Dispatch Logic — When agents are dispatched
-- `control-plane-engine.md` § Configuration — Agent names, `maxAgentDuration`, logging settings
+- [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) — When agents are dispatched
+- [control-plane-engine.md: Configuration](./control-plane-engine.md#configuration) — Agent names, `maxAgentDuration`, logging settings
 - `control-plane-engine-recovery.md` — Crash recovery triggered after agent completion
 - `agent-hook-bash-validator-script.md` — Shell script implementation of the bash validator (for interactive use outside the control plane)

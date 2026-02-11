@@ -83,7 +83,7 @@ type CachedIssueDetails = {
 };
 
 // CachedPRDetails captures the PRDetailsResult fields needed for TUI display
-// (see control-plane-engine.md § Query Results), plus a `stale` field for cache
+// (see [control-plane-engine.md: Query Results](./control-plane-engine.md#query-results)), plus a `stale` field for cache
 // management. `isDraft` and `headRefName` are omitted — not needed for rendering.
 type CachedPRDetails = {
   number: number;
@@ -125,5 +125,5 @@ type CachedPRDetails = {
 
 ## References
 
-- `control-plane-tui.md` § State Management — Event handler table, `agentStreams` buffer, cache invalidation
-- `control-plane-engine-agent-manager.md` § Stream Accessor — Engine-side stream interface
+- [control-plane-tui.md: State Management](./control-plane-tui.md#state-management) — Event handler table, `agentStreams` buffer, cache invalidation
+- [control-plane-engine-agent-manager.md: Stream Accessor](./control-plane-engine-agent-manager.md#stream-accessor) — Engine-side stream interface

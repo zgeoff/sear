@@ -13,7 +13,7 @@ The engine performs recovery to ensure no issue is permanently stuck in `status:
 
 ## Constraints
 
-- The `in-progress → pending` reset is an administrative override that bypasses the normal transition table defined in `workflow.md`. The only other engine-initiated status change is the `in-progress → review` transition during completion-dispatch (see `control-plane-engine.md` § Completion-dispatch).
+- The `in-progress → pending` reset is an administrative override that bypasses the normal transition table defined in `workflow.md`. The only other engine-initiated status change is the `in-progress → review` transition during completion-dispatch (see [control-plane-engine.md: Completion-dispatch](./control-plane-engine.md#completion-dispatch)).
 - Recovery events must include `isRecovery: true` on synthetic `issueStatusChanged` events so the TUI can distinguish them from normal poll-detected changes (the failure overlay must survive recovery).
 
 ## Specification
@@ -112,6 +112,6 @@ Event emission (`recoveryPerformed`, synthetic `issueStatusChanged`) and IssuePo
 
 ## References
 
-- `control-plane-engine.md` § Dispatch Logic — Synthetic events pass through dispatch logic
-- `control-plane-engine-agent-manager.md` § Agent Lifecycle — Crash recovery triggered after agent completion
+- [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) — Synthetic events pass through dispatch logic
+- [control-plane-engine-agent-manager.md: Agent Lifecycle](./control-plane-engine-agent-manager.md#agent-lifecycle) — Crash recovery triggered after agent completion
 - `control-plane-tui-failure-overlay.md` — Failure overlay behavior (consumes `isRecovery` flag to preserve overlay during recovery)

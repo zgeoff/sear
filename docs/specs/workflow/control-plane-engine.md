@@ -59,7 +59,7 @@ flowchart TD
 ```
 
 - **Pollers** — Independent units that each monitor a single data source on their own interval. Pollers are pure sensors — they detect state changes and report results. IssuePoller emits events directly; SpecPoller returns batched results to the Engine Core. They do not make dispatch decisions.
-- **Engine Core** — Receives poller events, classifies them by dispatch tier, and manages agent sessions. Owns dispatch policy and agent lifecycle. Engine Core sub-components are specified in dedicated sub-specs: Agent Manager (`control-plane-engine-agent-manager.md`), Recovery (`control-plane-engine-recovery.md`), Planner Cache (`control-plane-engine-planner-cache.md`).
+- **Engine Core** — Receives poller events, classifies them by dispatch tier, and manages agent sessions. Owns dispatch policy and agent lifecycle. Engine Core sub-components are specified in dedicated sub-specs: Agent Manager ([control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md)), Recovery ([control-plane-engine-recovery.md](./control-plane-engine-recovery.md)), Planner Cache ([control-plane-engine-planner-cache.md](./control-plane-engine-planner-cache.md)).
 - **Interfaces** — Event emitter (outbound state changes), command interface (inbound user actions), query interface (on-demand data fetching), and stream accessor (live agent output). All consumed by the TUI.
 
 Each poller maintains its own snapshot slice. A failure in one poller does not affect others.
@@ -90,7 +90,7 @@ The factory:
 
 ### Pollers
 
-The engine uses two independent pollers: the **IssuePoller** monitors GitHub Issues for `status:*` label changes, and the **SpecPoller** monitors the specs directory on the default branch for file changes via the GitHub Trees API. Each runs on its own interval and maintains its own snapshot. See `control-plane-engine-pollers.md` for full poll cycle behavior, snapshot state, change detection, closed issue detection, startup burst, first-cycle execution, snapshot seeding, and type definitions.
+The engine uses two independent pollers: the **IssuePoller** monitors GitHub Issues for `status:*` label changes, and the **SpecPoller** monitors the specs directory on the default branch for file changes via the GitHub Trees API. Each runs on its own interval and maintains its own snapshot. See [control-plane-engine-pollers.md](./control-plane-engine-pollers.md) for full poll cycle behavior, snapshot state, change detection, closed issue detection, startup burst, first-cycle execution, snapshot seeding, and type definitions.
 
 ### Dispatch Logic
 
@@ -104,7 +104,7 @@ The engine invokes the agent automatically with no user action.
 |-------------|-------|-----------|
 | `specChanged` | Planner | Spec frontmatter `status` is `approved` |
 
-The Planner is invoked once per SpecPoller cycle with all changed (and approved) spec paths batched into a single invocation. The Engine Core receives the full batch from the SpecPoller synchronously and passes approved paths to a single Planner dispatch. Before dispatching, the Engine Core builds an enriched trigger prompt containing the full content of each changed spec, existing open task issues, and commit SHAs for diff support. See `control-plane-engine-agent-manager.md` § Planner Context Pre-computation for the prompt format and data sources.
+The Planner is invoked once per SpecPoller cycle with all changed (and approved) spec paths batched into a single invocation. The Engine Core receives the full batch from the SpecPoller synchronously and passes approved paths to a single Planner dispatch. Before dispatching, the Engine Core builds an enriched trigger prompt containing the full content of each changed spec, existing open task issues, and commit SHAs for diff support. See [control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation) for the prompt format and data sources.
 
 **Planner concurrency guard:** Only one Planner session may run at a time. If a SpecPoller cycle detects changes while a Planner is already running, the engine emits `agentSkipped` for the Planner and defers the batch. The Engine Core maintains a deferred paths buffer (a set of file paths, deduplicated) for this purpose. On each subsequent SpecPoller cycle, the Engine Core merges the deferred buffer with the new cycle's results (union, deduplicated). The approval filter (`status: approved`) is applied to the merged set at dispatch time — paths whose frontmatter status changed to non-approved since deferral are dropped. The deferred buffer is cleared when the Planner is successfully dispatched. If the Planner session fails, the Engine Core re-adds the dispatched spec paths to the deferred buffer so they are included in the next dispatch attempt rather than being lost until restart.
 
@@ -117,7 +117,7 @@ The Reviewer is dispatched when an Implementor agent session completes, not when
 **Trigger:** When the Agent Manager reports an Implementor `agentCompleted` event, the Engine Core:
 
 1. Calls `getPRForIssue(issueNumber, { includeDrafts: false })` to check for a linked non-draft PR.
-2. **PR found:** Sets `status:review` on the issue (via `GitHubClient`), updates the IssuePoller snapshot entry to `status:review` (via `updateEntry()`) to prevent a duplicate `issueStatusChanged` on the next poll cycle, emits a synthetic `issueStatusChanged` event (with `isEngineTransition: true`), builds an enriched Reviewer trigger prompt (see `control-plane-engine-agent-manager.md` § Reviewer Context Pre-computation), and dispatches the Reviewer.
+2. **PR found:** Sets `status:review` on the issue (via `GitHubClient`), updates the IssuePoller snapshot entry to `status:review` (via `updateEntry()`) to prevent a duplicate `issueStatusChanged` on the next poll cycle, emits a synthetic `issueStatusChanged` event (with `isEngineTransition: true`), builds an enriched Reviewer trigger prompt (see [control-plane-engine-agent-manager.md: Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation)), and dispatches the Reviewer.
 3. **No PR found:** Takes no action. The issue remains `status:in-progress`. Crash recovery detects this (no running agent + `status:in-progress`) and resets to `status:pending`.
 
 This flow also handles re-reviews after `needs-changes`: the Implementor is re-dispatched, pushes fixes to the existing PR, and completes. The engine finds the existing non-draft PR and dispatches the Reviewer.
@@ -190,8 +190,8 @@ The engine accepts commands that trigger side effects.
 
 | Command | Parameters | Effect |
 |---------|-----------|--------|
-| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: true })` to determine the worktree strategy: if a linked PR is found (draft or non-draft), the PR branch strategy is used (`branchName` = PR's `headRefName`); otherwise, the fresh branch strategy is used (`branchName` = `issue-<N>-<timestamp>`). See `control-plane.md` § Worktree Isolation. The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies). |
-| `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, if the issue's status is not `review`, or if no linked open PR is found (the Reviewer requires a PR branch to check out). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: false })` to obtain the PR's `headRefName` for the worktree, then builds an enriched trigger prompt via `getIssueDetails`, `getPRFiles`, and `getPRReviews` (see `control-plane-engine-agent-manager.md` § Reviewer Context Pre-computation). The Agent Manager fetches the branch from the remote and creates a worktree at `origin/<headRefName>`. See `control-plane.md` § Worktree Isolation. No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
+| `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: true })` to determine the worktree strategy: if a linked PR is found (draft or non-draft), the PR branch strategy is used (`branchName` = PR's `headRefName`); otherwise, the fresh branch strategy is used (`branchName` = `issue-<N>-<timestamp>`). See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation). The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies). |
+| `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, if the issue's status is not `review`, or if no linked open PR is found (the Reviewer requires a PR branch to check out). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: false })` to obtain the PR's `headRefName` for the worktree, then builds an enriched trigger prompt via `getIssueDetails`, `getPRFiles`, and `getPRReviews` (see [control-plane-engine-agent-manager.md: Reviewer Context Pre-computation](./control-plane-engine-agent-manager.md#reviewer-context-pre-computation)). The Agent Manager fetches the branch from the remote and creates a worktree at `origin/<headRefName>`. See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation). No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
 | `cancelAgent` | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, removes the worktree (branch preserved for inspection). For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`), removes the worktree (branch preserved for inspection). Emits `agentFailed` with a cancellation error. No-op if no agent is running. |
 | `cancelPlanner` | None | Cancels the running Planner session if one exists. Emits `agentFailed` with a cancellation error. No-op if no Planner is running. Note: `cancelPlanner` is not exposed in the TUI — there is no keybinding to cancel the Planner. A hung Planner can be stopped by quitting the control plane (which triggers the graceful shutdown sequence, which cancels all agents after `shutdownTimeout`) or by waiting for `maxAgentDuration` timeout. This is a known v1 limitation. |
 | `shutdown` | None | Initiates graceful shutdown |
@@ -223,15 +223,15 @@ PR linkage is determined by searching for a PR whose body contains a closing key
 
 ### Agent Manager
 
-The Agent Manager handles agent session lifecycle — creating sessions via the Claude Agent SDK, tracking active sessions, monitoring completion, managing worktrees, exposing live agent output streams, and handling session logging. See `control-plane-engine-agent-manager.md` for agent lifecycle steps, agent definition loading, programmatic hooks (bash validator), SDK session configuration, stream accessor, agent session logging, and related type definitions. The `AgentManagerConfig` type (defined in the sub-spec) carries `repoRoot`, `maxAgentDuration`, and logging settings derived from `EngineConfig`.
+The Agent Manager handles agent session lifecycle — creating sessions via the Claude Agent SDK, tracking active sessions, monitoring completion, managing worktrees, exposing live agent output streams, and handling session logging. See [control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md) for agent lifecycle steps, agent definition loading, programmatic hooks (bash validator), SDK session configuration, stream accessor, agent session logging, and related type definitions. The `AgentManagerConfig` type (defined in the sub-spec) carries `repoRoot`, `maxAgentDuration`, and logging settings derived from `EngineConfig`.
 
 ### Recovery
 
-The engine performs recovery to ensure no issue is permanently stuck in `status:in-progress`. Recovery resets stale issues to `status:pending` and emits synthetic events. See `control-plane-engine-recovery.md` for startup recovery, crash recovery, and Reviewer failure behavior.
+The engine performs recovery to ensure no issue is permanently stuck in `status:in-progress`. Recovery resets stale issues to `status:pending` and emits synthetic events. See [control-plane-engine-recovery.md](./control-plane-engine-recovery.md) for startup recovery, crash recovery, and Reviewer failure behavior.
 
 ### Planner Cache
 
-The engine persists a lightweight cache to prevent redundant Planner runs across restarts. See `control-plane-engine-planner-cache.md` for cache format, startup seeding, cache write behavior, deferred paths interaction, and error handling.
+The engine persists a lightweight cache to prevent redundant Planner runs across restarts. See [control-plane-engine-planner-cache.md](./control-plane-engine-planner-cache.md) for cache format, startup seeding, cache write behavior, deferred paths interaction, and error handling.
 
 ### Repository Root Resolution
 
@@ -319,7 +319,7 @@ The engine logs structured events at the following levels:
 | Planner cache write failed | `error` | Error details |
 | Agent session transcript | (file) | Full SDK message stream written to `{logsDir}/{timestamp}-{agentType}[-{context}].log`. One file per session. Only when `logging.agentSessions` is enabled. |
 
-Entries with level `(file)` represent disk writes handled by the Agent Manager, not the structured logger. See `control-plane-engine-agent-manager.md` § Agent Session Logging for format details.
+Entries with level `(file)` represent disk writes handled by the Agent Manager, not the structured logger. See [control-plane-engine-agent-manager.md: Agent Session Logging](./control-plane-engine-agent-manager.md#agent-session-logging) for format details.
 
 ### Error Handling
 
@@ -593,11 +593,11 @@ type PRReviewsResult = {
 
 #### Stream / Agent Manager
 
-See `control-plane-engine-agent-manager.md` § Type Definitions for `AgentStream`, `QueryFactoryParams`, `QueryFactory`, `QueryFactoryConfig`, `AgentManagerConfig`, and `HookCallback`. See `control-plane-engine-agent-manager.md` § SDK Session Configuration for `AgentDefinition`.
+See [control-plane-engine-agent-manager.md: Type Definitions](./control-plane-engine-agent-manager.md#type-definitions) for `AgentStream`, `QueryFactoryParams`, `QueryFactory`, `QueryFactoryConfig`, `AgentManagerConfig`, and `HookCallback`. See [control-plane-engine-agent-manager.md: SDK Session Configuration](./control-plane-engine-agent-manager.md#sdk-session-configuration) for `AgentDefinition`.
 
 #### SpecPoller
 
-See `control-plane-engine-pollers.md` § Type Definitions for `SpecPollerFileEntry`, `SpecPollerSnapshot`, `SpecChange`, and `SpecPollerBatchResult`.
+See [control-plane-engine-pollers.md: Type Definitions](./control-plane-engine-pollers.md#type-definitions) for `SpecPollerFileEntry`, `SpecPollerSnapshot`, `SpecChange`, and `SpecPollerBatchResult`.
 
 #### Configuration
 
@@ -729,11 +729,11 @@ See `control-plane-engine-planner-cache.md` for all planner cache acceptance cri
 - [ ] Given `getPRReviews` is called with a PR number, when no reviews or comments exist, then it returns empty arrays for both `reviews` and `comments`.
 - [ ] Given `getPRReviews` encounters a review with `null` body, when the result is returned, then `body` is an empty string.
 - [ ] Given `getPRReviews` encounters a review with no `user` object, when the result is returned, then `author` is an empty string.
-Stream accessor (`getAgentStream`) acceptance criteria are in `control-plane-engine-agent-manager.md`.
+Stream accessor (`getAgentStream`) acceptance criteria are in [control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md).
 
 ### Agent Session Logging
 
-See `control-plane-engine-agent-manager.md` § Agent Session Logging for all agent session logging acceptance criteria.
+See [control-plane-engine-agent-manager.md: Agent Session Logging](./control-plane-engine-agent-manager.md#agent-session-logging) for all agent session logging acceptance criteria.
 
 ### Operational
 
@@ -767,9 +767,9 @@ See `control-plane-engine-agent-manager.md` § Agent Session Logging for all age
 
 - `@octokit/rest` — GitHub REST API client. Wrapped by the `GitHubClient` adapter; not imported directly outside `engine/github-client/`.
 - `@octokit/auth-app` — GitHub App authentication strategy for `@octokit/rest`. Handles JWT creation, installation token exchange, and automatic token refresh.
-- `@anthropic-ai/claude-agent-sdk` (≥0.2.x) — The v1 `query()` API is used for all agent invocations. Agent definitions are loaded inline by the engine (see `control-plane-engine-agent-manager.md` § Agent Definition Loading) and passed via the `agents` option. The bash validator hook is passed via the `hooks` option (see `control-plane-engine-agent-manager.md` § Programmatic Hooks). `settingSources` is set to `[]` (empty) due to a worktree resolution bug — project context (CLAUDE.md) is injected manually via `contextPaths` (see `control-plane-engine-agent-manager.md` § Project Context Injection). See `control-plane-engine-agent-manager.md` § SDK Session Configuration for the full call signature and option details.
+- `@anthropic-ai/claude-agent-sdk` (≥0.2.x) — The v1 `query()` API is used for all agent invocations. Agent definitions are loaded inline by the engine (see [control-plane-engine-agent-manager.md: Agent Definition Loading](./control-plane-engine-agent-manager.md#agent-definition-loading)) and passed via the `agents` option. The bash validator hook is passed via the `hooks` option (see [control-plane-engine-agent-manager.md: Programmatic Hooks](./control-plane-engine-agent-manager.md#programmatic-hooks)). `settingSources` is set to `[]` (empty) due to a worktree resolution bug — project context (CLAUDE.md) is injected manually via `contextPaths` (see [control-plane-engine-agent-manager.md: Project Context Injection](./control-plane-engine-agent-manager.md#project-context-injection)). See [control-plane-engine-agent-manager.md: SDK Session Configuration](./control-plane-engine-agent-manager.md#sdk-session-configuration) for the full call signature and option details.
 - `gray-matter` — YAML frontmatter parser. Used by the `QueryFactory` to parse agent definition files (`.claude/agents/<name>.md`) into structured frontmatter + markdown body. Imported only in `engine/agent-manager/`.
-- `agent-hook-bash-validator.md` — Normative validation rules for the Bash tool hook (blocklist, allowlist, segmentation). The engine provides a TypeScript implementation; see `control-plane-engine-agent-manager.md` § Programmatic Hooks.
+- `agent-hook-bash-validator.md` — Normative validation rules for the Bash tool hook (blocklist, allowlist, segmentation). The engine provides a TypeScript implementation; see [control-plane-engine-agent-manager.md: Programmatic Hooks](./control-plane-engine-agent-manager.md#programmatic-hooks).
 - `control-plane-engine-pollers.md` — IssuePoller and SpecPoller sub-spec
 - `control-plane-engine-agent-manager.md` — Agent Manager sub-spec (lifecycle, SDK sessions, definition loading, hooks, streams, logging)
 - `control-plane-engine-recovery.md` — Recovery sub-spec (startup and crash recovery)

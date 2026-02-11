@@ -128,7 +128,7 @@ export interface CachedIssueDetails {
 }
 
 // CachedPRDetails captures the PRDetailsResult fields needed for TUI display
-// (see control-plane-engine.md § Query Results), plus a `stale` field for cache
+// (see control-plane-engine.md#query-results), plus a `stale` field for cache
 // management. `isDraft` and `headRefName` are omitted — not needed for rendering.
 export interface CachedPRDetails {
   number: number;

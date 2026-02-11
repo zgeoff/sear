@@ -81,7 +81,7 @@ Related specs, external docs, prior art.
 |---------|---------|
 | **Overview** | One paragraph. What this is, why it exists. Orient the reader. |
 | **Constraints** | Hard rules. What it must/must not do. Non-negotiable. |
-| **Specification** | Normative content only. How it works. Precise enough to implement against. Use subsections, tables, and step lists. Rationale must be separated (see Writing Disciplines § Rationale Separation). |
+| **Specification** | Normative content only. How it works. Precise enough to implement against. Use subsections, tables, and step lists. Rationale must be separated (see [Writing Disciplines: Rationale Separation](#rationale-separation)). |
 | **Acceptance Criteria** | Edge cases, ordering guarantees, interaction effects, and boundary conditions that are not obvious from the Specification section. Not a restatement of the prose. |
 | **Known Limitations** | *(Optional)* Intentional capability gaps, scale boundaries, workarounds, or deferred-to-future-version caveats. Only include this section when the spec has limitations worth calling out. Omit entirely (not "None") when there are none. |
 | **Dependencies** | What this requires to function. Other specs, skills, tools, external systems. |
@@ -96,7 +96,7 @@ These rules govern how spec content is written. They apply to all new specs and 
 Every normative behavior must have exactly one home in the spec corpus. When another spec needs to mention a behavior owned by a different spec:
 
 1. Write a one-sentence summary of **what** happens (not **how**).
-2. Add a section-level cross-reference: `See <spec-name> § <section> for full behavior.`
+2. Add a section-level cross-reference: `See [spec-name: Section](./spec-name.md#section-anchor) for full behavior.`
 
 Do not copy procedures, tables, or step lists into referencing specs. If you find yourself writing more than two sentences about a behavior that has a normative home elsewhere, you are duplicating.
 

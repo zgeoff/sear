@@ -19,7 +19,7 @@ The engine persists a lightweight cache to prevent redundant Planner runs across
 
 ## Specification
 
-**Cache file:** `.agentic-workflow-cache.json` at `repoRoot` (see `control-plane-engine.md` § Repository Root Resolution). This file should be gitignored — it is machine-local ephemeral state, not shared across clones.
+**Cache file:** `.agentic-workflow-cache.json` at `repoRoot` (see [control-plane-engine.md: Repository Root Resolution](./control-plane-engine.md#repository-root-resolution)). This file should be gitignored — it is machine-local ephemeral state, not shared across clones.
 
 **Format:**
 
@@ -40,7 +40,7 @@ The engine persists a lightweight cache to prevent redundant Planner runs across
 }
 ```
 
-The cache stores the SpecPoller's snapshot at the time the Planner was last successfully dispatched: the specs directory tree SHA, per-file blob SHAs with frontmatter status, and the commit SHA from the `SpecPollerBatchResult`. The `commitSHA` field is used as the "previous" commit SHA when building the Planner's enriched trigger prompt (see `control-plane-engine-agent-manager.md` § Planner Context Pre-computation) — it enables the Planner to compute diffs between the last planned state and the current state. The on-disk format is a JSON serialization of `PlannerCacheEntry` (see Type Definitions below).
+The cache stores the SpecPoller's snapshot at the time the Planner was last successfully dispatched: the specs directory tree SHA, per-file blob SHAs with frontmatter status, and the commit SHA from the `SpecPollerBatchResult`. The `commitSHA` field is used as the "previous" commit SHA when building the Planner's enriched trigger prompt (see [control-plane-engine-agent-manager.md: Planner Context Pre-computation](./control-plane-engine-agent-manager.md#planner-context-pre-computation)) — it enables the Planner to compute diffs between the last planned state and the current state. The on-disk format is a JSON serialization of `PlannerCacheEntry` (see [Type Definitions](#type-definitions) below).
 
 ### Startup Seeding
 
@@ -99,7 +99,7 @@ type PlannerCache = {
 // createPlannerCache(repoRoot: string): PlannerCache
 ```
 
-The `SpecPollerSnapshot` type is defined in `control-plane-engine-pollers.md` § Type Definitions. `PlannerCacheEntry` pairs the snapshot with the commit SHA from the `SpecPollerBatchResult` — `load()` returns both so the engine can seed the SpecPoller and build the Planner's enriched prompt. `write()` takes them as separate parameters since they come from different sources at dispatch time (snapshot from `getSnapshot()`, commitSHA from `SpecPollerBatchResult`).
+The `SpecPollerSnapshot` type is defined in [control-plane-engine-pollers.md: Type Definitions](./control-plane-engine-pollers.md#type-definitions). `PlannerCacheEntry` pairs the snapshot with the commit SHA from the `SpecPollerBatchResult` — `load()` returns both so the engine can seed the SpecPoller and build the Planner's enriched prompt. `write()` takes them as separate parameters since they come from different sources at dispatch time (snapshot from `getSnapshot()`, commitSHA from `SpecPollerBatchResult`).
 
 The `write()` method requires `snapshot.specsDirTreeSHA` to be non-null — the planner cache is only written when the SpecPoller has a non-null tree SHA (i.e., after a successful tree fetch). Calling `write()` with a null `specsDirTreeSHA` is a programming error — enforce with `tiny-invariant` at the top of `write()`.
 
@@ -124,5 +124,5 @@ The `write()` method requires `snapshot.specsDirTreeSHA` to be non-null — the 
 
 ## References
 
-- `control-plane-engine-pollers.md` § SpecPoller — Snapshot seeding and access
-- `control-plane-engine.md` § Dispatch Logic — Planner concurrency guard and deferred paths
+- [control-plane-engine-pollers.md: SpecPoller](./control-plane-engine-pollers.md#specpoller) — Snapshot seeding and access
+- [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) — Planner concurrency guard and deferred paths

@@ -11,7 +11,7 @@ status: approved
 
 Shell script implementation of the Bash Validator hook. This script is consumed by workflow agents via their agent definition frontmatter for interactive use (agents launched by a human outside the control plane). The validation rules (blocklist patterns, allowlist prefixes, command segmentation, evaluation order) are defined in `agent-hook-bash-validator.md` — this spec covers only the shell-specific implementation details.
 
-For control plane agent sessions, the engine provides a TypeScript implementation of the same rules via the SDK's `hooks` option. See `control-plane-engine-agent-manager.md` § Programmatic Hooks.
+For control plane agent sessions, the engine provides a TypeScript implementation of the same rules via the SDK's `hooks` option. See [control-plane-engine-agent-manager.md: Programmatic Hooks](./control-plane-engine-agent-manager.md#programmatic-hooks).
 
 ## Constraints
 
@@ -53,7 +53,7 @@ The script must not exit 2 for internal errors. Exit 2 is reserved exclusively f
 
 The script implements the two-layer validation defined in `agent-hook-bash-validator.md`:
 
-1. **Blocklist** — A quote-masked copy of the command is produced (see core spec § Quote Masking) by replacing the contents of single- and double-quoted strings with spaces, preserving quote delimiters. The masking can be performed with `awk` or `sed` using the same quoting semantics as the segmentation parser. Each pattern from the blocklist table is then matched against this masked string using `grep -qE`. If any pattern matches, exit 2 with the error message format from the core spec.
+1. **Blocklist** — A quote-masked copy of the command is produced (see [agent-hook-bash-validator.md: Quote Masking](./agent-hook-bash-validator.md#quote-masking)) by replacing the contents of single- and double-quoted strings with spaces, preserving quote delimiters. The masking can be performed with `awk` or `sed` using the same quoting semantics as the segmentation parser. Each pattern from the blocklist table is then matched against this masked string using `grep -qE`. If any pattern matches, exit 2 with the error message format from the core spec.
 2. **Allowlist** — The original (unmasked) command is segmented using the quote-aware parser defined in the core spec (implemented in `awk`). Each segment's first word is checked against the allowlist prefixes table. If any segment's first word is unrecognized, exit 2.
 
 The core spec defines: blocklist patterns, allowlist prefixes, command segmentation rules, evaluation order, empty command handling, error message format, and known limitations. This script implements those rules — it does not define them.

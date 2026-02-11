@@ -43,11 +43,11 @@ Monitors GitHub Issues for status label changes.
 
 **Change detection:** Only `status:*` label changes trigger `issueStatusChanged` events. Title, priority, and creation date are included in the event payload for convenience (the IssuePoller already has this data from the API response) but changes to these fields alone do not trigger events. The snapshot tracks them so they can be included in future events.
 
-**Closed issue detection:** On each poll cycle, the IssuePoller compares the set of issue numbers in the API response against the snapshot. Issues present in the snapshot but absent from the response have been closed or had their `task:implement` label removed. For each removed issue, the IssuePoller removes it from the snapshot and reports the removal to the Engine Core. The Engine Core handles the orchestration response — see `control-plane-engine.md` § Dispatch Logic for the agent cancellation and `issueRemoved` emission sequence.
+**Closed issue detection:** On each poll cycle, the IssuePoller compares the set of issue numbers in the API response against the snapshot. Issues present in the snapshot but absent from the response have been closed or had their `task:implement` label removed. For each removed issue, the IssuePoller removes it from the snapshot and reports the removal to the Engine Core. The Engine Core handles the orchestration response — see [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) for the agent cancellation and `issueRemoved` emission sequence.
 
 **Initial poll cycle:** On the first cycle, the snapshot is empty. All detected issues are treated as new — each emits an `issueStatusChanged` event with `oldStatus: null`. This is how the engine populates the initial issue set. The dispatch logic treats `oldStatus: null` the same as any other status change for tier classification.
 
-**Startup burst:** This means the first poll cycle may trigger dispatch actions for all existing issues simultaneously: emitting `dispatchReady` for all `status:pending` issues, and emitting notifications for all `status:needs-refinement`/`status:blocked` issues. This is intentional — if the control plane starts (or restarts), it should bring the system to the correct state. Startup recovery completes before the first poll cycle, so `status:in-progress` issues will already be reset to `status:pending`. Note: `status:review` issues do not trigger Reviewer dispatch on startup — Reviewer dispatch is completion-driven, not label-driven (see `control-plane-engine.md` § Completion-dispatch).
+**Startup burst:** This means the first poll cycle may trigger dispatch actions for all existing issues simultaneously: emitting `dispatchReady` for all `status:pending` issues, and emitting notifications for all `status:needs-refinement`/`status:blocked` issues. This is intentional — if the control plane starts (or restarts), it should bring the system to the correct state. Startup recovery completes before the first poll cycle, so `status:in-progress` issues will already be reset to `status:pending`. Note: `status:review` issues do not trigger Reviewer dispatch on startup — Reviewer dispatch is completion-driven, not label-driven (see [control-plane-engine.md: Completion-dispatch](./control-plane-engine.md#completion-dispatch)).
 
 **First-cycle execution:** `Engine.start()` runs the first poll cycle of each poller as a direct invocation, not via the interval timer. It awaits both first cycles before resolving. Interval-based polling begins after the first cycles complete. This ensures the TUI receives the initial issue set and any startup-triggered dispatch events before `start()` resolves.
 
@@ -66,7 +66,7 @@ Monitors the specs directory on the default branch for changes, using the GitHub
 7. Return the complete batch of changes to the Engine Core.
 8. Update the snapshot.
 
-The SpecPoller returns results synchronously to the Engine Core on every cycle, even when no changes are detected (empty `changes` array). This ensures the Engine Core can dispatch deferred Planner paths on any cycle (see Planner concurrency guard in `control-plane-engine.md` § Dispatch Logic), not only when the SpecPoller detects changes. When `changes` is non-empty, the Engine Core emits individual `specChanged` events per file (for the TUI's notification history) and separately passes the full batch of approved spec paths to the dispatch logic for a single Planner invocation. The per-file events are not the input to Planner dispatch — the Engine Core passes the batch directly. This ensures reliable batching.
+The SpecPoller returns results synchronously to the Engine Core on every cycle, even when no changes are detected (empty `changes` array). This ensures the Engine Core can dispatch deferred Planner paths on any cycle (see Planner concurrency guard in [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic)), not only when the SpecPoller detects changes. When `changes` is non-empty, the Engine Core emits individual `specChanged` events per file (for the TUI's notification history) and separately passes the full batch of approved spec paths to the dispatch logic for a single Planner invocation. The per-file events are not the input to Planner dispatch — the Engine Core passes the batch directly. This ensures reliable batching.
 
 **Snapshot state:**
 
@@ -195,7 +195,7 @@ type SpecPollerConfig = {
 
 ## References
 
-- `control-plane-engine.md` § Architecture — Engine layering diagram
-- `control-plane-engine.md` § Dispatch Logic — How poller results drive dispatch decisions
-- `control-plane-engine.md` § Configuration — IssuePoller and SpecPoller configuration settings
+- [control-plane-engine.md: Architecture](./control-plane-engine.md#architecture) — Engine layering diagram
+- [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) — How poller results drive dispatch decisions
+- [control-plane-engine.md: Configuration](./control-plane-engine.md#configuration) — IssuePoller and SpecPoller configuration settings
 - `control-plane-engine-recovery.md` — Startup recovery completes before first poll cycle

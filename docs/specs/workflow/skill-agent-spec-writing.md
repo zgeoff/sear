@@ -14,9 +14,9 @@ Agent skill (`/agent-spec-writing`) that provides a specialized template, sectio
 ## Constraints
 
 - Agent specs live in `docs/specs/` alongside other specs
-- All fixed template sections are required (see § Agent Spec Template)
+- All fixed template sections are required (see [Agent Spec Template](#agent-spec-template))
 - Must invoke `/doc-coauthoring` to develop the spec through structured collaboration
-- The general writing disciplines from `skill-spec-writing.md` § Writing Disciplines apply unchanged (define-once, rationale separation, structured formats, acceptance criteria discipline)
+- The general writing disciplines from [skill-spec-writing.md: Writing Disciplines](./skill-spec-writing.md#writing-disciplines) apply unchanged (define-once, rationale separation, structured formats, acceptance criteria discipline)
 - Every normative statement has exactly one home — no duplication between the agent spec, the agent definition, and the shared contracts document
 - The spec must not read like a system prompt rewritten in third person
 
@@ -24,7 +24,7 @@ Agent skill (`/agent-spec-writing`) that provides a specialized template, sectio
 
 ### Agent Spec Template
 
-Agent specs follow this structure, which replaces the general spec template from `skill-spec-writing.md`. The general writing disciplines are inherited; the template structure is not. Fixed sections are required for every agent. Agent-specific contract sections vary per agent and must pass the Contract Test (see § The Contract Test).
+Agent specs follow this structure, which replaces the general spec template from [skill-spec-writing.md](./skill-spec-writing.md). The general writing disciplines are inherited; the template structure is not. Fixed sections are required for every agent. Agent-specific contract sections vary per agent and must pass the Contract Test (see [The Contract Test](#the-contract-test)).
 
 ```markdown
 ---
@@ -99,19 +99,19 @@ Related specs, external docs, prior art.
 |---------|---------|
 | **Overview** | One paragraph. What the agent does, its role, what it produces. Orient the reader. |
 | **Constraints** | Hard rules the agent must follow. Includes both operational constraints (tool usage, CLI wrappers) and behavioral constraints (must read full files, must not guess spec intent). Behavioral constraints that affect review quality or correctness belong here, not in a separate "how to use your inputs" section. |
-| **Agent Profile** | Design decisions for the agent's configuration, with rationale. See § Agent Profile Table for format. |
+| **Agent Profile** | Design decisions for the agent's configuration, with rationale. See [Agent Profile Table](#agent-profile-table) for format. |
 | **Trigger** | The event or condition that causes the agent to be dispatched. Reference the engine spec section that defines the trigger mechanism. |
 | **Inputs** | Two parts: (1) what the caller injects at dispatch time (the contract between engine and agent), and (2) what the agent fetches itself. The injected context is a precise data interface — enumerate each field. The self-fetched data is a summary. |
 | **Agent-specific sections** | Contract-level behavioral content that varies per agent. Must pass the Contract Test. Examples: a review checklist (defines what "reviewed" means), a decomposition process (defines ordering constraints between phases), scope enforcement rules (shared between producer and auditor). |
 | **Completion Output** | The agent's output contract with its caller. Every agent produces final output; the format is always worth specifying. Reference the format definition in the shared contracts document. |
-| **Acceptance Criteria** | Observable behavioral outcomes. See § Acceptance Criteria for Agents for agent-specific guidance. General AC discipline from `skill-spec-writing.md` § Acceptance Criteria Discipline applies. |
+| **Acceptance Criteria** | Observable behavioral outcomes. See [Acceptance Criteria for Agents](#acceptance-criteria-for-agents) for agent-specific guidance. General AC discipline from [skill-spec-writing.md: Acceptance Criteria Discipline](./skill-spec-writing.md#acceptance-criteria-discipline) applies. |
 | **Dependencies** | What the agent requires: CLI wrappers, shared contracts, engine specs, bash validators, external tools. |
 | **Known Limitations** | *(Optional)* Intentional capability gaps, scale boundaries, or deferred items. Omit entirely when there are none. Same semantics as the general template. |
 | **References** | Related specs and docs. Not required to function. |
 
 ### Agent-Specific Writing Disciplines
 
-These disciplines supplement the general writing disciplines defined in `skill-spec-writing.md` § Writing Disciplines. The general disciplines (define-once, rationale separation, structured formats, acceptance criteria discipline) apply unchanged. The disciplines below address concerns specific to agent specs.
+These disciplines supplement the general writing disciplines defined in [skill-spec-writing.md: Writing Disciplines](./skill-spec-writing.md#writing-disciplines). The general disciplines (define-once, rationale separation, structured formats, acceptance criteria discipline) apply unchanged. The disciplines below address concerns specific to agent specs.
 
 #### Contract vs Prompt Separation
 
@@ -189,7 +189,7 @@ A note below the table must reference the agent definition file path and the eng
 
 #### Shared Contracts
 
-Templates and data formats produced by one agent and consumed by another (or by humans or the engine) are defined once in a shared contracts document (e.g., `workflow-contracts.md`). This follows the define-once principle from `skill-spec-writing.md` § Define Once, Reference Elsewhere.
+Templates and data formats produced by one agent and consumed by another (or by humans or the engine) are defined once in a shared contracts document (e.g., `workflow-contracts.md`). This follows the define-once principle from [skill-spec-writing.md: Define Once, Reference Elsewhere](./skill-spec-writing.md#define-once-reference-elsewhere).
 
 **Extraction rule:** During drafting, if a template is produced by one agent and consumed by another, or if two specs need to reference the same format, extract it to the contracts document. The final state of a spec should contain only cross-references to the contracts document, never inlined template text.
 
@@ -199,14 +199,14 @@ Templates and data formats produced by one agent and consumed by another (or by 
 
 ```markdown
 The agent posts a blocker comment using the Blocker Comment Format
-(see `workflow-contracts.md` § Blocker Comment Format).
+(see [workflow-contracts.md: Blocker Comment Format](./workflow-contracts.md#blocker-comment-format)).
 ```
 
 **Examples of shared contracts:** completion output formats, issue comment formats (blocker, escalation, validation failure), PR review templates (approval, rejection), GitHub issue templates (task, refinement), scope enforcement rules.
 
 #### Acceptance Criteria for Agents
 
-The general acceptance criteria discipline from `skill-spec-writing.md` § Acceptance Criteria Discipline applies. The following additional guidance is specific to agent specs.
+The general acceptance criteria discipline from [skill-spec-writing.md: Acceptance Criteria Discipline](./skill-spec-writing.md#acceptance-criteria-discipline) applies. The following additional guidance is specific to agent specs.
 
 **Keep** criteria that test observable behavioral outcomes:
 - State transitions (label changes, issue status updates)
@@ -232,9 +232,9 @@ The general acceptance criteria discipline from `skill-spec-writing.md` § Accep
 1. Ask clarifying questions to gather context about the agent: its role, what triggers it, what it produces, how it integrates with other agents or systems.
 2. Determine if the agent produces or consumes shared data formats. If so, identify which templates belong in the shared contracts document.
 3. Invoke `/doc-coauthoring` to develop the spec through structured collaboration.
-4. Ensure output conforms to the agent spec template (see § Agent Spec Template).
-5. Apply all writing disciplines: general disciplines from `skill-spec-writing.md` and agent-specific disciplines from § Agent-Specific Writing Disciplines.
-6. After drafting, apply the Contract Test (see § The Contract Test) to every behavioral section. Move prompt-level content to the agent definition or remove it.
+4. Ensure output conforms to the agent spec template (see [Agent Spec Template](#agent-spec-template)).
+5. Apply all writing disciplines: general disciplines from [skill-spec-writing.md](./skill-spec-writing.md) and agent-specific disciplines from [Agent-Specific Writing Disciplines](#agent-specific-writing-disciplines).
+6. After drafting, apply the Contract Test (see [The Contract Test](#the-contract-test)) to every behavioral section. Move prompt-level content to the agent definition or remove it.
 7. Before finalizing, verify:
    - No content is duplicated between the spec and the agent definition.
    - Shared templates are extracted to the contracts document, not inlined in the spec.

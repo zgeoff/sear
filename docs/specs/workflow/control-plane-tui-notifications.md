@@ -21,7 +21,7 @@ The notifications pane is a scrollable, chronological event history that surface
 
 ### Pane Behavior
 
-The notifications pane uses the shared list primitives (see `control-plane-tui.md` § Shared List Primitives) for header, alternating rows, selection highlighting, single-line truncation, and scroll windowing.
+The notifications pane uses the shared list primitives (see [control-plane-tui.md: Shared List Primitives](./control-plane-tui.md#shared-list-primitives)) for header, alternating rows, selection highlighting, single-line truncation, and scroll windowing.
 
 **Item format:** Each notification renders as a single line:
 
@@ -115,7 +115,7 @@ The store sets `contextURL` when creating each notification:
 
 - **Issue-related notifications** — `contextURL` is the issue URL. This applies to all notifications with an `issueNumber`.
 - **`agentCompleted` (Implementor)** and **`notification` (`approved`)** — `contextURL` is set to the issue URL initially, then updated asynchronously to the PR URL via `getPRForIssue` (in-place update; no-op if the notification no longer exists). If `getPRForIssue` returns `null` (no linked PR found), `contextURL` remains unchanged (falls back to the issue URL).
-- **`specChanged`** — `contextURL` is the commit diff URL: `https://github.com/{owner}/{repo}/commit/{commitSHA}` (where `commitSHA` is from the `SpecChangedEvent`). Note: the commit SHA is the HEAD at poll time, not per-file — if multiple commits were pushed between polls, the diff URL shows the HEAD commit's full diff (see `control-plane-engine-pollers.md` § SpecPoller for details).
+- **`specChanged`** — `contextURL` is the commit diff URL: `https://github.com/{owner}/{repo}/commit/{commitSHA}` (where `commitSHA` is from the `SpecChangedEvent`). Note: the commit SHA is the HEAD at poll time, not per-file — if multiple commits were pushed between polls, the diff URL shows the HEAD commit's full diff (see [control-plane-engine-pollers.md: SpecPoller](./control-plane-engine-pollers.md#specpoller) for details).
 - **Planner notifications** (no `issueNumber`) — No `contextURL`. Enter is a no-op.
 - **`startup`** — No `contextURL`. Enter is a no-op.
 
@@ -266,6 +266,6 @@ type Notification =
 
 ## References
 
-- `control-plane-tui.md` § Shared List Primitives — Pane rendering foundation
-- `control-plane-tui.md` § Keyboard Controls — Notifications pane key bindings
-- `control-plane-tui.md` § Opening External Resources — URL patterns
+- [control-plane-tui.md: Shared List Primitives](./control-plane-tui.md#shared-list-primitives) — Pane rendering foundation
+- [control-plane-tui.md: Keyboard Controls](./control-plane-tui.md#keyboard-controls) — Notifications pane key bindings
+- [control-plane-tui.md: Opening External Resources](./control-plane-tui.md#opening-external-resources) — URL patterns
