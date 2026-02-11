@@ -496,7 +496,7 @@
       "!**/.pnp.loader.mjs",
       "!**/.yarn/sdks",
       "!**/*.min.js",
-      "!**/.worktrees"
+      "!.worktrees"
     ]
   }
 }
