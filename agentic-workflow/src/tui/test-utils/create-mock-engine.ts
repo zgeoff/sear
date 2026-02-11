@@ -8,6 +8,7 @@ export interface MockEngineOverrides {
   getIssueDetails?: Engine['getIssueDetails'];
   getPRForIssue?: Engine['getPRForIssue'];
   getPRFiles?: Engine['getPRFiles'];
+  getPRReviews?: Engine['getPRReviews'];
   getAgentStream?: Engine['getAgentStream'];
 }
 
@@ -56,6 +57,7 @@ export function createMockEngine(overrides?: MockEngineOverrides): MockEngineRes
         headRefName: 'feature-branch',
       })),
     getPRFiles: overrides?.getPRFiles ?? vi.fn(async () => []),
+    getPRReviews: overrides?.getPRReviews ?? vi.fn(async () => ({ reviews: [], comments: [] })),
     getAgentStream: overrides?.getAgentStream ?? vi.fn(() => null),
   };
 

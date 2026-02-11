@@ -66,6 +66,7 @@ function createMockEngine(): {
       headRefName: 'feature-branch',
     })),
     getPRFiles: vi.fn(async () => []),
+    getPRReviews: vi.fn(async () => ({ reviews: [], comments: [] })),
     getAgentStream: vi.fn(() => null),
   };
 

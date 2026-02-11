@@ -14,6 +14,7 @@ import type {
   IssueDetailsResult,
   PRDetailsResult,
   PRFileEntry,
+  PRReviewsResult,
   ShutdownCommand,
   SpecChange,
   StartupResult,
@@ -41,6 +42,7 @@ import type { IssuePoller, SpecPollerSnapshot } from './pollers/types.ts';
 import { getIssueDetails } from './queries/get-issue-details.ts';
 import { getPRFiles } from './queries/get-pr-files.ts';
 import { getPRForIssue } from './queries/get-pr-for-issue.ts';
+import { getPRReviews } from './queries/get-pr-reviews.ts';
 import type { QueriesConfig } from './queries/types.ts';
 import { createRecovery } from './recovery/create-recovery.ts';
 import type { IssuePollerSnapshot, IssueSnapshotEntry, Recovery } from './recovery/types.ts';
@@ -304,6 +306,10 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 
     getPRFiles(prNumber: number): Promise<PRFileEntry[]> {
       return getPRFiles(queriesConfig, prNumber);
+    },
+
+    getPRReviews(prNumber: number): Promise<PRReviewsResult> {
+      return getPRReviews(queriesConfig, prNumber);
     },
 
     getAgentStream(issueNumber: number): AgentStream {
