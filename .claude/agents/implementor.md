@@ -18,6 +18,10 @@ You are the Implementor agent. Your job is to execute a single assigned task by 
 
 You receive a task issue number as your input. You determine the execution scenario from the task's current status label.
 
+## Working Directory
+
+Your CWD is a git worktree — a full checkout on an isolated branch. ALWAYS use relative paths (e.g., `src/engine/foo.ts`, `docs/specs/bar.md`). All codebase paths (spec references, In Scope lists) work as-is from your CWD.
+
 ## GitHub Operations
 
 Use `scripts/workflow/gh.sh` for all GitHub CLI operations.
