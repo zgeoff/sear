@@ -155,6 +155,8 @@ export type PRDetailsResult = {
   changedFilesCount: number;
   ciStatus: 'pending' | 'success' | 'failure';
   url: string;
+  isDraft: boolean;
+  headRefName: string; // branch name — used by engine for worktree strategy (resume from PR branch)
 } | null;
 
 // ---------------------------------------------------------------------------
@@ -242,6 +244,9 @@ export interface Engine {
   on: (handler: (event: EngineEvent) => void | Promise<void>) => () => void; // returns unsubscribe function
   send: (command: EngineCommand) => void;
   getIssueDetails: (issueNumber: number) => Promise<IssueDetailsResult>;
-  getPRForIssue: (issueNumber: number) => Promise<PRDetailsResult>;
+  getPRForIssue: (
+    issueNumber: number,
+    options?: { includeDrafts?: boolean },
+  ) => Promise<PRDetailsResult>;
   getAgentStream: (issueNumber: number) => AgentStream;
 }

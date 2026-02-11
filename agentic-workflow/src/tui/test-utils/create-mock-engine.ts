@@ -51,6 +51,8 @@ export function createMockEngine(overrides?: MockEngineOverrides): MockEngineRes
         changedFilesCount: 3,
         ciStatus: 'success' as const,
         url: 'https://github.com/owner/repo/pull/10',
+        isDraft: false,
+        headRefName: 'feature-branch',
       })),
     getAgentStream: overrides?.getAgentStream ?? vi.fn(() => null),
   };

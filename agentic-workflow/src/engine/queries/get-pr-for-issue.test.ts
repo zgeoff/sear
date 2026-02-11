@@ -16,9 +16,14 @@ function setupTest(): {
   return { octokit, config };
 }
 
-function setupLinkedPr(octokit: ReturnType<typeof createMockGitHubClient>, body: string): void {
+// biome-ignore lint/nursery/useExplicitType: Optional parameter with default value
+function setupLinkedPr(
+  octokit: ReturnType<typeof createMockGitHubClient>,
+  body: string,
+  draft = false,
+): void {
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 20, body }],
+    data: [{ number: 20, body, draft }],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -26,7 +31,8 @@ function setupLinkedPr(octokit: ReturnType<typeof createMockGitHubClient>, body:
       title: 'feat: test',
       changed_files: 3,
       html_url: 'https://github.com/test-owner/test-repo/pull/20',
-      head: { sha: 'abc123' },
+      head: { sha: 'abc123', ref: 'feature-branch' },
+      draft,
     },
   });
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
@@ -157,7 +163,7 @@ test('it returns PR details when a linked pull request exists', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 20, body: 'Closes #10' }],
+    data: [{ number: 20, body: 'Closes #10', draft: false }],
   });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
@@ -166,7 +172,8 @@ test('it returns PR details when a linked pull request exists', async () => {
       title: 'feat(agentic-workflow): implement queries',
       changed_files: 3,
       html_url: 'https://github.com/test-owner/test-repo/pull/20',
-      head: { sha: 'abc123' },
+      head: { sha: 'abc123', ref: 'feature-branch' },
+      draft: false,
     },
   });
 
@@ -186,6 +193,8 @@ test('it returns PR details when a linked pull request exists', async () => {
     changedFilesCount: 3,
     ciStatus: 'success',
     url: 'https://github.com/test-owner/test-repo/pull/20',
+    isDraft: false,
+    headRefName: 'feature-branch',
   });
 });
 
@@ -276,8 +285,8 @@ test('it returns the first matching PR by number when multiple link to the same 
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 121, body: 'Also Closes #10' },
-      { number: 120, body: 'Closes #10' },
+      { number: 121, body: 'Also Closes #10', draft: false },
+      { number: 120, body: 'Closes #10', draft: false },
     ],
   });
 
@@ -287,7 +296,8 @@ test('it returns the first matching PR by number when multiple link to the same 
       title: 'first PR',
       changed_files: 1,
       html_url: 'https://github.com/test-owner/test-repo/pull/120',
-      head: { sha: 'sha-first' },
+      head: { sha: 'sha-first', ref: 'pr-120-branch' },
+      draft: false,
     },
   });
 
@@ -495,7 +505,7 @@ test('it defaults to pending when the CI status API call fails', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #10' }],
+    data: [{ number: 100, body: 'Closes #10', draft: false }],
   });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
@@ -504,7 +514,8 @@ test('it defaults to pending when the CI status API call fails', async () => {
       title: 'feat: test',
       changed_files: 1,
       html_url: 'https://github.com/test-owner/test-repo/pull/100',
-      head: { sha: 'sha-error' },
+      head: { sha: 'sha-error', ref: 'error-branch' },
+      draft: false,
     },
   });
 
@@ -520,4 +531,137 @@ test('it propagates API errors when listing pull requests', async () => {
   vi.mocked(octokit.pulls.list).mockRejectedValue(new Error('Rate limited'));
 
   await expect(getPRForIssue(config, 10)).rejects.toThrow('Rate limited');
+});
+
+// ---------------------------------------------------------------------------
+// getPRForIssue — includeDrafts parameter
+// ---------------------------------------------------------------------------
+
+test('it excludes draft PRs by default when includeDrafts is not specified', async () => {
+  const { octokit, config } = setupTest();
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 30, body: 'Closes #10', draft: true }],
+  });
+
+  const result = await getPRForIssue(config, 10);
+  expect(result).toBeNull();
+});
+
+test('it excludes draft PRs when includeDrafts is false', async () => {
+  const { octokit, config } = setupTest();
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 30, body: 'Closes #10', draft: true }],
+  });
+
+  const result = await getPRForIssue(config, 10, { includeDrafts: false });
+  expect(result).toBeNull();
+});
+
+test('it includes draft PRs when includeDrafts is true', async () => {
+  const { octokit, config } = setupTest();
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 30, body: 'Closes #10', draft: true }],
+  });
+
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 30,
+      title: 'draft PR',
+      changed_files: 2,
+      html_url: 'https://github.com/test-owner/test-repo/pull/30',
+      head: { sha: 'draft-sha', ref: 'draft-branch' },
+      draft: true,
+    },
+  });
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const result = await getPRForIssue(config, 10, { includeDrafts: true });
+
+  expect(result).toStrictEqual({
+    number: 30,
+    title: 'draft PR',
+    changedFilesCount: 2,
+    ciStatus: 'pending',
+    url: 'https://github.com/test-owner/test-repo/pull/30',
+    isDraft: true,
+    headRefName: 'draft-branch',
+  });
+});
+
+test('it returns a non-draft PR when includeDrafts is false and both draft and non-draft PRs exist', async () => {
+  const { octokit, config } = setupTest();
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [
+      { number: 41, body: 'Closes #10', draft: true },
+      { number: 40, body: 'Closes #10', draft: false },
+    ],
+  });
+
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 40,
+      title: 'non-draft PR',
+      changed_files: 1,
+      html_url: 'https://github.com/test-owner/test-repo/pull/40',
+      head: { sha: 'non-draft-sha', ref: 'non-draft-branch' },
+      draft: false,
+    },
+  });
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'success', total_count: 0 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const result = await getPRForIssue(config, 10, { includeDrafts: false });
+  expect(result?.number).toBe(40);
+  expect(result?.isDraft).toBe(false);
+});
+
+test('it returns the first matching PR when includeDrafts is true and both draft and non-draft PRs exist', async () => {
+  const { octokit, config } = setupTest();
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [
+      { number: 51, body: 'Closes #10', draft: false },
+      { number: 50, body: 'Closes #10', draft: true },
+    ],
+  });
+
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 50,
+      title: 'first PR (draft)',
+      changed_files: 1,
+      html_url: 'https://github.com/test-owner/test-repo/pull/50',
+      head: { sha: 'first-sha', ref: 'first-branch' },
+      draft: true,
+    },
+  });
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const result = await getPRForIssue(config, 10, { includeDrafts: true });
+  expect(result?.number).toBe(50);
+  expect(result?.isDraft).toBe(true);
 });
