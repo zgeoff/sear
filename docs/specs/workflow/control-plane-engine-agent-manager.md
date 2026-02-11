@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine — Agent Manager
-version: 0.7.0
+version: 0.8.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -55,7 +55,7 @@ Each agent session receives trigger-specific context as its initial prompt:
 |-------|----------------|
 | Planner | Enriched prompt containing: full content of each changed spec (with diffs for modified specs), and existing open task issues (number, title, labels, body). See Planner Context Pre-computation below. |
 | Implementor | Issue number |
-| Reviewer | Issue number |
+| Reviewer | Enriched prompt containing: task issue details (number, title, body, labels), PR metadata (number, title from `getPRForIssue`), per-file PR diffs (filename, status, patch), and prior review submissions and inline comments. See Reviewer Context Pre-computation below. |
 
 ### Agent Definition Loading
 
@@ -130,7 +130,7 @@ The Agent Manager creates agent sessions using the v1 `query()` function from `@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 const q = query({
-  prompt: triggerContext,     // enriched prompt (Planner) or issue number string (Implementor, Reviewer)
+  prompt: triggerContext,     // enriched prompt (Planner, Reviewer) or issue number string (Implementor)
   options: {
     agent: agentName,         // e.g., 'planner', 'implementor', 'reviewer'
     agents: {
@@ -155,7 +155,7 @@ const q = query({
 
 | Option | Value | Purpose |
 |--------|-------|---------|
-| `prompt` | Trigger context string | The initial user message. Enriched prompt with spec content, diffs, and existing issues (Planner — see Planner Context Pre-computation), or issue number as string (Implementor, Reviewer). |
+| `prompt` | Trigger context string | The initial user message. Enriched prompt with spec content, diffs, and existing issues (Planner — see Planner Context Pre-computation), enriched prompt with issue details, PR diffs, and review comments (Reviewer — see Reviewer Context Pre-computation), or issue number as string (Implementor). |
 | `agent` | Agent name from config | Selects which agent definition to use from the `agents` map. |
 | `agents` | `Record<string, AgentDefinition>` | Inline agent definitions loaded by the engine from `.claude/agents/<name>.md`. The `prompt` field includes project context appended via `contextPaths` (see Project Context Injection). The `model` field may be overridden by `modelOverride` from `QueryFactoryParams`. |
 | `maxTurns` | Integer from frontmatter | Maximum number of agentic turns before the SDK stops the session. Read from the agent definition's frontmatter `maxTurns` field. If absent in frontmatter, omitted from options (SDK default: no limit). |
@@ -215,6 +215,59 @@ For added specs, only the full content is included (no diff — all content is n
 Pre-computing diffs in the engine saves the Planner at least one Bash tool-call turn per invocation. The engine runs `git diff` locally — this is a cheap local operation that avoids adding GitHub Compare API calls.
 
 **Error handling:** If spec content or issue list fetching fails (GitHub API error), the Planner dispatch fails. This is treated as an agent session creation failure — logged at `error` level, retried on the next SpecPoller cycle (the deferred paths mechanism re-adds the spec paths).
+
+### Reviewer Context Pre-computation
+
+When dispatching the Reviewer (via completion-dispatch or manual `dispatchReviewer`), the Engine Core builds an enriched trigger prompt so the Reviewer starts with task context, PR changes, and prior review feedback in hand. The Engine Core assembles this prompt before calling the `QueryFactory`. This eliminates the Reviewer's initial data-gathering tool-call turns (issue fetch, PR diff, review comment fetch).
+
+The Engine Core already has the PR number and title from the `getPRForIssue` call that precedes every Reviewer dispatch (completion-dispatch and manual dispatch both call `getPRForIssue` first). The PR number is passed to `getPRFiles` and `getPRReviews` directly — no redundant issue→PR lookup. The PR title is used in the prompt header.
+
+**Enriched prompt format:**
+
+```
+## Task Issue #<number> — <title>
+
+<issue body>
+
+### Labels
+<comma-separated label names>
+
+## PR #<prNumber> — <prTitle>
+
+### Changed Files
+
+#### <filename> (<status>)
+```
+<patch>
+```
+
+#### <filename> (<status>)
+```
+<patch>
+```
+
+### Prior Reviews
+
+#### Review by <author> — <state>
+<body>
+
+### Prior Inline Comments
+
+#### <path>:<line> — <author>
+<body>
+```
+
+For files with no `patch` (binary files or files exceeding the diff size limit), the file entry includes the filename and status but no code block. For first-time reviews with no prior review history, the "Prior Reviews" and "Prior Inline Comments" sections are omitted entirely. The `createdAt` field from `IssueDetailsResult` is intentionally excluded — it is not useful for code review.
+
+**Data sources:**
+
+| Data | Source | When fetched |
+|------|--------|-------------|
+| Issue details | `getIssueDetails(issueNumber)` | At Reviewer dispatch time |
+| PR files | `getPRFiles(prNumber)` — PR number obtained from the preceding `getPRForIssue` call | At Reviewer dispatch time |
+| Review history | `getPRReviews(prNumber)` — same PR number | At Reviewer dispatch time |
+
+**Error handling:** If any fetch fails (GitHub API error), the Reviewer dispatch fails. This is treated as an agent session creation failure — logged at `error` level. For completion-dispatch failures, the deferred paths mechanism does not apply (that is Planner-specific). No automatic retry exists — the user can manually dispatch a Reviewer via the TUI's `dispatchReviewer` command.
 
 ### SDK Types and Isolation
 
@@ -328,7 +381,7 @@ All `[HH:MM:SS]` timestamps are UTC. Each SDK `assistant` message may contain mu
 
 ```ts
 type QueryFactoryParams = {
-  prompt: string; // enriched prompt (Planner) or issue number string (Implementor, Reviewer)
+  prompt: string; // enriched prompt (Planner, Reviewer) or issue number string (Implementor)
   agent: string; // agent name, e.g., 'planner'
   cwd: string;
   abortController: AbortController;
@@ -421,6 +474,15 @@ type AgentStream = AsyncIterable<string> | null;
 - [ ] Given the Engine Core dispatches the Planner with modified specs, when it builds the trigger prompt, then the prompt includes a unified diff for each modified spec computed via `git diff` using the cached and current commit SHAs.
 - [ ] Given the Engine Core dispatches the Planner with added specs only, when it builds the trigger prompt, then no diffs are included (only full content).
 - [ ] Given a spec content fetch fails during planner dispatch, when the error is caught, then the dispatch fails (treated as agent session creation failure) and the spec paths are re-added to the deferred buffer.
+
+### Reviewer Context Pre-computation
+
+- [ ] Given the Engine Core dispatches the Reviewer (via completion-dispatch or manual `dispatchReviewer`), when it builds the trigger prompt, then the prompt includes the issue body and labels fetched via `getIssueDetails`.
+- [ ] Given the Engine Core dispatches the Reviewer, when it builds the trigger prompt, then the prompt includes per-file patches fetched via `getPRFiles` using the PR number from the preceding `getPRForIssue` call.
+- [ ] Given the Engine Core dispatches the Reviewer, when it builds the trigger prompt, then the prompt includes prior review submissions and inline comments fetched via `getPRReviews`.
+- [ ] Given the Engine Core dispatches the Reviewer on a first-time review (no prior reviews or comments), when `getPRReviews` returns empty arrays, then the "Prior Reviews" and "Prior Inline Comments" sections are omitted from the prompt.
+- [ ] Given a PR file entry has no `patch` (binary file or diff size limit exceeded), when the enriched prompt is built, then the file entry includes the filename and status but no code block.
+- [ ] Given any fetch fails during Reviewer dispatch (issue details, PR files, or review history), when the error is caught, then the dispatch fails (treated as agent session creation failure).
 
 ### Agent Session Logging
 

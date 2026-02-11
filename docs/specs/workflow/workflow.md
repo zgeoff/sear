@@ -296,7 +296,7 @@ Label definitions (names, descriptions, colors) and the setup script are specifi
 ### Quality Gates
 
 - [ ] Given a spec without `status: approved`, when the Planner is invoked, then it stops without creating task issues.
-- [ ] Given a task issue missing a required section (Objective, Spec Reference, Scope, or Acceptance Criteria), when an agent validates inputs, then it posts a validation failure and stops.
+- [ ] Given a task issue missing a required section (Objective, Spec Reference, Scope, or Acceptance Criteria), when the Implementor validates inputs, then it posts a validation failure and stops. The Reviewer handles missing sections as warnings within its review checklist and continues.
 - [ ] Given a task without `status:approved`, when the Human attempts to integrate, then the quality gate from Review to Integrate is not satisfied.
 
 ### Status Transitions

@@ -1,7 +1,7 @@
 ---
 title: Workflow Contracts
-version: 0.1.0
-last_updated: 2026-02-11
+version: 0.2.0
+last_updated: 2026-02-12
 status: approved
 ---
 
@@ -41,11 +41,11 @@ Produced by the Reviewer as its final text output, returned to the invoking proc
 ## Reviewer Result
 
 **Task:** #<issue-number> — <title>
-**Outcome:** approved | needs-changes | validation-failure
-**PR:** #<pr-number> (or "None")
+**Outcome:** approved | needs-changes
+**PR:** #<pr-number>
 
 ### Summary
-Brief description of the review result. For approvals, confirm what was verified. For rejections, list the categories with findings. For validation failures, state which input check failed.
+Brief description of the review result. For approvals, confirm what was verified. For rejections, list the categories with findings.
 ```
 
 ### Planning Summary Format
@@ -94,16 +94,6 @@ Posted to the task issue when an agent's input validation fails. The agent stops
 **Actual:** <what was found>
 
 Cannot proceed until this is resolved.
-```
-
-### Review Validation Failure Comment
-
-Posted to the task issue when the Reviewer cannot find a linked PR. The agent stops without changing the status label.
-
-```markdown
-## Review Validation Failure
-
-No open PR linked to this task issue was found. The Reviewer requires a PR to review.
 ```
 
 ### Blocker Comment Format

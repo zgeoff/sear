@@ -1,7 +1,7 @@
 ---
 title: Reviewer Agent
-version: 0.7.0
-last_updated: 2026-02-11
+version: 0.8.0
+last_updated: 2026-02-12
 status: approved
 ---
 
@@ -18,6 +18,10 @@ Agent that reviews completed implementation work against acceptance criteria, sp
 - Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
 - Scope issues are reported as warnings, not as findings that trigger rejection.
 - The agent definition body must include the permitted bash command list from `agent-hook-bash-validator.md` § Allowlist Prefixes to prevent wasted turns on blocked commands.
+- Must read the full source file for any file with non-trivial changes; the injected diff is for triage and identification only.
+- Must read changed test files in full to assess coverage, assertion quality, and setup correctness.
+- Must cross-reference each prior review comment against the current diff during re-reviews; comments referencing unmodified code must be investigated.
+- Must fetch referenced spec sections via tool calls; spec content is not included in the enriched prompt.
 
 ## Agent Profile
 
@@ -36,19 +40,17 @@ The Reviewer is invoked with a task issue number when the task has `status:revie
 
 ## Inputs
 
-The Engine injects the following into the agent's session at dispatch time (see `control-plane-engine-agent-manager.md` § Trigger Context and § Project Context Injection):
+The Engine injects the following into the agent's session at dispatch time (see `control-plane-engine-agent-manager.md` § Trigger Context, § Project Context Injection, and § Reviewer Context Pre-computation):
 
-1. **Trigger prompt:** The task issue number (e.g., `"42"`).
+1. **Trigger prompt:** An enriched prompt containing:
+   - **Task issue details** — number, title, body (objective, spec reference, scope, acceptance criteria), and labels.
+   - **PR metadata** — PR number and title (from the `getPRForIssue` call that precedes dispatch).
+   - **PR diffs** — per-file patches (filename, status, unified diff) for all changed files in the linked PR.
+   - **Prior review history** — review submissions (author, state, body) and inline comments (author, body, path, line) from prior Reviewer runs and Human reviewers. Empty on first review.
 2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended to the agent's system prompt.
 3. **Working directory:** A git worktree checked out to the PR branch at the latest remote state (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). The Reviewer reads the implementation files as they exist on the PR branch, not on `main`.
 
-The agent fetches all remaining data via tool calls: the task issue body, the linked PR and its diff, referenced spec sections, and existing PR review comments.
-
-## Input Validation
-
-Before running the review checklist, the agent validates that an open PR linked to the task issue exists. Without a PR there is no diff to review.
-
-If no linked PR is found, the agent posts a comment to the task issue using the Review Validation Failure Comment format (see `workflow-contracts.md` § Review Validation Failure Comment) and stops. The agent does not change the task's status label on validation failure.
+PR existence is guaranteed by the engine's dispatch preconditions — both completion-dispatch and manual `dispatchReviewer` verify a linked PR before dispatching.
 
 ## Review Checklist
 
@@ -105,11 +107,15 @@ The agent must not perform any other status transitions.
 
 ## Completion Output
 
-On every run (approval, rejection, or validation failure), the agent returns the Reviewer Completion Output (see `workflow-contracts.md` § Reviewer Completion Output) as its final text output to the invoking process.
+On every run (approval or rejection), the agent returns the Reviewer Completion Output (see `workflow-contracts.md` § Reviewer Completion Output) as its final text output to the invoking process.
 
 ## Acceptance Criteria
 
-- [ ] Given no open PR linked to the task issue, when the agent validates inputs, then it posts a validation failure comment and stops without changing the status label.
+- [ ] Given the agent receives an enriched prompt with per-file diffs, when it reviews a file with non-trivial changes, then it reads the full file via a tool call before assessing correctness.
+- [ ] Given the agent receives an enriched prompt with per-file diffs, when a changed file is a test file, then the agent reads the full test file before assessing test quality.
+- [ ] Given the agent receives an enriched prompt with prior review comments (re-review scenario), when it reviews the PR, then it cross-references each prior comment against the current diff and records unaddressed items as findings.
+- [ ] Given a re-review scenario where a prior review comment references a file that was not modified in the current diff, when the agent reviews the PR, then it investigates whether the feedback was addressed (by reading the file or checking the author's reply).
+- [ ] Given the agent performs spec conformance checking, when it reads the referenced spec, then it fetches the spec file content via a tool call (not from the enriched prompt).
 - [ ] Given a task issue missing a required section (Scope, Acceptance Criteria, or Spec Reference), when the agent reviews the PR, then the review includes a warning for each affected checklist step and the remaining steps still run.
 - [ ] Given a referenced spec file that does not exist or is not `status: approved`, when the agent reviews the PR, then the spec conformance step records a warning and the remaining steps still run.
 - [ ] Given a task issue with no Constraints section, when the agent reviews the PR, then the task constraints step records a warning and the remaining steps still run.
@@ -128,7 +134,8 @@ On every run (approval, rejection, or validation failure), the agent returns the
 
 - `scripts/workflow/gh.sh` — Authenticated `gh` CLI wrapper (see `docs/specs/workflow/github-cli.md`). All GitHub operations (label changes, issue comments, PR reviews).
 - `CLAUDE.md` — Code style, naming conventions, and patterns that the agent checks against.
-- `workflow-contracts.md` — Shared data formats: Review Approval Template, Review Rejection Template, Review Validation Failure Comment, Reviewer Completion Output, Scope Enforcement Rules.
+- `workflow-contracts.md` — Shared data formats: Review Approval Template, Review Rejection Template, Reviewer Completion Output, Scope Enforcement Rules.
+- `control-plane-engine-agent-manager.md` § Reviewer Context Pre-computation — Enriched prompt format and data sources.
 - Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
 
 ## References

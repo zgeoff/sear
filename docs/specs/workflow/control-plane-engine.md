@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine
-version: 0.12.0
+version: 0.13.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -55,7 +55,7 @@ flowchart TD
     AM -- "agent streams" --> SA
     Dispatch -- "dispatch / notification events" --> EE
     CI -- "dispatch / cancel / shutdown" --> Core
-    QI -- "getIssueDetails / getPRForIssue" --> Core
+    QI -- "getIssueDetails / getPRForIssue\ngetPRFiles / getPRReviews" --> Core
 ```
 
 - **Pollers** — Independent units that each monitor a single data source on their own interval. Pollers are pure sensors — they detect state changes and report results. IssuePoller emits events directly; SpecPoller returns batched results to the Engine Core. They do not make dispatch decisions.
@@ -117,7 +117,7 @@ The Reviewer is dispatched when an Implementor agent session completes, not when
 **Trigger:** When the Agent Manager reports an Implementor `agentCompleted` event, the Engine Core:
 
 1. Calls `getPRForIssue(issueNumber, { includeDrafts: false })` to check for a linked non-draft PR.
-2. **PR found:** Sets `status:review` on the issue (via `GitHubClient`), updates the IssuePoller snapshot entry to `status:review` (via `updateEntry()`) to prevent a duplicate `issueStatusChanged` on the next poll cycle, emits a synthetic `issueStatusChanged` event (with `isEngineTransition: true`), and dispatches the Reviewer.
+2. **PR found:** Sets `status:review` on the issue (via `GitHubClient`), updates the IssuePoller snapshot entry to `status:review` (via `updateEntry()`) to prevent a duplicate `issueStatusChanged` on the next poll cycle, emits a synthetic `issueStatusChanged` event (with `isEngineTransition: true`), builds an enriched Reviewer trigger prompt (see `control-plane-engine-agent-manager.md` § Reviewer Context Pre-computation), and dispatches the Reviewer.
 3. **No PR found:** Takes no action. The issue remains `status:in-progress`. Crash recovery detects this (no running agent + `status:in-progress`) and resets to `status:pending`.
 
 This flow also handles re-reviews after `needs-changes`: the Implementor is re-dispatched, pushes fixes to the existing PR, and completes. The engine finds the existing non-draft PR and dispatches the Reviewer.
@@ -191,7 +191,7 @@ The engine accepts commands that trigger side effects.
 | Command | Parameters | Effect |
 |---------|-----------|--------|
 | `dispatchImplementor` | Issue number | Creates an Implementor agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, or if an agent is already running for the issue. Accepted when the issue's status is in the user-dispatch set (`pending`, `unblocked`, `needs-changes`) or `in-progress` with no running agent (transient state before crash recovery resets it). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: true })` to determine the worktree strategy: if a linked PR is found (draft or non-draft), the PR branch strategy is used (`branchName` = PR's `headRefName`); otherwise, the fresh branch strategy is used (`branchName` = `issue-<N>-<timestamp>`). See `control-plane.md` § Worktree Isolation. The Engine Core reads the issue's `complexity:*` label from the IssuePoller snapshot and passes a `modelOverride` to the `QueryFactory`: `complexity:simple` → `'sonnet'`, `complexity:complex` → `'opus'`. If no complexity label is present, no override is passed (the Implementor's agent definition default applies). |
-| `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, if the issue's status is not `review`, or if no linked open PR is found (the Reviewer requires a PR branch to check out). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: false })` to obtain the PR's `headRefName` for the worktree. The Agent Manager fetches the branch from the remote and creates a worktree at `origin/<headRefName>`. See `control-plane.md` § Worktree Isolation. No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
+| `dispatchReviewer` | Issue number | Creates a Reviewer agent session for the given issue (if no agent is already running for it). No-op if the issue number is not in the IssuePoller snapshot, if the issue's status is not `review`, or if no linked open PR is found (the Reviewer requires a PR branch to check out). Before creating the session, the Engine Core calls `getPRForIssue(issueNumber, { includeDrafts: false })` to obtain the PR's `headRefName` for the worktree, then builds an enriched trigger prompt via `getIssueDetails`, `getPRFiles`, and `getPRReviews` (see `control-plane-engine-agent-manager.md` § Reviewer Context Pre-computation). The Agent Manager fetches the branch from the remote and creates a worktree at `origin/<headRefName>`. See `control-plane.md` § Worktree Isolation. No transient-state exception is needed (unlike `dispatchImplementor`) — Reviewers do not change the issue status to `in-progress`. Used for manual retry after Reviewer failure. |
 | `cancelAgent` | Issue number | Cancels the running agent session for the given issue. The engine determines agent-specific behavior (recovery, worktree handling) from its internal tracking of which agent type is running. For Implementors: performs crash recovery if the issue is still `status:in-progress`, removes the worktree (branch preserved for inspection). For Reviewers: no recovery needed (issue stays `status:review`; user can retry via `dispatchReviewer`), removes the worktree (branch preserved for inspection). Emits `agentFailed` with a cancellation error. No-op if no agent is running. |
 | `cancelPlanner` | None | Cancels the running Planner session if one exists. Emits `agentFailed` with a cancellation error. No-op if no Planner is running. Note: `cancelPlanner` is not exposed in the TUI — there is no keybinding to cancel the Planner. A hung Planner can be stopped by quitting the control plane (which triggers the graceful shutdown sequence, which cancels all agents after `shutdownTimeout`) or by waiting for `maxAgentDuration` timeout. This is a known v1 limitation. |
 | `shutdown` | None | Initiates graceful shutdown |
@@ -204,10 +204,12 @@ The engine provides on-demand data fetching for display purposes. Queries are re
 |-------|-----------|---------|
 | `getIssueDetails` | Issue number | Issue body (objective, spec reference, scope, acceptance criteria), labels, creation date |
 | `getPRForIssue` | Issue number, `includeDrafts` (boolean, default `false`) | PR number, title, changed files count, CI status, URL, `isDraft`, `headRefName`. Returns `null` if no linked PR exists. When `includeDrafts` is `false`, draft PRs are excluded from results. When `true`, draft PRs are included (used by the engine for worktree strategy selection). |
+| `getPRFiles` | PR number | Array of changed files with filename, status (added/modified/removed/renamed/copied/changed/unchanged), and patch (unified diff per file). Returns empty array if the PR has no changed files. |
+| `getPRReviews` | PR number | Review submissions (id, author, state, body) and inline comments (id, author, body, path, line) in separate arrays. Returns empty arrays if no reviews exist. |
 
 PR linkage is determined by searching for a PR whose body contains a closing keyword referencing the issue number. The match is case-insensitive and supports GitHub's closing keywords: `Closes`, `Fixes`, `Resolves` (and their conjugations: `Close`, `Closed`, `Fix`, `Fixed`, `Resolve`, `Resolved`). The issue number must be followed by whitespace, punctuation, or end of line — not additional digits (word-boundary match). If multiple open PRs match, the first match (by PR number, ascending) is used.
 
-**Pagination:** `getIssueDetails` fetches the issue directly via `issues.get` (no pagination concern). `getPRForIssue` lists open PRs via `pulls.list` with `per_page: 100` without pagination. The IssuePoller's `issues.listForRepo` call also uses `per_page: 100` without pagination. Repositories with more than 100 open task issues or 100 open PRs will have results silently truncated. This is a known v1 limitation — acceptable for the expected scale of managed repositories.
+**Pagination:** `getIssueDetails` fetches the issue directly via `issues.get` (no pagination concern). `getPRForIssue` lists open PRs via `pulls.list` with `per_page: 100` without pagination. `getPRFiles` calls `pulls.listFiles` with `per_page: 100` without pagination (GitHub hard limit: 3000 files per PR). `getPRReviews` calls `pulls.listReviews` and `pulls.listReviewComments`, both with `per_page: 100` without pagination. The IssuePoller's `issues.listForRepo` call also uses `per_page: 100` without pagination. Repositories with more than 100 open task issues, 100 open PRs, 100 changed files per PR, or 100 reviews/comments per PR will have results silently truncated. This is a known v1 limitation — acceptable for the expected scale of managed repositories.
 
 **Query normalization:** The `GitHubClient` param/result types mirror Octokit's response shapes (e.g., `IssueData.body` is `string | null`, `IssueData.labels` is `(string | { name?: string })[]`). The query functions normalize these into the cleaner result types consumed by the TUI:
 
@@ -216,6 +218,8 @@ PR linkage is determined by searching for a PR whose body contains a closing key
   - `'failure'` — if `getCombinedStatusForRef` reports `state: 'failure'`, or any check run has `conclusion` of `'failure'`, `'cancelled'`, or `'timed_out'`.
   - `'pending'` — if any check run has `status` other than `'completed'` (i.e., `'queued'` or `'in_progress'`), or if `getCombinedStatusForRef` reports `state: 'pending'`, or if both endpoints report `total_count: 0` (no CI configured).
   - `'success'` — if `getCombinedStatusForRef` reports `state: 'success'` (or `total_count: 0`) and all check runs have `status: 'completed'` with `conclusion: 'success'`.
+- `getPRFiles` — Calls `pulls.listFiles({ owner, repo, pull_number, per_page: 100 })`. Each entry is normalized to `{ filename, status, patch }`. The `patch` field is `string | undefined` — GitHub omits it for binary files and files exceeding the diff size limit. Entries with no `patch` are included (the Reviewer sees the filename and status, but no diff content).
+- `getPRReviews` — Calls `pulls.listReviews` and `pulls.listReviewComments` (both `per_page: 100`). Reviews are normalized to `{ id, author, state, body }` where `author` is extracted from `user.login` (empty string if absent) and `body` is coerced from `string | null` to `string`. Inline comments are normalized to `{ id, author, body, path, line }`. Reviews and comments are returned in separate arrays in API order (chronological).
 
 ### Agent Manager
 
@@ -368,6 +372,9 @@ type GitHubClient = {
   pulls: {
     list(params: PullsListParams): Promise<PullsListResult>;
     get(params: PullsGetParams): Promise<PullsGetResult>;
+    listFiles(params: PullsListFilesParams): Promise<PullsListFilesResult>;
+    listReviews(params: PullsListReviewsParams): Promise<PullsListReviewsResult>;
+    listReviewComments(params: PullsListReviewCommentsParams): Promise<PullsListReviewCommentsResult>;
   };
   repos: {
     getCombinedStatusForRef(params: ReposGetCombinedStatusParams): Promise<ReposGetCombinedStatusResult>;
@@ -550,6 +557,38 @@ type PRDetailsResult = {
   isDraft: boolean;
   headRefName: string; // branch name — used by engine for worktree strategy (resume from PR branch)
 } | null;
+
+// Normalized from pulls.listFiles response:
+// - patch: absent for binary files or files exceeding diff size limit
+type PRFileEntry = {
+  filename: string;
+  status: 'added' | 'modified' | 'removed' | 'renamed' | 'copied' | 'changed' | 'unchanged';
+  patch?: string;
+};
+
+// Normalized from pulls.listReviews + pulls.listReviewComments:
+// - author: extracted from user.login (empty string if absent)
+// - body: coerced from string | null to string (empty string for null)
+type PRReview = {
+  id: number;
+  author: string;
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING';
+  body: string;
+};
+
+// - line: null for outdated comments where the line no longer exists
+type PRInlineComment = {
+  id: number;
+  author: string;
+  body: string;
+  path: string;
+  line: number | null;
+};
+
+type PRReviewsResult = {
+  reviews: PRReview[];
+  comments: PRInlineComment[];
+};
 ```
 
 #### Stream / Agent Manager
@@ -607,6 +646,8 @@ type Engine = {
   send(command: EngineCommand): void;
   getIssueDetails(issueNumber: number): Promise<IssueDetailsResult>;
   getPRForIssue(issueNumber: number, options?: { includeDrafts?: boolean }): Promise<PRDetailsResult>;
+  getPRFiles(prNumber: number): Promise<PRFileEntry[]>;
+  getPRReviews(prNumber: number): Promise<PRReviewsResult>;
   getAgentStream(issueNumber: number): AgentStream;
 };
 
@@ -640,7 +681,8 @@ See `control-plane-engine-pollers.md` for all poller acceptance criteria.
 - [ ] Given the `dispatchImplementor` command is received for an issue with a `complexity:simple` label, when the Implementor session is created, then `modelOverride: 'sonnet'` is passed to the `QueryFactory`.
 - [ ] Given the `dispatchImplementor` command is received for an issue with a `complexity:complex` label, when the Implementor session is created, then `modelOverride: 'opus'` is passed to the `QueryFactory`.
 - [ ] Given the `dispatchImplementor` command is received for an issue with no complexity label, when the Implementor session is created, then no `modelOverride` is passed (agent definition default applies).
-- [ ] Given an Implementor `agentCompleted` event fires for issue N, when the Engine Core calls `getPRForIssue(N, { includeDrafts: false })` and a non-draft PR is found, then the engine sets `status:review` on the issue, updates the IssuePoller snapshot to `status:review`, emits a synthetic `issueStatusChanged` (with `isEngineTransition: true`), and dispatches the Reviewer.
+- [ ] Given an Implementor `agentCompleted` event fires for issue N, when the Engine Core calls `getPRForIssue(N, { includeDrafts: false })` and a non-draft PR is found, then the engine sets `status:review` on the issue, updates the IssuePoller snapshot to `status:review`, emits a synthetic `issueStatusChanged` (with `isEngineTransition: true`), builds an enriched Reviewer trigger prompt, and dispatches the Reviewer.
+- [ ] Given the Engine Core dispatches the Reviewer (via completion-dispatch or manual `dispatchReviewer`), when it builds the trigger prompt, then the prompt includes issue details (from `getIssueDetails`), per-file PR diffs (from `getPRFiles`), and prior review submissions and inline comments (from `getPRReviews`).
 - [ ] Given the engine sets `status:review` on an issue via completion-dispatch, when the IssuePoller snapshot is updated to match, then the next IssuePoller cycle does not emit a duplicate `issueStatusChanged` for that issue.
 - [ ] Given an Implementor `agentCompleted` event fires for issue N, when the Engine Core calls `getPRForIssue(N, { includeDrafts: false })` and no non-draft PR is found, then no Reviewer is dispatched and no status change occurs.
 - [ ] Given an Implementor `agentFailed` event fires for issue N, when the Engine Core processes the failure, then no PR check or Reviewer dispatch occurs.
@@ -680,6 +722,13 @@ See `control-plane-engine-planner-cache.md` for all planner cache acceptance cri
 - [ ] Given `getPRForIssue` finds a linked PR, when any check run has `conclusion: 'failure'`, `'cancelled'`, or `'timed_out'`, then `ciStatus` is `'failure'`.
 - [ ] Given `getPRForIssue` finds a linked PR, when any check run has `status` other than `'completed'`, then `ciStatus` is `'pending'`.
 - [ ] Given `getPRForIssue` is called with an issue number, when no linked PR exists, then it returns `null`.
+- [ ] Given `getPRFiles` is called with a PR number, when the PR has changed files, then it returns an array of `PRFileEntry` with filename, status, and patch for each file.
+- [ ] Given `getPRFiles` is called with a PR number, when a changed file is binary or exceeds the diff size limit, then the entry's `patch` field is absent and the entry is still included.
+- [ ] Given `getPRFiles` is called with a PR number, when the PR has no changed files, then it returns an empty array.
+- [ ] Given `getPRReviews` is called with a PR number, when reviews and inline comments exist, then it returns reviews (id, author, state, body) and comments (id, author, body, path, line) in separate arrays in API order.
+- [ ] Given `getPRReviews` is called with a PR number, when no reviews or comments exist, then it returns empty arrays for both `reviews` and `comments`.
+- [ ] Given `getPRReviews` encounters a review with `null` body, when the result is returned, then `body` is an empty string.
+- [ ] Given `getPRReviews` encounters a review with no `user` object, when the result is returned, then `author` is an empty string.
 Stream accessor (`getAgentStream`) acceptance criteria are in `control-plane-engine-agent-manager.md`.
 
 ### Agent Session Logging
