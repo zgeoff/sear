@@ -1,4 +1,12 @@
 # Prettier is only used for markdown - Biome handles everything else
-*
-!*.md
-!**/*.md
+# we can't use an ignore-all, whitelist pattern - it doesn't work for sub directories for some reason
+.agents
+.yarn
+.pnp*
+*.js
+*.jsx
+*.json
+*.jsonc
+*.ts
+*.tsx
+

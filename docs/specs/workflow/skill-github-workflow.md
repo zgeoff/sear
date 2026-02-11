@@ -1,7 +1,7 @@
 ---
 title: GitHub Workflow Skill
-version: 0.4.1
-last_updated: 2026-02-08
+version: 0.6.0
+last_updated: 2026-02-12
 status: approved
 ---
 
@@ -9,14 +9,18 @@ status: approved
 
 ## Overview
 
-Internal agent skill that guides workflow agents (Planner, Implementor, Reviewer) through GitHub Issue and Pull Request operations using the `gh` CLI. Covers issue CRUD, PR lifecycle, label management, comment templates, and query patterns defined in the development protocol.
+Internal agent skill that guides workflow agents (Planner, Implementor, Reviewer) through GitHub
+Issue and Pull Request operations using the `gh` CLI. Covers issue CRUD, PR lifecycle, label
+management, comment templates, and query patterns defined in the development protocol.
 
 ## Constraints
 
 - All operations use the `gh` CLI (no direct GitHub API calls)
 - Not user-invoked; used internally by agents only
-- Label definitions (names, descriptions, colors) are maintained by `script-label-setup.md` -- not duplicated here
-- The skill provides operation mechanics and templates; agents decide when to use them and what content to include
+- Label definitions (names, descriptions, colors) are maintained by `script-label-setup.md` -- not
+  duplicated here
+- The skill provides operation mechanics and templates; agents decide when to use them and what
+  content to include
 
 ## Specification
 
@@ -28,14 +32,17 @@ All `gh` CLI operations must be run through the authenticated wrapper script:
 scripts/workflow/gh.sh <command> [args...]
 ```
 
-The wrapper handles authentication automatically — it generates a GitHub App token (with local caching) and exports `GH_TOKEN` before forwarding arguments to `gh` via `exec`. If the wrapper exits non-zero before reaching `gh`, authentication has failed and the agent should abort.
+The wrapper handles authentication automatically — it generates a GitHub App token (with local
+caching) and exports `GH_TOKEN` before forwarding arguments to `gh` via `exec`. If the wrapper exits
+non-zero before reaching `gh`, authentication has failed and the agent should abort.
 
 ### Issue Operations
 
 #### Create Issue
 
 - `gh issue create --title "<title>" --body "<body>" --label "<label>" --label "<label>" ...`
-- Issue body templates (task and refinement) are defined in the skill's templates reference
+- Issue body templates (task and refinement) are defined in
+  [workflow-contracts.md: GitHub Issue Templates](./workflow-contracts.md#github-issue-templates)
 
 #### Read Issue
 
@@ -45,13 +52,15 @@ The wrapper handles authentication automatically — it generates a GitHub App t
 
 - `gh issue edit <number>` with `--title`, `--body`, `--add-label`, `--remove-label` flags
 
-For mutually exclusive label categories (status, type, priority), remove the existing label and add the new one in a single command:
+For mutually exclusive label categories (status, type, priority), remove the existing label and add
+the new one in a single command:
 
 - `gh issue edit <number> --remove-label "status:pending" --add-label "status:in-progress"`
 
 #### Close Issue
 
-Close an issue with a reason. Closing is a GitHub state change, not a label transition -- no status label swap is needed.
+Close an issue with a reason. Closing is a GitHub state change, not a label transition -- no status
+label swap is needed.
 
 - `gh issue close <number> --reason completed`
 - `gh issue close <number> --reason "not planned"`
@@ -79,8 +88,10 @@ Assign or unassign users on an issue.
 
 #### Read PR
 
-- Find a PR linked to a task issue: `gh pr list --search "Closes #<N>" --json number,title,headRefName,url`
-- View PR metadata: `gh pr view <number> --json number,title,body,state,isDraft,headRefName,baseRefName,files,reviewDecision,statusCheckRollup,reviews`
+- Find a PR linked to a task issue:
+  `gh pr list --search "Closes #<N>" --json number,title,headRefName,url`
+- View PR metadata:
+  `gh pr view <number> --json number,title,body,state,isDraft,headRefName,baseRefName,files,reviewDecision,statusCheckRollup,reviews`
 - View the full PR diff: `gh pr diff <number>`
 
 #### Update PR
@@ -99,7 +110,12 @@ Post a review comment on the PR:
 
 - `gh pr review <number> --comment --body "<comment>"`
 
-> **Single-identity constraint:** The workflow uses a single GitHub App identity for all operations. Because GitHub prevents any identity from submitting `--approve` or `--request-changes` reviews on its own PRs, all PR reviews use `--comment`. The canonical approval or rejection signal is the `status:approved` or `status:needs-changes` label on the task issue, not the GitHub review state.
+The workflow uses a single GitHub App identity for all operations. All PR reviews use `--comment`
+(not `--approve` or `--request-changes`). The canonical approval or rejection signal is the status
+label on the task issue, not the PR review state.
+
+> **Rationale:** GitHub prevents any identity from submitting `--approve` or `--request-changes`
+> reviews on its own PRs.
 
 #### Get CI Status
 
@@ -119,22 +135,27 @@ An issue must have exactly one label within each category:
 
 #### Valid Status Transitions
 
-| From | To |
-| --- | --- |
-| `status:pending` | `status:in-progress` |
-| `status:in-progress` | `status:blocked` |
-| `status:in-progress` | `status:needs-refinement` |
-| `status:in-progress` | `status:review` |
-| `status:blocked` | `status:unblocked` |
-| `status:needs-refinement` | `status:unblocked` |
-| `status:unblocked` | `status:in-progress` |
-| `status:review` | `status:approved` |
-| `status:review` | `status:needs-changes` |
-| `status:needs-changes` | `status:in-progress` |
+The authoritative transition table is defined in
+[workflow.md: Task Status Transitions](./workflow.md#task-status-transitions). This copy is provided
+for agent convenience — `workflow.md` is the normative home.
+
+| From                      | To                        |
+| ------------------------- | ------------------------- |
+| `status:pending`          | `status:in-progress`      |
+| `status:in-progress`      | `status:blocked`          |
+| `status:in-progress`      | `status:needs-refinement` |
+| `status:in-progress`      | `status:review`           |
+| `status:blocked`          | `status:unblocked`        |
+| `status:needs-refinement` | `status:unblocked`        |
+| `status:unblocked`        | `status:in-progress`      |
+| `status:review`           | `status:approved`         |
+| `status:review`           | `status:needs-changes`    |
+| `status:needs-changes`    | `status:in-progress`      |
 
 ### Comment Templates
 
-Blocker and escalation comment templates are defined in the skill's templates reference.
+Blocker and escalation comment templates are defined in
+[workflow-contracts.md: Issue Comment Formats](./workflow-contracts.md#issue-comment-formats).
 
 ### Query Patterns
 
@@ -162,42 +183,35 @@ Common query patterns for the workflow.
 
 ## Acceptance Criteria
 
-### Issue Operations
-- [ ] Given the agent needs to create a task issue, when it uses this skill, then the created issue has a title, body, and labels
-- [ ] Given the agent needs to inspect a task issue, when it reads the issue, then it receives the issue's number, title, body, labels, state, assignees, and comments
-- [ ] Given the agent needs to modify a task issue, when it updates the issue, then it can change the title, body, or labels
-- [ ] Given the agent needs to close a task issue, when it closes the issue, then a reason is specified
-- [ ] Given the agent needs to change issue assignment, when it updates the assignees, then users can be added or removed
-- [ ] Given the agent needs to communicate on a task issue, when it adds a comment, then the comment is posted to the issue
-
-### PR Operations
-- [ ] Given the agent needs to create a PR, when it creates the PR, then the PR specifies a head branch, base branch, title in conventional commit format, and a body that references the task issue for automatic closing
-- [ ] Given the agent needs to create a draft PR, when it creates the PR, then the PR is marked as a draft
-- [ ] Given the agent needs to find a PR linked to a task issue, when it searches for PRs, then it receives structured output identifying the matching PR
-- [ ] Given the agent needs to inspect a PR, when it reads the PR, then it receives metadata including state, draft status, branches, files, review decision, and CI status
-- [ ] Given the agent needs to see what changed in a PR, when it views the diff, then it receives the full PR diff
-- [ ] Given the agent needs to promote a draft PR, when it marks the PR as ready, then the PR is no longer a draft
-- [ ] Given the agent needs to integrate a PR, when it merges the PR, then a merge strategy is specified
-- [ ] Given the agent needs to submit a review verdict, when it reviews the PR, then the review is posted as a comment and the verdict is conveyed via the task issue's status label (`status:approved` or `status:needs-changes`)
-- [ ] Given the agent needs to check CI results, when it queries PR checks, then it receives the status and conclusion of each check
-
 ### Label Management
-- [ ] Given a status label swap is needed, when the agent performs the update, then the old label is removed and the new label is added in a single command
-- [ ] Given a mutually exclusive label category (type, status, or priority), when the agent changes the label, then exactly one label from that category exists on the issue afterward
-- [ ] Given the agent performs a status transition, when the transition is inspected, then it matches one of the valid transitions defined in the status transition table
 
-### Query Patterns
-- [ ] Given the agent needs to find tasks by status, when it queries issues, then it receives structured output filtered by the specified status label
-- [ ] Given the agent needs to find tasks by priority, when it queries issues, then it receives structured output filtered by the specified priority label
-- [ ] Given the agent needs to find refinement issues, when it queries issues, then it receives structured output filtered to `task:refinement` type
-- [ ] Given the agent needs to find all issues referencing a specific spec, when it queries issues, then it receives structured output filtered to issues whose body contains the spec file path
+- [ ] Given a status label swap is needed, when the agent performs the update, then the old label is
+      removed and the new label is added in a single command (not two separate commands)
+- [ ] Given a mutually exclusive label category (type, status, or priority), when the agent changes
+      the label, then exactly one label from that category exists on the issue afterward
+- [ ] Given the agent performs a status transition, when the transition is inspected, then it
+      matches one of the valid transitions defined in the status transition table
+- [ ] Given the agent attempts a status transition not in the valid transition table, when the
+      operation is evaluated, then the transition is rejected
 
-### Authentication
-- [ ] Given an agent begins a workflow session, when it sets up `gh` CLI authentication, then it sets the `GH_TOKEN` environment variable using the authentication script
-- [ ] Given the authentication script exits with a non-zero code, when the agent observes the failure, then it aborts without attempting `gh` operations
+### Authentication and Error Handling
 
-### General
-- [ ] Given any GitHub operation performed through this skill, when inspected, then it uses the `gh` CLI
+- [ ] Given the authentication script exits with a non-zero code, when the agent observes the
+      failure, then it aborts without attempting any `gh` operations
+- [ ] Given the agent attempts to add a label that does not exist in the repository, when the `gh`
+      command runs, then the error is surfaced to the agent (not silently swallowed)
+- [ ] Given the agent queries an issue number that does not exist, when the `gh` command runs, then
+      the error is surfaced to the agent
+
+### Constraint Enforcement
+
+- [ ] Given any GitHub operation performed through this skill, when inspected, then it uses the `gh`
+      CLI (no direct GitHub API calls)
+- [ ] Given the agent needs to submit a review verdict, when it reviews the PR, then the review is
+      posted using `--comment` only (never `--approve` or `--request-changes`) and the verdict is
+      conveyed via the task issue's status label
+- [ ] Given a PR search returns no results for a task issue, when the agent processes the empty
+      result, then it handles the absence gracefully (no assumption that a PR always exists)
 
 ## Dependencies
 

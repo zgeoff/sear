@@ -1,17 +1,17 @@
 ---
 name: github-workflow
 description: >-
-  Internal agent skill for GitHub Issue and PR operations via the `gh` CLI.
-  Used by workflow agents (Planner, Implementor, Reviewer) for: issue CRUD,
-  PR lifecycle (create, review, merge), label management with mutually exclusive
-  categories and status transitions, comment posting, CI status checks, and
-  query patterns. Not user-invoked; triggered internally when agents perform
-  GitHub operations defined in the development protocol.
+  Internal agent skill for GitHub Issue and PR operations via the `gh` CLI. Used by workflow agents
+  (Planner, Implementor, Reviewer) for: issue CRUD, PR lifecycle (create, review, merge), label
+  management with mutually exclusive categories and status transitions, comment posting, CI status
+  checks, and query patterns. Not user-invoked; triggered internally when agents perform GitHub
+  operations defined in the development protocol.
 ---
 
 # GitHub Workflow Skill
 
-Mechanics for GitHub Issue and PR operations using `gh` CLI. Agents decide when to use these operations and what content to include.
+Mechanics for GitHub Issue and PR operations using `gh` CLI. Agents decide when to use these
+operations and what content to include.
 
 ## Authentication
 
@@ -21,9 +21,12 @@ All `gh` commands MUST be run through the authenticated wrapper script:
 scripts/workflow/gh.sh <command> [args...]
 ```
 
-The wrapper ensures a valid GitHub App token is available (generating and caching as needed), so there is no session-level token to manage or refresh. If the wrapper exits non-zero before reaching `gh`, authentication has failed — abort the operation.
+The wrapper ensures a valid GitHub App token is available (generating and caching as needed), so
+there is no session-level token to manage or refresh. If the wrapper exits non-zero before reaching
+`gh`, authentication has failed — abort the operation.
 
-**Every `gh` command shown in this skill must be prefixed with `scripts/workflow/gh.sh` instead of bare `gh`.** For example:
+**Every `gh` command shown in this skill must be prefixed with `scripts/workflow/gh.sh` instead of
+bare `gh`.** For example:
 
 ```
 # Skill example says:
@@ -40,7 +43,8 @@ The wrapper ensures a valid GitHub App token is available (generating and cachin
 gh issue create --title "<title>" --body "<body>" --label "<label>" --label "<label>" ...
 ```
 
-Issue body template: see [references/templates.md: Issue Body Template](references/templates.md#issue-body-template).
+Issue body template: see
+[references/templates.md: Issue Body Template](references/templates.md#issue-body-template).
 
 ### Read
 
@@ -89,8 +93,8 @@ Comment templates (blocker, escalation): see [references/templates.md](reference
 
 ### Create
 
-Build title in conventional commit format: `<type>(<scope>): <description>`
-Build body with `Closes #<issueNumber>`.
+Build title in conventional commit format: `<type>(<scope>): <description>` Build body with
+`Closes #<issueNumber>`.
 
 ```
 gh pr create --head <branch> --base <baseBranch> --title "<title>" --body "<body>"
@@ -139,7 +143,10 @@ Use `--merge`, `--squash`, or `--rebase` for merge strategy.
 gh pr review <number> --comment --body "<comment>"
 ```
 
-All PR reviews use `--comment` because the workflow operates under a single GitHub App identity, and GitHub prevents self-review (`--approve` / `--request-changes`) on self-authored PRs. The canonical verdict is the task issue's status label (`status:approved` or `status:needs-changes`), not the GitHub review state.
+All PR reviews use `--comment` because the workflow operates under a single GitHub App identity, and
+GitHub prevents self-review (`--approve` / `--request-changes`) on self-authored PRs. The canonical
+verdict is the task issue's status label (`status:approved` or `status:needs-changes`), not the
+GitHub review state.
 
 ### CI Status
 
@@ -151,9 +158,11 @@ gh pr checks <number> --json name,state,conclusion
 
 Label definitions are maintained by `docs/specs/workflow/script-label-setup.md`.
 
-**Rules:** see [references/labels.md](references/labels.md) for mutually exclusive categories and valid status transitions.
+**Rules:** see [references/labels.md](references/labels.md) for mutually exclusive categories and
+valid status transitions.
 
 Key rules:
+
 - Mutually exclusive categories (type, status, priority): exactly one label per category
 - Status transitions must follow the valid transition table
 - Swap labels atomically: `--remove-label "old" --add-label "new"` in one command
