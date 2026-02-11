@@ -385,7 +385,7 @@ test('it shows error details when an issue has a failure from an implementor', a
         agentType: 'implementor',
         error: 'process crashed',
         sessionID: 'sess-abc-123',
-        worktreePath: '/home/user/.worktrees/issue-1',
+        branchName: 'issue-1-1700000000',
       },
     });
   }
@@ -397,11 +397,11 @@ test('it shows error details when an issue has a failure from an implementor', a
     expect(frame).toContain('Implementor');
     expect(frame).toContain('process crashed');
     expect(frame).toContain('sess-abc-123');
-    expect(frame).toContain('/home/user/.worktrees/issue-1');
+    expect(frame).toContain('issue-1-1700000000');
   });
 });
 
-test('it shows error details without a worktree path when a reviewer fails', async () => {
+test('it shows error details with branch name when a reviewer fails', async () => {
   const { store, emit, lastFrame } = setupTest();
 
   emit({
@@ -423,6 +423,7 @@ test('it shows error details without a worktree path when a reviewer fails', asy
         agentType: 'reviewer',
         error: 'review timeout',
         sessionID: 'sess-rev-456',
+        branchName: 'issue-1-pr-branch',
       },
     });
   }
@@ -434,7 +435,7 @@ test('it shows error details without a worktree path when a reviewer fails', asy
     expect(frame).toContain('Reviewer');
     expect(frame).toContain('review timeout');
     expect(frame).toContain('sess-rev-456');
-    expect(frame).not.toContain('Worktree:');
+    expect(frame).toContain('Branch: issue-1-pr-branch');
   });
 });
 
@@ -460,7 +461,7 @@ test('it shows the log file path when a failure includes session log information
         agentType: 'implementor',
         error: 'process crashed',
         sessionID: 'sess-abc-123',
-        worktreePath: '/home/user/.worktrees/issue-1',
+        branchName: 'issue-1-1700000000',
         logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
       },
     });
@@ -565,7 +566,7 @@ test('it shows the failure overlay regardless of the issue status label', async 
         agentType: 'implementor',
         error: 'crashed',
         sessionID: 'sess-777',
-        worktreePath: '/tmp/wt',
+        branchName: 'issue-1-1700000000',
       },
     });
   }
@@ -852,7 +853,7 @@ test('it applies scroll windowing to the failure overlay', async () => {
         agentType: 'implementor',
         error: 'process crashed',
         sessionID: 'sess-abc-123',
-        worktreePath: '/home/user/.worktrees/issue-1',
+        branchName: 'issue-1-1700000000',
         logFilePath: '/logs/agent.log',
       },
     });

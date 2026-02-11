@@ -20,6 +20,7 @@ export interface AgentSessionTracker {
   abortController: AbortController;
   timer: ReturnType<typeof setTimeout>;
   worktreePath?: string;
+  branchName?: string;
   issueNumber?: number;
   specPaths?: string[];
   outputChunks: string[];
@@ -64,6 +65,7 @@ export interface DispatchImplementorParams {
 
 export interface DispatchReviewerParams {
   issueNumber: number;
+  branchName: string; // PR headRefName — used for failure reporting (branch persists after worktree cleanup)
 }
 
 export interface DispatchPlannerParams {

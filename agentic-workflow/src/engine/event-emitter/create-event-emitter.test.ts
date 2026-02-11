@@ -162,7 +162,7 @@ test('it accepts and delivers all engine event types', () => {
       issueNumber: 3,
       error: 'timeout',
       sessionID: 'session-3',
-      worktreePath: '.worktrees/issue-3',
+      branchName: 'issue-3-1700000000',
     },
     {
       type: 'agentSkipped',

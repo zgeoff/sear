@@ -68,6 +68,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         agent: agentImplementor,
         issueNumber,
         worktreePath: worktreeResult.worktreePath,
+        branchName: worktreeResult.branch,
         ...(params.modelOverride !== undefined && { modelOverride: params.modelOverride }),
       });
 
@@ -79,7 +80,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     },
 
     async dispatchReviewer(params: DispatchReviewerParams): Promise<void> {
-      const { issueNumber } = params;
+      const { issueNumber, branchName } = params;
 
       if (issueAgents.has(issueNumber)) {
         emitter.emit(buildSkippedEvent('reviewer', { issueNumber }));
@@ -92,6 +93,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         cwd: repoRoot,
         agent: agentReviewer,
         issueNumber,
+        branchName,
       });
 
       issueAgents.set(issueNumber, tracker);
@@ -208,6 +210,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       outputListeners: new Set(),
       done: false,
       ...(params.worktreePath !== undefined && { worktreePath: params.worktreePath }),
+      ...(params.branchName !== undefined && { branchName: params.branchName }),
       ...(params.issueNumber !== undefined && { issueNumber: params.issueNumber }),
       ...(params.specPaths !== undefined && { specPaths: params.specPaths }),
     };
@@ -326,7 +329,15 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     }
 
     emitter.emit(buildFailedEvent(tracker, errorMessage ?? 'Unknown error', logFilePath));
-    // Implementor worktrees are preserved on failure (no cleanup)
+
+    if (
+      (tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
+      tracker.worktreePath !== undefined
+    ) {
+      worktreeManager.removeByPath(tracker.worktreePath).catch(() => {
+        // Worktree cleanup failure is non-fatal
+      });
+    }
   }
 
   function removeFromTracking(tracker: AgentSessionTracker): void {
@@ -521,6 +532,7 @@ interface StartSessionParams {
   issueNumber?: number;
   specPaths?: string[];
   worktreePath?: string;
+  branchName?: string;
   modelOverride?: 'sonnet' | 'opus' | 'haiku';
 }
 
@@ -693,8 +705,8 @@ function buildFailedEvent(
     error,
     ...(tracker.issueNumber !== undefined && { issueNumber: tracker.issueNumber }),
     ...(tracker.specPaths && { specPaths: tracker.specPaths }),
-    ...(tracker.agentType === 'implementor' &&
-      tracker.worktreePath && { worktreePath: tracker.worktreePath }),
+    ...((tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
+      tracker.branchName && { branchName: tracker.branchName }),
     ...(logFilePath !== undefined && { logFilePath }),
   };
 }

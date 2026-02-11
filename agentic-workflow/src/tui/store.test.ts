@@ -116,7 +116,7 @@ test('it preserves the failure overlay when a status change is from crash recove
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
   };
   emit(failedEvent);
   expect(store.getState().issues.get(1)?.lastFailure).toBeDefined();
@@ -139,7 +139,7 @@ test('it clears the failure overlay when a non-recovery status change is receive
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
   };
   emit(failedEvent);
 
@@ -543,7 +543,7 @@ test('it does not include the spec count when a task agent completes', () => {
 // agentFailed
 // ---------------------------------------------------------------------------
 
-test('it records a failure with worktree path when an implementor fails', () => {
+test('it records a failure with branch name when an implementor fails', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
@@ -560,7 +560,7 @@ test('it records a failure with worktree path when an implementor fails', () => 
     issueNumber: 1,
     error: 'process crashed',
     sessionID: 'sess-1',
-    worktreePath: '/home/user/.worktrees/issue-1',
+    branchName: 'issue-1-1700000000',
   } satisfies AgentFailedEvent);
 
   const issue = store.getState().issues.get(1);
@@ -569,11 +569,11 @@ test('it records a failure with worktree path when an implementor fails', () => 
     agentType: 'implementor',
     error: 'process crashed',
     sessionID: 'sess-1',
-    worktreePath: '/home/user/.worktrees/issue-1',
+    branchName: 'issue-1-1700000000',
   });
 });
 
-test('it records a failure without worktree path when a reviewer fails', () => {
+test('it records a failure with branch name when a reviewer fails', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
@@ -590,6 +590,7 @@ test('it records a failure without worktree path when a reviewer fails', () => {
     issueNumber: 1,
     error: 'review failed',
     sessionID: 'sess-r-1',
+    branchName: 'issue-1-pr-branch',
   } satisfies AgentFailedEvent);
 
   const issue = store.getState().issues.get(1);
@@ -597,6 +598,7 @@ test('it records a failure without worktree path when a reviewer fails', () => {
     agentType: 'reviewer',
     error: 'review failed',
     sessionID: 'sess-r-1',
+    branchName: 'issue-1-pr-branch',
   });
 });
 
@@ -617,7 +619,7 @@ test('it records the log file path in the failure when an agent fails with sessi
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
     logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
   } satisfies AgentFailedEvent);
 
@@ -875,7 +877,7 @@ test('it preserves the failure overlay when a status change is from an engine tr
     issueNumber: 1,
     error: 'timeout',
     sessionID: 'sess-1',
-    worktreePath: '/tmp/wt',
+    branchName: 'issue-1-1700000000',
   };
   emit(failedEvent);
   expect(store.getState().issues.get(1)?.lastFailure).toBeDefined();

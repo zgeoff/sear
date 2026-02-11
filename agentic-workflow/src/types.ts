@@ -49,7 +49,7 @@ export interface AgentFailedEvent {
   specPaths?: string[];
   error: string;
   sessionID: string;
-  worktreePath?: string; // present for Implementor
+  branchName?: string; // present for Implementor and Reviewer — the branch persists after worktree cleanup for inspection
   logFilePath?: string; // present when logging.agentSessions is enabled
 }
 

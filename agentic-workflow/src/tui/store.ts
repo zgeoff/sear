@@ -326,7 +326,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
             agentType: e.agentType,
             error: e.error,
             sessionId: e.sessionID,
-            worktreePath: e.agentType === 'implementor' ? e.worktreePath : undefined,
+            branchName: e.branchName,
             logFilePath: e.logFilePath,
           });
           issues.set(issueNumber, {
@@ -699,7 +699,7 @@ interface BuildLastFailureParams {
   agentType: TaskAgentType;
   error: string;
   sessionId: string;
-  worktreePath: string | undefined;
+  branchName: string | undefined;
   logFilePath: string | undefined;
 }
 
@@ -709,8 +709,8 @@ function buildLastFailure(params: BuildLastFailureParams): LastFailure {
     error: params.error,
     sessionID: params.sessionId,
   };
-  if (params.worktreePath !== undefined) {
-    failure.worktreePath = params.worktreePath;
+  if (params.branchName !== undefined) {
+    failure.branchName = params.branchName;
   }
   if (params.logFilePath !== undefined) {
     failure.logFilePath = params.logFilePath;
