@@ -1,6 +1,6 @@
 ---
 title: Reviewer Agent
-version: 0.6.0
+version: 0.7.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -9,194 +9,92 @@ status: approved
 
 ## Overview
 
-Agent that reviews completed implementation work against acceptance criteria, spec conformance, code quality, and scope boundaries before integration. The Reviewer either approves the work for Human integration or rejects it with actionable feedback for the Implementor to address. The Reviewer never merges -- that is the Human's responsibility.
+Agent that reviews completed implementation work against acceptance criteria, spec conformance, code quality, and scope boundaries before integration. The Reviewer either approves the work for Human integration or rejects it with actionable feedback for the Implementor to address. The Reviewer never merges — that is the Human's responsibility.
 
 ## Constraints
 
-- Must not merge PRs. Approval means setting `status:approved`.
-- Must never reject without providing actionable feedback explaining what needs to change and why.
+- Must not merge PRs. Approval means setting `status:approved`; the Human performs the merge.
+- Must never reject without providing actionable feedback explaining what needs to change and why. Each piece of feedback must include what is wrong, why it is wrong, and what to change (see `workflow-contracts.md` § Review Rejection Template).
 - Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
 - Scope issues are reported as warnings, not as findings that trigger rejection.
+- The agent definition body must include the permitted bash command list from `agent-hook-bash-validator.md` § Allowlist Prefixes to prevent wasted turns on blocked commands.
 
-## Agent Definition Frontmatter
+## Agent Profile
 
-The agent definition file for the Reviewer must include the following frontmatter fields (see `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses these):
+| Constraint | Value | Rationale |
+|-----------|-------|-----------|
+| Model tier | Sonnet | Read-only analysis; Opus not required |
+| Tool access | No write tools (Read, Grep, Glob, Bash) | Must never modify the codebase under review |
+| Turn budget | 50 | Bounded analysis, not open-ended work |
+| Permission model | Non-interactive with bash validation | Runs unattended; bash validator enforces command safety |
 
-```yaml
-name: reviewer
-description: Reviews PRs against acceptance criteria, spec conformance, and code quality
-model: sonnet
-maxTurns: 50
-tools: Read, Grep, Glob, Bash
-disallowedTools: Write, Edit, NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
-permissionMode: bypassPermissions
-hooks:
-  PreToolUse:
-    - matcher: Bash
-      hooks:
-        - type: command
-          command: scripts/workflow/validate-bash.sh
-```
+The agent definition (`.claude/agents/reviewer.md`) implements these constraints as frontmatter. See `control-plane-engine-agent-manager.md` § Frontmatter Field Mapping for how the Engine parses them.
 
-- **name:** Agent identifier used by the engine for dispatch and logging.
-- **description:** One-line summary mapped to `AgentDefinition.description`.
-- **model:** `sonnet` — the Reviewer performs read-only analysis; Sonnet is sufficient.
-- **maxTurns:** `50` — upper bound on agentic turns per session.
-- **tools:** Allowlist. The Reviewer reads code and runs checks but never modifies files.
-- **disallowedTools:** Denylist reinforcing the allowlist. Blocks write operations, web access, sub-agent spawning, plan mode, user interaction, and todo list management.
-- **permissionMode:** `bypassPermissions` — agents run non-interactively. The engine overrides this at dispatch time, but including it ensures correct behavior when the agent is run directly via CLI.
-- **hooks:** PreToolUse bash validator hook. The engine provides this programmatically at dispatch time (see `control-plane-engine-agent-manager.md` § Programmatic Hooks), but including it ensures the validator is active when the agent is run directly via CLI.
+## Trigger
 
-### Permitted Bash Commands
+The Reviewer is invoked with a task issue number when the task has `status:review` (see `control-plane-engine.md` § Completion-dispatch for trigger mechanism).
 
-The agent definition body (system prompt) must include the full list of permitted Bash command prefixes from `agent-hook-bash-validator.md` § Allowlist Prefixes. This tells the agent which commands are available and prevents wasted turns attempting commands the validator will block. The authoritative list lives in the bash validator spec — the agent definition transcribes it verbatim.
-
-## Specification
-
-### Trigger
-
-The Reviewer agent is invoked with a task issue number when the task has `status:review` (see `control-plane-engine.md` § Completion-dispatch for trigger mechanism).
-
-### Inputs
+## Inputs
 
 The Engine injects the following into the agent's session at dispatch time (see `control-plane-engine-agent-manager.md` § Trigger Context and § Project Context Injection):
 
 1. **Trigger prompt:** The task issue number (e.g., `"42"`).
 2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended to the agent's system prompt.
-3. **Working directory:** A git worktree checked out to the PR branch at the latest remote state (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). The worktree is a full checkout — all relative paths in the codebase work as-is from `cwd`. The Reviewer reads the implementation files as they exist on the PR branch, not on `main`.
+3. **Working directory:** A git worktree checked out to the PR branch at the latest remote state (see `control-plane-engine-agent-manager.md` § Agent Lifecycle, step 2). The Reviewer reads the implementation files as they exist on the PR branch, not on `main`.
 
-The agent fetches all remaining data via tool calls. On invocation, the agent reads:
+The agent fetches all remaining data via tool calls: the task issue body, the linked PR and its diff, referenced spec sections, and existing PR review comments.
 
-1. **Task issue** -- The GitHub Issue body, including:
-   - Objective
-   - Spec reference (file path and section names)
-   - Scope (In Scope file list)
-   - Acceptance criteria
-   - Constraints
-2. **PR diff** -- The pull request linked to the task issue, including all changed files.
-3. **Referenced spec sections** -- The spec file(s) and section(s) listed in the task's "Spec Reference" field.
-4. **PR review comments** -- All review comments on the PR from any source (prior Reviewer runs, Human reviewers, etc.), to verify that existing feedback has been addressed.
+## Input Validation
 
-### Input Validation
+Before running the review checklist, the agent validates that an open PR linked to the task issue exists. Without a PR there is no diff to review.
 
-Before running the review checklist, the agent validates that an open PR linked to the task issue exists (search for `Closes #<N>` or GitHub link). Without a PR there is no diff to review.
+If no linked PR is found, the agent posts a comment to the task issue using the Review Validation Failure Comment format (see `workflow-contracts.md` § Review Validation Failure Comment) and stops. The agent does not change the task's status label on validation failure.
 
-If no linked open PR is found, the agent posts a comment to the task issue:
+## Review Checklist
 
-```markdown
-## Review Validation Failure
+The agent evaluates the PR against each of the following criteria. All six steps run on every review — individual failures do not short-circuit the remaining steps. Findings from all steps are collected and delivered in a single PR review comment.
 
-No open PR linked to this task issue was found. The Reviewer requires a PR to review.
-```
+**Warnings vs. findings:** If a step's required input is missing (e.g., no Scope section, no Spec Reference, spec file does not exist or is not `status: approved`), the agent records a warning for that step and proceeds to the next. Warnings indicate a step was skipped or a scope observation; findings indicate a problem with the code. Warnings do not count toward the approval/rejection decision but are included in the review comment for visibility.
 
-The agent does not change the task's status label on validation failure. It stops and waits for the issue to be corrected before re-invocation.
+### 1. Unresolved Review Comments
 
-### Review Checklist
+Applies when review comments exist on the PR from non-automated sources (prior Reviewer runs, other reviewers, contributors). Automated bot comments (linters, CI, security scanners) are excluded.
 
-The agent evaluates the PR against each of the following criteria. All steps run on every review -- individual failures do not short-circuit the remaining steps. Findings from all steps are collected and delivered in a single review comment.
+- Verify each previously raised issue has been addressed: either the code was changed to resolve it, or the author replied explaining why no change is needed.
+- Record unaddressed items as findings.
 
-If a step's required input is missing (e.g., no Scope section for scope compliance, no Spec Reference for spec conformance, spec file does not exist or is not `status: approved`), the agent records a warning for that step noting what is missing and proceeds to the next step. Missing inputs do not block the review -- the agent reviews what it can and reports what it cannot.
+### 2. Scope Compliance
 
-Warnings are not findings. A warning indicates a step was skipped due to missing input or a scope observation; a finding indicates a problem with the code. Warnings do not count toward the approval/rejection decision. The PR review comment includes any warnings alongside findings so the reader has full visibility into what was and was not checked.
+Compare files modified in the PR diff against the task issue's scope, applying the scope enforcement rules defined in `workflow-contracts.md` § Scope Enforcement Rules.
 
-#### 1. Unresolved Review Comments
+If a modified file is neither in primary scope, a co-located test file, nor an incidental change, record it as a warning (not a finding) with an explanation.
 
-This step applies when any review comments exist on the PR from non-automated sources (prior Reviewer runs, other reviewers, or other contributors). Automated bot comments (linters, CI status checks, security scanners) are excluded.
+### 3. Task Constraints
 
-- Review each piece of feedback on the PR from non-automated sources.
-- Verify that each previously raised issue has been addressed. A comment is considered addressed when either the code has been changed to resolve the issue, or the author has replied explaining why no change is needed.
-- If any feedback is unaddressed, record which items remain outstanding and their source.
+If the task issue includes a "Constraints" section, verify the implementation honors each constraint. Record a per-constraint breakdown: which were satisfied and which were violated, with an explanation for each violation. If the section is absent, record a warning and proceed.
 
-#### 2. Scope Compliance
+### 4. Acceptance Criteria Verification
 
-Compare the list of files modified in the PR diff against the task issue's scope:
+For each acceptance criterion in the task issue:
+- Verify the implementation satisfies it.
+- Check that tests exist which exercise it.
+- Record a per-criterion breakdown: which passed, which failed, and an explanation for each failure.
 
-- **Primary scope:** Files listed in the task's "In Scope" section. All implementation work is expected to live here. No restrictions on the nature or size of changes to these files.
-- **Co-located test files:** Test files adjacent to in-scope files (e.g., `foo.test.ts` next to `foo.ts`) are implicitly in scope, even if not explicitly listed. Shared test utilities, fixtures, and integration tests in other directories are not implicitly in scope.
-- **Incidental changes:** Files not listed in "In Scope" but modified as a necessary consequence of in-scope work. A change qualifies as incidental when all of the following are true:
-  - It is minimal (e.g., adding an import, re-exporting a new symbol, adding a field to a shared type, updating test fixtures or snapshots to reflect the structural change).
-  - It is directly required by a change in a primary-scope file (the in-scope change would not work without it).
-  - It does not alter the behavioral logic of the incidentally changed file.
+### 5. Spec Conformance
 
-  Changes that do **not** qualify as incidental include: adding a new function, modifying control flow, changing default values, or adding new test cases for behavior that doesn't yet exist.
+Read the referenced spec sections and compare the implementation against the specified behavior. Verify the implementation does not contradict, omit, or extend beyond what the spec requires. Record deviations with the specific spec file, section, and description.
 
-If a modified file is neither in primary scope nor qualifies as an incidental change, record it as a warning with an explanation of why it does not appear to qualify.
+### 6. Code Quality and Consistency
 
-#### 3. Task Constraints
+Verify code follows the project's style, naming conventions, and patterns defined in `CLAUDE.md`. Check for readability, maintainability, consistency with existing codebase patterns, and common issues (missing error handling at system boundaries, security vulnerabilities, unnecessary complexity). Record issues with specific file paths, line references, and suggested improvements.
 
-- If the task issue includes a "Constraints" section, verify that the implementation honors each constraint. If the section is absent, record a warning and proceed.
-- Record a per-constraint breakdown: which constraints were satisfied and which were violated, with an explanation for each violation.
+## Approval and Rejection
 
-#### 4. Acceptance Criteria Verification
+**Approval:** When all checklist steps pass (no findings), the agent submits a PR review comment using the Review Approval Template (see `workflow-contracts.md` § Review Approval Template) and transitions the task label from `status:review` to `status:approved`. The label is the canonical approval signal.
 
-- For each acceptance criterion in the task issue, verify that the implementation satisfies it.
-- Check that tests exist which exercise each criterion.
-- Record a per-criterion breakdown: which criteria passed, which failed, and an explanation for each failure.
+**Rejection:** When one or more checklist steps have findings, the agent submits a PR review comment using the Review Rejection Template (see `workflow-contracts.md` § Review Rejection Template) and transitions the task label from `status:review` to `status:needs-changes`.
 
-#### 5. Spec Conformance
-
-- Read the referenced spec sections and compare the implementation behavior against the specified behavior.
-- Verify that the implementation does not contradict, omit, or extend beyond what the spec requires.
-- If a deviation is found, record the specific spec file, section, and a description of the deviation.
-
-#### 6. Code Quality and Consistency
-
-- Verify code follows the project's style, naming conventions, and patterns defined in `CLAUDE.md`.
-- Check for readability and maintainability -- code should be understandable without requiring the author to explain it.
-- Verify consistency with existing codebase patterns (e.g., similar modules should follow similar structure).
-- Check for common issues: missing error handling at system boundaries, potential security vulnerabilities, unnecessary complexity.
-- If quality issues are found, record specific file paths, line references, and suggested improvements.
-
-### Approval Flow
-
-When all review checklist steps pass (no findings recorded):
-
-1. Submit a PR review comment (`scripts/workflow/gh.sh pr review --comment`) using the approval template:
-
-   ```markdown
-   ## Review: Approved
-
-   ### Checklist
-   - **Unresolved Comments:** No outstanding items (or N/A)
-   - **Scope Compliance:** All modified files within scope
-   - **Task Constraints:** All constraints satisfied
-   - **Acceptance Criteria:** All N criteria verified
-   - **Spec Conformance:** Implementation matches spec
-   - **Code Quality:** Consistent with project standards
-
-   ### Warnings
-   <any warnings from skipped steps or scope observations, or "None">
-   ```
-
-2. Update the task issue label from `status:review` to `status:approved` (`scripts/workflow/gh.sh issue edit`). The label is the canonical approval signal.
-
-### Rejection Flow
-
-When one or more review checklist steps have findings:
-
-1. Submit a PR review comment (`scripts/workflow/gh.sh pr review --comment`) using the rejection template:
-
-   ```markdown
-   ## Review: Needs Changes
-
-   ### Findings
-
-   #### <Category>
-   - **What:** <specific file, line, or criterion>
-     **Why:** <reference to spec, convention, or criterion>
-     **Fix:** <concrete, actionable guidance>
-
-   ### Warnings
-   <any warnings from skipped steps or scope observations, or "None">
-   ```
-
-   Only categories with findings are included. Each piece of feedback must include all three fields (What, Why, Fix). Warnings from skipped steps and scope analysis are listed separately.
-
-2. Update the task issue label from `status:review` to `status:needs-changes` (`scripts/workflow/gh.sh issue edit`).
-
-### Status Transitions
-
-The agent is responsible for the following label transitions (all via `scripts/workflow/gh.sh`):
+## Status Transitions
 
 | From | To | When |
 |------|----|------|
@@ -205,50 +103,37 @@ The agent is responsible for the following label transitions (all via `scripts/w
 
 The agent must not perform any other status transitions.
 
-### Completion Output
+## Completion Output
 
-When the agent finishes (whether with an approval, rejection, or validation failure), it returns a summary to the invoking process:
-
-```
-## Reviewer Result
-
-**Task:** #<issue-number> — <title>
-**Outcome:** approved | needs-changes | validation-failure
-**PR:** #<pr-number> (or "None")
-
-### Summary
-Brief description of the review result. For approvals, confirm what was verified. For rejections, list the categories with findings. For validation failures, state which input check failed.
-```
+On every run (approval, rejection, or validation failure), the agent returns the Reviewer Completion Output (see `workflow-contracts.md` § Reviewer Completion Output) as its final text output to the invoking process.
 
 ## Acceptance Criteria
 
-- [ ] Given a task issue with a linked open PR, when the agent is invoked, then it validates the PR exists before running the review checklist.
 - [ ] Given no open PR linked to the task issue, when the agent validates inputs, then it posts a validation failure comment and stops without changing the status label.
 - [ ] Given a task issue missing a required section (Scope, Acceptance Criteria, or Spec Reference), when the agent reviews the PR, then the review includes a warning for each affected checklist step and the remaining steps still run.
 - [ ] Given a referenced spec file that does not exist or is not `status: approved`, when the agent reviews the PR, then the spec conformance step records a warning and the remaining steps still run.
-- [ ] Given a PR with unresolved review comments from any non-automated source (prior Reviewer runs, other reviewers), when the agent reviews it, then it verifies each comment has been addressed and records unaddressed items as findings.
-- [ ] Given a PR that modifies files outside the task's "In Scope" list, when the modification qualifies as an incidental change (minimal, directly required, non-behavioral), then the Reviewer does not flag it as a scope warning.
-- [ ] Given a PR that modifies files outside the task's "In Scope" list, when the modification does not qualify as incidental, then the Reviewer records a scope warning listing the files and an explanation of why they don't appear to qualify. The warning does not trigger rejection.
-- [ ] Given a PR that satisfies all checklist steps (no unresolved comments, task constraints honored, all acceptance criteria met, spec conformant, code quality approved), when the agent reviews it, then the task label is updated to `status:approved` and a PR review comment is submitted confirming the approval.
-- [ ] Given a PR that fails one or more acceptance criteria, when the agent reviews it, then the rejection feedback includes a per-criterion breakdown indicating which passed and which failed.
-- [ ] Given the agent rejects a PR, when the review is examined, then each piece of feedback includes what is wrong, why it is wrong, and what needs to change.
-- [ ] Given the agent rejects a PR, when the review is examined, then the task label is `status:needs-changes` and a PR review comment has been submitted with actionable feedback.
-- [ ] Given a PR with a spec deviation, when the agent rejects it, then the feedback references the specific spec file and section where the deviation was found.
-- [ ] Given a PR that violates a task constraint, when the agent reviews it, then the rejection feedback identifies the constraint and explains how the implementation violates it.
-- [ ] Given a PR with code quality issues (style violations, missing error handling at system boundaries, unnecessary complexity), when the agent reviews it, then the rejection feedback references specific files and lines with suggested improvements.
-- [ ] Given any status transition performed by the agent, when reviewed, then it is either `status:review` to `status:approved` or `status:review` to `status:needs-changes`.
-- [ ] Given the agent finishes execution (any outcome), when reviewed, then it has returned a completion summary with the task number, outcome, PR reference, and summary of results.
-- [ ] Given any GitHub CLI operation performed by the Reviewer, when the command is inspected, then it uses `scripts/workflow/gh.sh` (not bare `gh`).
+- [ ] Given a task issue with no Constraints section, when the agent reviews the PR, then the task constraints step records a warning and the remaining steps still run.
+- [ ] Given a PR with unresolved review comments from non-automated sources, when the agent reviews it, then it records unaddressed items as findings.
+- [ ] Given a PR that modifies files outside primary scope where the modification qualifies as incidental, then the Reviewer does not flag it as a scope warning.
+- [ ] Given a PR that modifies files outside primary scope where the modification does not qualify as incidental, then the Reviewer records a scope warning. The warning does not trigger rejection.
+- [ ] Given a PR that satisfies all checklist steps, when the agent completes the review, then the task label is `status:approved` and a PR review comment confirms the approval.
+- [ ] Given a PR that fails one or more acceptance criteria, when the agent rejects it, then the feedback includes a per-criterion breakdown indicating which passed and which failed.
+- [ ] Given the agent rejects a PR, when the review is examined, then each finding includes what is wrong, why it is wrong, and what needs to change.
+- [ ] Given a PR with a spec deviation, when the agent rejects it, then the feedback references the specific spec file and section.
+- [ ] Given a PR that violates a task constraint, when the agent rejects it, then the feedback identifies the constraint and explains the violation.
+- [ ] Given a PR with code quality issues, when the agent rejects it, then the feedback references specific files and lines with suggested improvements.
+- [ ] Given the agent finishes execution (any outcome), then it has returned a completion summary matching the Reviewer Completion Output format.
 
 ## Dependencies
 
-- `scripts/workflow/gh.sh` -- Authenticated `gh` CLI wrapper (see `docs/specs/workflow/github-cli.md`). All GitHub operations (label changes, issue comments, PR reviews).
-- `CLAUDE.md` -- Code style, naming conventions, and patterns that the agent checks against.
-- Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. Required with `permissionMode: bypassPermissions`. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
+- `scripts/workflow/gh.sh` — Authenticated `gh` CLI wrapper (see `docs/specs/workflow/github-cli.md`). All GitHub operations (label changes, issue comments, PR reviews).
+- `CLAUDE.md` — Code style, naming conventions, and patterns that the agent checks against.
+- `workflow-contracts.md` — Shared data formats: Review Approval Template, Review Rejection Template, Review Validation Failure Comment, Reviewer Completion Output, Scope Enforcement Rules.
+- Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and `agent-hook-bash-validator-script.md` (shell implementation).
 
 ## References
 
-- `docs/specs/workflow/workflow.md` -- Development Protocol (Reviewer role, Review Phase, Quality Gates for Review to Integrate)
-- `docs/specs/workflow/skill-github-workflow.md` -- GitHub Workflow Skill spec (reference for `gh` command patterns and label rules; not loaded at runtime)
-- `docs/specs/workflow/github-cli.md` -- GitHub CLI wrapper spec
-- `docs/specs/workflow/script-label-setup.md` -- Label definitions for the repository
+- `docs/specs/workflow/workflow.md` — Development Protocol (Reviewer role, Review Phase, Quality Gates for Review to Integrate)
+- `docs/specs/workflow/skill-github-workflow.md` — GitHub Workflow Skill spec (reference for `gh` command patterns and label rules; not loaded at runtime)
+- `docs/specs/workflow/github-cli.md` — GitHub CLI wrapper spec
+- `docs/specs/workflow/script-label-setup.md` — Label definitions for the repository
