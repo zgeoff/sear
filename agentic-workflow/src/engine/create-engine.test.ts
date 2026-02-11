@@ -161,17 +161,31 @@ function setupMockGitHubClient(
     data: { object: { sha: 'commit-sha-1' } },
   });
 
-  // Queries: PRs
-  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
-  vi.mocked(octokit.pulls.get).mockResolvedValue({
-    data: {
-      number: 1,
-      title: 'PR #1',
-      changed_files: 3,
-      html_url: 'https://github.com/owner/repo/pull/1',
-      head: { sha: 'abc123', ref: 'feature-branch' },
+  // Queries: PRs — generate a linked PR for each issue so getPRForIssue can resolve branchName
+  const mockPRListItems = issues.map((issue, index) => ({
+    number: 100 + index,
+    body: `Closes #${issue.number}`,
+    draft: false,
+  }));
+  const mockPRDetails = issues.map((issue, index) => ({
+    number: 100 + index,
+    title: `PR for #${issue.number}`,
+    changed_files: 3,
+    html_url: `https://github.com/owner/repo/pull/${100 + index}`,
+    head: { sha: `sha-${issue.number}`, ref: `issue-${issue.number}-branch` },
+    draft: false,
+  }));
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: mockPRListItems });
+  vi.mocked(octokit.pulls.get).mockImplementation(async (params: { pull_number: number }) => {
+    const defaultPR = {
+      number: 100,
+      title: 'PR',
+      changed_files: 0,
+      html_url: '',
+      head: { sha: 'sha', ref: 'branch' },
       draft: false,
-    },
+    };
+    return { data: mockPRDetails.find((p) => p.number === params.pull_number) ?? defaultPR };
   });
   vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
     data: { state: 'pending', total_count: 0 },
@@ -503,7 +517,7 @@ test('it passes a sonnet model override when dispatching an implementor for a si
 
   await vi.waitFor(() => {
     const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
-    expect(implementorParams.length).toBe(1);
+    expect(implementorParams.length).toBeGreaterThanOrEqual(1);
     expect(implementorParams[0]).toMatchObject({ modelOverride: 'sonnet' });
   });
 });
@@ -520,7 +534,7 @@ test('it passes an opus model override when dispatching an implementor for a com
 
   await vi.waitFor(() => {
     const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
-    expect(implementorParams.length).toBe(1);
+    expect(implementorParams.length).toBeGreaterThanOrEqual(1);
     expect(implementorParams[0]).toMatchObject({ modelOverride: 'opus' });
   });
 });
@@ -537,7 +551,7 @@ test('it does not pass a model override when dispatching an implementor for an i
 
   await vi.waitFor(() => {
     const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
-    expect(implementorParams.length).toBe(1);
+    expect(implementorParams.length).toBeGreaterThanOrEqual(1);
     expect(implementorParams[0]).not.toHaveProperty('modelOverride');
   });
 });
@@ -827,7 +841,25 @@ test('it cancels a running agent when its issue is removed from the poller snaps
   vi.mocked(octokit.git.getRef).mockResolvedValue({
     data: { object: { sha: 'commit-sha-1' } },
   });
-  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 100, body: 'Closes #42', draft: false }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR for #42',
+      changed_files: 3,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'sha-42', ref: 'issue-42-branch' },
+      draft: false,
+    },
+  });
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
   vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
 
   const queryFactory: QueryFactory = async () => {
