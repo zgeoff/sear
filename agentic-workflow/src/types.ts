@@ -161,6 +161,12 @@ export type PRDetailsResult = {
   headRefName: string; // branch name — used by engine for worktree strategy (resume from PR branch)
 } | null;
 
+export interface PRFileEntry {
+  filename: string;
+  status: 'added' | 'modified' | 'removed' | 'renamed' | 'copied' | 'changed' | 'unchanged';
+  patch?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Stream
 // ---------------------------------------------------------------------------
@@ -250,5 +256,6 @@ export interface Engine {
     issueNumber: number,
     options?: { includeDrafts?: boolean },
   ) => Promise<PRDetailsResult>;
+  getPRFiles: (prNumber: number) => Promise<PRFileEntry[]>;
   getAgentStream: (issueNumber: number) => AgentStream;
 }
