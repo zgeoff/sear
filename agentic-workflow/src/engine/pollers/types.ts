@@ -17,6 +17,7 @@ export interface IssuePoller {
   poll: () => Promise<void>;
   getSnapshot: () => ReadonlyMap<number, IssueSnapshot>;
   getSnapshotMap: () => Map<number, IssueSnapshot>;
+  updateEntry: (issueNumber: number, update: Partial<IssueSnapshot>) => void;
 }
 
 // ---------------------------------------------------------------------------

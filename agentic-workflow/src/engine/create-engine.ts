@@ -29,6 +29,7 @@ import { createLogger } from './create-logger.ts';
 import { createDispatch } from './dispatch/create-dispatch.ts';
 import type { Dispatch } from './dispatch/types.ts';
 import { createEventEmitter } from './event-emitter/create-event-emitter.ts';
+import type { EventEmitter } from './event-emitter/types.ts';
 import { createGitHubClient } from './github-client/create-github-client.ts';
 import type { GitHubClient } from './github-client/types.ts';
 import { createPlannerCache } from './planner-cache/create-planner-cache.ts';
@@ -201,6 +202,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 
       // Step 1: Wire event handler before any events are emitted
       const eventHandler = buildEventHandler({
+        emitter,
         agentManager,
         recovery,
         issuePoller,
@@ -215,6 +217,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
         onPlannerCacheWritten: (commitSHA: string): void => {
           previousPlannerCommitSHA = commitSHA;
         },
+        queriesConfig,
         logger,
       });
       emitter.on(eventHandler);
@@ -296,6 +299,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 // ---------------------------------------------------------------------------
 
 interface EventHandlerDeps {
+  emitter: EventEmitter;
   agentManager: AgentManager;
   recovery: Recovery;
   issuePoller: IssuePoller;
@@ -305,6 +309,7 @@ interface EventHandlerDeps {
   getPendingCacheCommitSHA: () => string | null;
   clearPendingCache: () => void;
   onPlannerCacheWritten: (commitSHA: string) => void;
+  queriesConfig: QueriesConfig;
   logger: Logger;
 }
 
@@ -332,6 +337,17 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => Prom
       event.specPaths !== undefined
     ) {
       deps.dispatch.handlePlannerFailed(event.specPaths);
+    }
+
+    // Completion-dispatch: when an Implementor completes, check for a linked non-draft PR
+    // and dispatch a Reviewer if found. This runs before crash recovery so the snapshot
+    // is updated to status:review before recovery checks (preventing a spurious reset).
+    if (
+      event.type === 'agentCompleted' &&
+      event.agentType === 'implementor' &&
+      event.issueNumber !== undefined
+    ) {
+      await handleImplementorCompleted(event.issueNumber, deps);
     }
 
     if (
@@ -370,6 +386,61 @@ async function handlePlannerCompleted(deps: EventHandlerDeps): Promise<void> {
     deps.onPlannerCacheWritten(commitSHA);
   } catch (error) {
     deps.logger.error('Failed to write planner cache', {
+      error: String(error),
+    });
+  }
+}
+
+async function handleImplementorCompleted(
+  issueNumber: number,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  try {
+    const prDetails = await getPRForIssue(deps.queriesConfig, issueNumber, {
+      includeDrafts: false,
+    });
+
+    if (!prDetails) {
+      return;
+    }
+
+    const { octokit, owner, repo } = deps.queriesConfig;
+
+    // Set status:review on the issue via GitHub API
+    await octokit.issues.removeLabel({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      name: 'status:in-progress',
+    });
+    await octokit.issues.addLabels({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      labels: ['status:review'],
+    });
+
+    // Update the IssuePoller snapshot to prevent a duplicate issueStatusChanged on the next poll
+    deps.issuePoller.updateEntry(issueNumber, { statusLabel: 'review' });
+
+    // Emit a synthetic issueStatusChanged with isEngineTransition: true
+    const issueSnapshot = deps.issuePoller.getSnapshot().get(issueNumber);
+    deps.emitter.emit({
+      type: 'issueStatusChanged',
+      issueNumber,
+      title: issueSnapshot?.title ?? '',
+      oldStatus: 'in-progress',
+      newStatus: 'review',
+      priorityLabel: issueSnapshot?.priorityLabel ?? '',
+      createdAt: issueSnapshot?.createdAt ?? '',
+      isEngineTransition: true,
+    });
+
+    // Dispatch the Reviewer
+    await deps.agentManager.dispatchReviewer({ issueNumber });
+  } catch (error) {
+    deps.logger.error('Completion-dispatch failed', {
+      issueNumber,
       error: String(error),
     });
   }

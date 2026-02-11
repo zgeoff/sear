@@ -11,6 +11,8 @@ export interface IssueStatusChangedEvent {
   priorityLabel: string;
   createdAt: string; // ISO 8601
   isRecovery?: boolean; // true when emitted as synthetic event from crash recovery
+  isEngineTransition?: boolean; // true when emitted as the synthetic event from completion-dispatch (engine sets status:review on Implementor completion)
+  // isRecovery and isEngineTransition are mutually exclusive — at most one is true on any given event.
 }
 
 export interface SpecChangedEvent {
