@@ -92,12 +92,17 @@ create_mock_dependencies() {
   local bin_dir="$1"
 
   # Mock openssl (used for JWT signing)
+  # The dgst branch must consume stdin before writing output — otherwise the
+  # upstream printf in `printf | openssl dgst | openssl base64` can receive
+  # SIGPIPE (exit 141) when the mock exits before reading, which fails the
+  # pipeline under `set -euo pipefail`.
   cat > "$bin_dir/openssl" <<'EOF'
 #!/usr/bin/env bash
-# Mock openssl that returns predictable base64 output
 if [[ "$1" == "base64" ]]; then
+  cat > /dev/null
   echo "bW9ja2VkX2Jhc2U2NA"
 elif [[ "$1" == "dgst" ]]; then
+  cat > /dev/null
   echo "mockedSignature"
 else
   cat
@@ -127,13 +132,15 @@ EOF
 }
 
 teardown() {
-  # Clean up temporary directories
-  [[ -n "$MAIN_REPO" && -d "$MAIN_REPO" ]] && rm -rf "$MAIN_REPO"
-  [[ -n "$WORKTREE_PATH" && -d "$WORKTREE_PATH" ]] && {
-    cd "$MAIN_REPO" 2>/dev/null && git worktree remove -f "$WORKTREE_PATH" 2>/dev/null || true
+  # Remove worktree before deleting main repo (git needs the main .git to
+  # cleanly unregister the worktree). If the main repo is already gone the
+  # worktree remove fails silently and we fall through to rm -rf.
+  if [[ -n "${WORKTREE_PATH:-}" && -d "${WORKTREE_PATH:-}" ]]; then
+    cd "${MAIN_REPO:-/}" 2>/dev/null && git worktree remove -f "$WORKTREE_PATH" 2>/dev/null || true
     rm -rf "$WORKTREE_PATH"
-  }
-  [[ -n "$MOCK_BIN_DIR" && -d "$MOCK_BIN_DIR" ]] && rm -rf "$MOCK_BIN_DIR"
+  fi
+  [[ -n "${MAIN_REPO:-}" && -d "${MAIN_REPO:-}" ]] && rm -rf "$MAIN_REPO"
+  [[ -n "${MOCK_BIN_DIR:-}" && -d "${MOCK_BIN_DIR:-}" ]] && rm -rf "$MOCK_BIN_DIR"
 }
 
 # ─── Worktree Path Resolution ─────────────────────────────────────────────────
