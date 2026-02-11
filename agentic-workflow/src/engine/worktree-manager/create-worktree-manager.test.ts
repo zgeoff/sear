@@ -255,6 +255,79 @@ test('it creates a worktree from an existing branch when no branchBase is provid
   ]);
 });
 
+// -- createForBranch: review branch strategy (fetchRemote) --
+
+test('it fetches from origin and creates worktree at the remote tracking ref when fetchRemote is true', async () => {
+  const { manager, calls } = setupTest();
+
+  const result = await manager.createForBranch({
+    branchName: 'issue-10-1739000000',
+    fetchRemote: true,
+  });
+
+  expect(result.worktreePath).toBe(resolve('/repo', '.worktrees', 'issue-10-1739000000'));
+  expect(result.branch).toBe('issue-10-1739000000');
+  expect(result.created).toBe(true);
+
+  const fetchCall = calls.find((c) => c.args[0] === 'fetch');
+  expect(fetchCall?.args).toStrictEqual(['fetch', 'origin', 'issue-10-1739000000']);
+
+  const addCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
+  expect(addCall?.args).toStrictEqual([
+    'worktree',
+    'add',
+    resolve('/repo', '.worktrees', 'issue-10-1739000000'),
+    'origin/issue-10-1739000000',
+  ]);
+});
+
+test('it runs fetch before worktree add when fetchRemote is true', async () => {
+  const { manager, calls } = setupTest();
+
+  await manager.createForBranch({
+    branchName: 'issue-15-1739000000',
+    fetchRemote: true,
+  });
+
+  const fetchIndex = calls.findIndex((c) => c.args[0] === 'fetch');
+  const addIndex = calls.findIndex((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
+
+  expect(fetchIndex).toBeGreaterThanOrEqual(0);
+  expect(addIndex).toBeGreaterThanOrEqual(0);
+  expect(fetchIndex).toBeLessThan(addIndex);
+});
+
+test('it does not fetch from remote when fetchRemote is false', async () => {
+  const { manager, calls } = setupTest();
+
+  await manager.createForBranch({
+    branchName: 'issue-20-1739000000',
+    fetchRemote: false,
+  });
+
+  const fetchCall = calls.find((c) => c.args[0] === 'fetch');
+  expect(fetchCall).toBeUndefined();
+
+  const addCall = calls.find((c) => c.args[0] === 'worktree' && c.args[1] === 'add');
+  expect(addCall?.args).toStrictEqual([
+    'worktree',
+    'add',
+    resolve('/repo', '.worktrees', 'issue-20-1739000000'),
+    'issue-20-1739000000',
+  ]);
+});
+
+test('it does not fetch from remote when fetchRemote is not provided', async () => {
+  const { manager, calls } = setupTest();
+
+  await manager.createForBranch({
+    branchName: 'issue-25-1739000000',
+  });
+
+  const fetchCall = calls.find((c) => c.args[0] === 'fetch');
+  expect(fetchCall).toBeUndefined();
+});
+
 // -- removeByPath --
 
 test('it force-removes a worktree by its absolute path', async () => {

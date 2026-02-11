@@ -87,13 +87,19 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         return;
       }
 
+      const worktreeResult = await worktreeManager.createForBranch({
+        branchName,
+        ...(params.fetchRemote === true && { fetchRemote: true }),
+      });
+
       const tracker = await startSession({
         agentType: 'reviewer',
         prompt: String(issueNumber),
-        cwd: repoRoot,
+        cwd: worktreeResult.worktreePath,
         agent: agentReviewer,
         issueNumber,
-        branchName,
+        worktreePath: worktreeResult.worktreePath,
+        branchName: worktreeResult.branch,
       });
 
       issueAgents.set(issueNumber, tracker);
@@ -320,7 +326,10 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     if (succeeded) {
       emitter.emit(buildCompletedEvent(tracker, logFilePath));
 
-      if (tracker.agentType === 'implementor' && tracker.worktreePath !== undefined) {
+      if (
+        (tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
+        tracker.worktreePath !== undefined
+      ) {
         worktreeManager.removeByPath(tracker.worktreePath).catch(() => {
           // Worktree cleanup failure is non-fatal
         });
