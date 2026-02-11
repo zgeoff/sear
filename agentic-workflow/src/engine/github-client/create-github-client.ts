@@ -19,8 +19,14 @@ import type {
   IssuesRemoveLabelResult,
   PullsGetParams,
   PullsGetResult,
+  PullsListFilesParams,
+  PullsListFilesResult,
   PullsListParams,
   PullsListResult,
+  PullsListReviewCommentsParams,
+  PullsListReviewCommentsResult,
+  PullsListReviewsParams,
+  PullsListReviewsResult,
   ReposGetCombinedStatusParams,
   ReposGetCombinedStatusResult,
   ReposGetContentParams,
@@ -99,6 +105,49 @@ export function createGitHubClient(config: GitHubClientConfig): GitHubClient {
             head: { sha: response.data.head.sha, ref: response.data.head.ref },
             draft: response.data.draft ?? false,
           },
+        };
+      },
+
+      async listFiles(params: PullsListFilesParams): Promise<PullsListFilesResult> {
+        const response = await octokit.pulls.listFiles(params);
+        return {
+          data: response.data.map((file) => {
+            const entry: { filename: string; status: string; patch?: string } = {
+              filename: file.filename,
+              status: file.status,
+            };
+            if (file.patch !== undefined) {
+              entry.patch = file.patch;
+            }
+            return entry;
+          }),
+        };
+      },
+
+      async listReviews(params: PullsListReviewsParams): Promise<PullsListReviewsResult> {
+        const response = await octokit.pulls.listReviews(params);
+        return {
+          data: response.data.map((review) => ({
+            id: review.id,
+            user: review.user,
+            state: review.state,
+            body: review.body,
+          })),
+        };
+      },
+
+      async listReviewComments(
+        params: PullsListReviewCommentsParams,
+      ): Promise<PullsListReviewCommentsResult> {
+        const response = await octokit.pulls.listReviewComments(params);
+        return {
+          data: response.data.map((comment) => ({
+            id: comment.id,
+            user: comment.user,
+            body: comment.body,
+            path: comment.path,
+            line: comment.line ?? null,
+          })),
         };
       },
     },
