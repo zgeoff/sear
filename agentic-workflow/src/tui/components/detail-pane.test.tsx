@@ -423,6 +423,7 @@ test('it shows error details without a branch name when a reviewer fails', async
         agentType: 'reviewer',
         error: 'review timeout',
         sessionID: 'sess-rev-456',
+        branchName: 'issue-1-pr-branch',
       },
     });
   }
@@ -434,7 +435,7 @@ test('it shows error details without a branch name when a reviewer fails', async
     expect(frame).toContain('Reviewer');
     expect(frame).toContain('review timeout');
     expect(frame).toContain('sess-rev-456');
-    expect(frame).not.toContain('Worktree:');
+    expect(frame).toContain('Branch: issue-1-pr-branch');
   });
 });
 

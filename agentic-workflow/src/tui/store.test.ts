@@ -573,7 +573,7 @@ test('it records a failure with branch name when an implementor fails', () => {
   });
 });
 
-test('it records a failure without branch name when a reviewer fails', () => {
+test('it records a failure with branch name when a reviewer fails', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
@@ -590,6 +590,7 @@ test('it records a failure without branch name when a reviewer fails', () => {
     issueNumber: 1,
     error: 'review failed',
     sessionID: 'sess-r-1',
+    branchName: 'issue-1-pr-branch',
   } satisfies AgentFailedEvent);
 
   const issue = store.getState().issues.get(1);
@@ -597,6 +598,7 @@ test('it records a failure without branch name when a reviewer fails', () => {
     agentType: 'reviewer',
     error: 'review failed',
     sessionID: 'sess-r-1',
+    branchName: 'issue-1-pr-branch',
   });
 });
 

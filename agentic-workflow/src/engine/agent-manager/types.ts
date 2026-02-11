@@ -65,6 +65,7 @@ export interface DispatchImplementorParams {
 
 export interface DispatchReviewerParams {
   issueNumber: number;
+  branchName: string; // PR headRefName — used for failure reporting (branch persists after worktree cleanup)
 }
 
 export interface DispatchPlannerParams {

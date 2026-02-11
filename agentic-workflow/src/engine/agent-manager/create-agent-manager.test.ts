@@ -453,7 +453,7 @@ test('it emits agentFailed with branch name when an implementor session fails', 
 test('it sets the working directory to the repo root for reviewers', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
 
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '10',
@@ -475,7 +475,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
@@ -489,7 +489,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
 test('it passes the issue number as the initial prompt for reviewers', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 7 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 7, branchName: 'issue-7-branch' });
 
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '7',
@@ -499,7 +499,7 @@ test('it passes the issue number as the initial prompt for reviewers', async () 
 test('it emits agentCompleted and does not remove worktree for reviewer sessions', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -871,7 +871,7 @@ test('it returns all running session IDs', async () => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 2 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 2, branchName: 'issue-2-branch' });
   ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-rev'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(2);
@@ -907,7 +907,7 @@ test('it cancels all running sessions when cancelAll is called', async () => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 2 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 2, branchName: 'issue-2-branch' });
   ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-2'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(2);
@@ -961,10 +961,10 @@ test('it includes the session ID in the agentFailed event for implementor failur
 // Does not include worktreePath for non-implementor failures
 // ---------------------------------------------------------------------------
 
-test('it does not include branchName in agentFailed events for reviewers', async () => {
+test('it includes branchName in agentFailed events for reviewers', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-pr-branch' });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -977,7 +977,12 @@ test('it does not include branchName in agentFailed events for reviewers', async
   });
 
   const failed = ctx.events.find((e) => e.type === 'agentFailed');
-  expect(failed).not.toHaveProperty('branchName');
+  expect(failed).toMatchObject({
+    type: 'agentFailed',
+    agentType: 'reviewer',
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+  });
 });
 
 test('it does not include branchName in agentFailed events for planners', async () => {
@@ -1016,7 +1021,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 5 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 5, branchName: 'issue-5-branch' });
 
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
   expect(skipped).toStrictEqual({
@@ -1490,7 +1495,7 @@ test('it writes to independent log files when two agents run concurrently', asyn
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 2 });
+  await ctx.manager.dispatchReviewer({ issueNumber: 2, branchName: 'issue-2-branch' });
   ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-b'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(2);

@@ -326,7 +326,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
             agentType: e.agentType,
             error: e.error,
             sessionId: e.sessionID,
-            branchName: e.agentType === 'implementor' ? e.branchName : undefined,
+            branchName: e.branchName,
             logFilePath: e.logFilePath,
           });
           issues.set(issueNumber, {

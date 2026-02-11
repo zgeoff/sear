@@ -80,7 +80,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     },
 
     async dispatchReviewer(params: DispatchReviewerParams): Promise<void> {
-      const { issueNumber } = params;
+      const { issueNumber, branchName } = params;
 
       if (issueAgents.has(issueNumber)) {
         emitter.emit(buildSkippedEvent('reviewer', { issueNumber }));
@@ -93,6 +93,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         cwd: repoRoot,
         agent: agentReviewer,
         issueNumber,
+        branchName,
       });
 
       issueAgents.set(issueNumber, tracker);
@@ -696,7 +697,7 @@ function buildFailedEvent(
     error,
     ...(tracker.issueNumber !== undefined && { issueNumber: tracker.issueNumber }),
     ...(tracker.specPaths && { specPaths: tracker.specPaths }),
-    ...(tracker.agentType === 'implementor' &&
+    ...((tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
       tracker.branchName && { branchName: tracker.branchName }),
     ...(logFilePath !== undefined && { logFilePath }),
   };
