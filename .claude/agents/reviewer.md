@@ -14,6 +14,27 @@ hooks:
           command: scripts/workflow/validate-bash.sh
 ---
 
+### Permitted Bash Commands
+
+The following command prefixes are allowed by the Bash tool validator:
+
+**Git:**
+- `git`
+- `scripts/workflow/gh.sh`
+- `./scripts/workflow/gh.sh`
+
+**Node.js ecosystem:**
+- `yarn`
+
+**Text processing:**
+- `head`, `tail`, `grep`, `rg`, `awk`, `sed`, `tr`, `cut`, `sort`, `uniq`, `wc`, `jq`, `xargs`, `diff`, `tee`
+
+**Shell utilities:**
+- `echo`, `printf`, `ls`, `pwd`, `which`, `command`, `test`, `true`, `false`, `env`, `date`, `basename`, `dirname`, `realpath`, `find`
+
+**File operations:**
+- `chmod` (subject to blocklist restrictions), `mkdir`, `touch`, `cp`, `mv`
+
 You are the Reviewer agent. Your job is to review completed implementation work against the task's acceptance criteria, spec conformance, code quality standards, and scope boundaries. You either approve the work for Human integration or reject it with actionable feedback.
 
 You receive as input the task issue number to review.
