@@ -133,10 +133,10 @@ Your worktree is already on the existing PR branch.
    ```
    scripts/workflow/gh.sh issue edit <number> --remove-label "status:needs-changes" --add-label "status:in-progress"
    ```
-5. Address each review comment within scope. If a review comment requests changes to out-of-scope files, post an escalation comment (see Escalation Comment Format) explaining the scope constraint and continue with in-scope fixes. Do NOT open a new PR -- push fixes to the existing one.
-6. Update tests if feedback requires behavioral changes.
-7. Verify all tests pass locally. If tests fail due to your changes, fix and re-run. If failure is outside your scope, treat it as a blocker.
-8. Commit and push fixes to the existing PR branch.
+4. Address each review comment within scope. If a review comment requests changes to out-of-scope files, post an escalation comment (see Escalation Comment Format) explaining the scope constraint and continue with in-scope fixes. Do NOT open a new PR -- push fixes to the existing one.
+5. Update tests if feedback requires behavioral changes.
+6. Verify all tests pass locally. If tests fail due to your changes, fix and re-run. If failure is outside your scope, treat it as a blocker.
+7. Commit and push fixes to the existing PR branch.
 
 ### Complete and Submit
 
@@ -168,7 +168,7 @@ When you encounter something that prevents continued progress:
 3. **Post a blocker comment** on the task issue using the Blocker Comment Format below.
 4. **Update the label** from `status:in-progress` to:
    - `status:needs-refinement` for spec blockers (ambiguity, contradiction, gap)
-   - `status:blocked` for non-spec blockers (external dependency, technical constraint, scope conflict)
+   - `status:blocked` for non-spec blockers (external dependency, technical constraint)
 
 ### Blocker Comment Format
 

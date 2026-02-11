@@ -69,9 +69,7 @@ The Engine Core pre-computes and injects the following data into your trigger pr
 Validate ALL of the following gates for each input spec. Gates are evaluated per spec — if any single spec fails a gate, report the failure for that spec and continue processing the remaining specs. Only specs that pass all gates proceed to decomposition.
 
 1. Spec frontmatter `status` is `approved`.
-2. All acceptance criteria are testable (contain observable outcomes).
-3. The spec is committed to the repository (not just local changes).
-4. No open `task:refinement` issues exist for this spec.
+2. No open `task:refinement` issues exist for this spec.
 
 For each spec that fails a gate, output this format (one block per failed spec):
 
@@ -119,7 +117,7 @@ Break remaining work into tasks. Each task must be:
 - **Bounded:** Explicit In Scope and Out of Scope file lists.
 - **Derived:** Acceptance criteria come from the spec (subset of spec criteria, plus any implementation-specific criteria).
 - **Referenced:** Links to the specific spec file and section(s) it implements.
-- **Right-sized:** Completable in a single working session. Split large work into sequential tasks with dependencies.
+- **Right-sized:** Completable in a single Implementor invocation. Split large work into sequential tasks with dependencies.
 
 #### Complexity Assessment
 
