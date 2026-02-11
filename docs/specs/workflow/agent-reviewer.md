@@ -1,6 +1,6 @@
 ---
 title: Reviewer Agent
-version: 0.5.0
+version: 0.5.1
 last_updated: 2026-02-11
 status: approved
 ---
@@ -16,10 +16,7 @@ Agent that reviews completed implementation work against acceptance criteria, sp
 - Must not merge PRs. Approval means setting `status:approved`.
 - Must never reject without providing actionable feedback explaining what needs to change and why.
 - Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
-- Must verify all acceptance criteria from the task issue when present, not a subset.
-- Must analyze scope compliance -- PR changes should stay within the task's primary scope or qualify as incidental changes (see Scope Compliance). Scope issues are reported as warnings, not as findings that trigger rejection.
-- Must not modify code. The Reviewer reads and evaluates; it does not fix.
-- Must run the full review checklist on every review. Individual checklist failures do not short-circuit the remaining steps.
+- Scope issues are reported as warnings, not as findings that trigger rejection.
 
 ## Agent Definition Frontmatter
 
@@ -54,9 +51,7 @@ hooks:
 
 ### Trigger
 
-The Reviewer agent is invoked when the engine sets `status:review` on a task issue after an Implementor agent session completes with a linked non-draft PR (see `control-plane-engine.md` § Completion-dispatch). The `status:review` label is not a polling trigger — it is set by the engine atomically with Reviewer dispatch.
-
-The Reviewer can also be re-dispatched manually via the TUI's retry mechanism (`dispatchReviewer` command) when a previous Reviewer session failed and the issue remains `status:review`. See `control-plane-engine.md` § Commands.
+The Reviewer agent is invoked with a task issue number when the task has `status:review` (see `control-plane-engine.md` § Completion-dispatch for trigger mechanism).
 
 ### Inputs
 
@@ -111,7 +106,7 @@ This step applies when any review comments exist on the PR from non-automated so
 
 Compare the list of files modified in the PR diff against the task issue's scope:
 
-- **Primary scope:** Files listed in the task's "In Scope" section. All implementation work should live here. No restrictions on the nature or size of changes to these files.
+- **Primary scope:** Files listed in the task's "In Scope" section. All implementation work is expected to live here. No restrictions on the nature or size of changes to these files.
 - **Co-located test files:** Test files adjacent to in-scope files (e.g., `foo.test.ts` next to `foo.ts`) are implicitly in scope, even if not explicitly listed. Shared test utilities, fixtures, and integration tests in other directories are not implicitly in scope.
 - **Incidental changes:** Files not listed in "In Scope" but modified as a necessary consequence of in-scope work. A change qualifies as incidental when all of the following are true:
   - It is minimal (e.g., adding an import, re-exporting a new symbol, adding a field to a shared type, updating test fixtures or snapshots to reflect the structural change).
@@ -151,19 +146,48 @@ If a modified file is neither in primary scope nor qualifies as an incidental ch
 
 When all review checklist steps pass (no findings recorded):
 
-1. Submit a PR review comment (`scripts/workflow/gh.sh pr review --comment`) with a summary confirming what was verified.
+1. Submit a PR review comment (`scripts/workflow/gh.sh pr review --comment`) using the approval template:
+
+   ```markdown
+   ## Review: Approved
+
+   ### Checklist
+   - **Unresolved Comments:** No outstanding items (or N/A)
+   - **Scope Compliance:** All modified files within scope
+   - **Task Constraints:** All constraints satisfied
+   - **Acceptance Criteria:** All N criteria verified
+   - **Spec Conformance:** Implementation matches spec
+   - **Code Quality:** Consistent with project standards
+
+   ### Warnings
+   <any warnings from skipped steps or scope observations, or "None">
+   ```
+
 2. Update the task issue label from `status:review` to `status:approved` (`scripts/workflow/gh.sh issue edit`). The label is the canonical approval signal.
 
 ### Rejection Flow
 
 When one or more review checklist steps have findings:
 
-1. Submit a PR review comment (`scripts/workflow/gh.sh pr review --comment`) with actionable feedback structured by checklist category (unresolved comments, task constraints, acceptance criteria, spec conformance, code quality). Only categories with findings are included. Warnings (from skipped steps and scope analysis) are listed separately.
-2. Each piece of feedback must include:
-   - What is wrong (specific file, line, or criterion).
-   - Why it is wrong (reference to spec, convention, or criterion).
-   - What needs to change (concrete, actionable guidance).
-3. Update the task issue label from `status:review` to `status:needs-changes` (`scripts/workflow/gh.sh issue edit`).
+1. Submit a PR review comment (`scripts/workflow/gh.sh pr review --comment`) using the rejection template:
+
+   ```markdown
+   ## Review: Needs Changes
+
+   ### Findings
+
+   #### <Category>
+   - **What:** <specific file, line, or criterion>
+     **Why:** <reference to spec, convention, or criterion>
+     **Fix:** <concrete, actionable guidance>
+
+   ### Warnings
+   <any warnings from skipped steps or scope observations, or "None">
+   ```
+
+   Only categories with findings are included. Each piece of feedback must include all three fields (What, Why, Fix). Warnings from skipped steps and scope analysis are listed separately.
+
+2. Update the task issue label from `status:review` to `status:needs-changes` (`scripts/workflow/gh.sh issue edit`).
 
 ### Status Transitions
 

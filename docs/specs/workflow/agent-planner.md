@@ -1,7 +1,7 @@
 ---
 title: Planner Agent
-version: 0.2.0
-last_updated: 2026-02-10
+version: 0.2.1
+last_updated: 2026-02-11
 status: approved
 ---
 
@@ -13,14 +13,7 @@ Agent that analyzes spec commits and decomposes work into executable GitHub Issu
 
 ## Constraints
 
-- Must not assign tasks to Implementors
-- Must not modify any files (reads the codebase, writes only GitHub Issues)
-- Must not create tasks for specs that are not `approved` status
-- Must review existing GitHub Issues before creating new ones to avoid duplicates
-- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior)
-- Must not make interpretive decisions about spec intent -- if a spec is ambiguous, the Planner creates a `task:refinement` issue instead of guessing
-- Each task must be hermetic: completable without real-time coordination with other agents
-- Must not reprioritize tasks created by previous planning runs unless the spec has changed
+- Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
 - Do not narrate reasoning between tool calls. Output only: gate check results, issue action summaries (created/updated/closed with number and title), and the final planning summary. No exploratory commentary.
 
 ## Agent Definition Frontmatter
@@ -211,8 +204,6 @@ scripts/workflow/gh.sh issue close <N> --reason "not planned" --comment "<reason
 scripts/workflow/gh.sh issue comment <N> --body "<comment>"
 ```
 
-See `skill-github-workflow.md` for additional command patterns if needed.
-
 #### Priority Assignment
 
 The Planner assigns priority based on:
@@ -270,10 +261,9 @@ After all issues are created (or existing issues updated/closed), the Planner ou
 
 If the Planner encounters ambiguity, contradiction, or a gap in the spec that prevents task decomposition:
 
-1. Do not guess or interpret.
-2. Create a `task:refinement` issue using the template below.
-3. Do not create tasks that depend on the ambiguous section until the spec is clarified.
-4. Continue creating tasks for unambiguous sections of the spec.
+1. Create a `task:refinement` issue using the template below.
+2. Do not create tasks that depend on the ambiguous section until the spec is clarified.
+3. Continue creating tasks for unambiguous sections of the spec.
 
 #### Refinement Issue Template
 
@@ -318,8 +308,6 @@ Refinement issues receive labels `task:refinement`, `status:pending`, and a prio
 - [ ] Given the Planner creates a `task:refinement` issue, when the issue is inspected, then it has labels `task:refinement`, `status:pending`, and exactly one priority label
 - [ ] Given the Planner completes, when the summary is reviewed, then it lists all closed, updated, and newly created issues with their priorities and dependencies
 - [ ] Given the Planner creates a `task:refinement` issue, when the issue is inspected, then it does not have a complexity label
-- [ ] Given the Planner receives an enriched prompt with spec content and existing issues, when it starts processing, then it does not issue tool calls to read spec files or list existing issues (data is already in hand)
-- [ ] Given a modified spec in the injected context, when the Planner needs to understand what changed, then it uses the pre-computed diff from the enriched prompt (does not run `git diff`)
 - [ ] Given any GitHub CLI operation performed by the Planner, when the command is inspected, then it uses `scripts/workflow/gh.sh` (not bare `gh`)
 
 ## Dependencies

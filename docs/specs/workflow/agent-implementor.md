@@ -1,6 +1,6 @@
 ---
 title: Implementor Agent
-version: 0.5.0
+version: 0.5.1
 last_updated: 2026-02-11
 status: approved
 ---
@@ -14,14 +14,9 @@ Agent that executes assigned tasks by reading task issues and referenced specs, 
 ## Constraints
 
 - Must work on exactly one task at a time.
-- Must not modify files outside the task's declared scope, except for incidental changes (see Scope Enforcement).
-- Must not make interpretive decisions when the spec is ambiguous, contradictory, or incomplete. Must escalate instead.
-- Must not submit partial work as complete. If blocked, must stop, preserve progress, and surface the blocker.
 - Must use `scripts/workflow/gh.sh` for all GitHub CLI operations (see `skill-github-workflow.md` § Authentication for wrapper behavior).
-- Must follow the blocker and escalation comment formats defined in this spec.
 - Must conform to the project's code style, naming conventions, and patterns defined in `CLAUDE.md`.
 - Must not reprioritize tasks or change task sequencing. Executes what is assigned.
-- Must not rename branches. The Implementor pushes on the branch it starts on.
 
 ## Agent Definition Frontmatter
 
@@ -31,7 +26,7 @@ The agent definition file for the Implementor must include the following frontma
 name: implementor
 description: Implements assigned tasks by writing code and tests within declared scope
 model: opus
-maxTurns: 50
+maxTurns: 100
 tools: Read, Write, Edit, Grep, Glob, Bash
 disallowedTools: NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode, AskUserQuestion, TodoWrite, Skill
 permissionMode: bypassPermissions
@@ -45,8 +40,8 @@ hooks:
 
 - **name:** Agent identifier used by the engine for dispatch and logging.
 - **description:** One-line summary mapped to `AgentDefinition.description`.
-- **model:** `opus` — the default model. The Engine overrides this at dispatch time based on the task's complexity label: `complexity:simple` → `sonnet`, `complexity:complex` → `opus` (see `control-plane-engine.md` § Dispatch Logic).
-- **maxTurns:** `50` — upper bound on agentic turns per session.
+- **model:** `opus` — default; overridden by the engine at dispatch time based on task complexity (see `control-plane-engine.md` § Dispatch Logic).
+- **maxTurns:** `100` — upper bound on agentic turns per session.
 - **tools:** Allowlist. The Implementor reads, writes, and edits code.
 - **disallowedTools:** Denylist reinforcing the allowlist. Blocks notebook editing, web access, sub-agent spawning, plan mode, user interaction, and todo list management.
 - **permissionMode:** `bypassPermissions` — agents run non-interactively. The engine overrides this at dispatch time, but including it ensures correct behavior when the agent is run directly via CLI.
@@ -132,7 +127,7 @@ When a previously blocked task moves to `status:unblocked`:
 4. Update the task issue label from `status:unblocked` to `status:in-progress`.
 5. Continue implementation from where work was preserved, then complete and submit (see Complete and Submit).
 
-The agent's worktree is already on the existing PR branch (the engine creates the worktree from the PR's head ref for resume scenarios — see `control-plane-engine-agent-manager.md` § Agent Lifecycle).
+The agent's worktree is already on the existing PR branch.
 
 #### Resume from Needs-Changes
 
@@ -146,7 +141,7 @@ When a reviewed task moves to `status:needs-changes`. This scenario does not use
 6. Update tests if the feedback requires behavioral changes.
 7. Verify all tests pass locally. If tests fail, the agent fixes its implementation and re-runs until they pass. If the failure is caused by something outside the agent's scope, treat it as a blocker.
 
-The agent's worktree is already on the existing PR branch (the engine creates the worktree from the PR's head ref for resume scenarios — see `control-plane-engine-agent-manager.md` § Agent Lifecycle). The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists (see `control-plane-engine.md` § Completion-dispatch).
+The agent's worktree is already on the existing PR branch.
 
 #### Complete and Submit
 
@@ -157,8 +152,6 @@ Shared procedure used by all execution scenarios after implementation work is do
 3. Open or update the PR:
    - **New task:** Open a new ready-for-review (non-draft) PR (title: `<type>(<scope>): <description>`, body: `Closes #<issue-number>`). The branch name is assigned by the engine at dispatch time — the Implementor pushes on whatever branch its worktree starts on.
    - **Resume from unblocked:** Convert the existing draft PR to ready-for-review.
-
-The agent does not set `status:review` — the engine handles that transition after agent completion when a linked non-draft PR exists (see `control-plane-engine.md` § Completion-dispatch).
 
 ### Blocker Handling
 
@@ -260,8 +253,6 @@ The agent is responsible for the following label transitions (all via `scripts/w
 | `status:in-progress` | `status:needs-refinement` | Blocked by spec issue |
 | `status:in-progress` | `status:blocked` | Blocked by non-spec issue |
 
-The agent does not set `status:review`. That transition is owned by the engine — it sets `status:review` after the agent session completes when a linked non-draft PR exists (see `control-plane-engine.md` § Completion-dispatch).
-
 The agent must not perform any other status transitions.
 
 ### Completion Output
@@ -301,7 +292,6 @@ Any unresolved items, blocker references, or follow-up needed.
 - [ ] Given a task that moves to `status:needs-changes`, when a review comment requests changes to out-of-scope files, then the agent posts an escalation comment explaining the scope constraint and continues with in-scope fixes.
 - [ ] Given any status transition performed by the agent, when reviewed, then it matches one of the five defined transitions in the Status Transitions table.
 - [ ] Given the agent identifies a non-blocking issue (e.g., scope conflict with another task), when it posts an escalation comment, then it continues working and does not change the status label.
-- [ ] Given the agent completes work, when reviewed, then the agent has not set `status:review` on the task issue (the engine owns that transition).
 - [ ] Given the agent finishes execution (any outcome), when reviewed, then it has returned a completion summary with the task number, outcome, PR reference, and description of what was done.
 - [ ] Given any GitHub CLI operation performed by the Implementor, when the command is inspected, then it uses `scripts/workflow/gh.sh` (not bare `gh`).
 
