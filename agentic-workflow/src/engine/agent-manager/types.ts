@@ -2,6 +2,7 @@ import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AgentStream,
   AgentType,
+  CIStatusResult,
   IssueDetailsResult,
   PRFileEntry,
   PRReviewsResult,
@@ -112,4 +113,5 @@ export interface BuildImplementorTriggerPromptParams {
   prTitle?: string;
   prFiles?: PRFileEntry[];
   prReviews?: PRReviewsResult;
+  ciStatus?: CIStatusResult;
 }

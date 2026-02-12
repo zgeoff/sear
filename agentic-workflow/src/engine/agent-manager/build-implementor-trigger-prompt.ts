@@ -14,6 +14,11 @@ export function buildImplementorTriggerPrompt(params: BuildImplementorTriggerPro
   ) {
     sections.push(buildPRSection(params.prNumber, params.prTitle, params.prFiles));
 
+    const ciStatusSection = buildCIStatusSection(params.ciStatus);
+    if (ciStatusSection !== null) {
+      sections.push(ciStatusSection);
+    }
+
     const reviewsSection = buildReviewsSection(params.prReviews.reviews);
     if (reviewsSection !== null) {
       sections.push(reviewsSection);
@@ -69,6 +74,28 @@ function buildFileEntry(file: PRFileEntry): string {
   }
 
   lines.push('');
+
+  return lines.join('\n');
+}
+
+function buildCIStatusSection(
+  ciStatus: BuildImplementorTriggerPromptParams['ciStatus'],
+): string | null {
+  if (ciStatus === undefined || ciStatus.overall !== 'failure') {
+    return null;
+  }
+
+  const lines: string[] = [];
+
+  lines.push('### CI Status: FAILURE');
+  lines.push('');
+
+  for (const check of ciStatus.failedCheckRuns) {
+    lines.push(`#### ${check.name} — ${check.conclusion}`);
+    lines.push('');
+    lines.push(`Details: ${check.detailsURL}`);
+    lines.push('');
+  }
 
   return lines.join('\n');
 }
