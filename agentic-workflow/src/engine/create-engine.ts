@@ -655,10 +655,11 @@ async function buildImplementorPromptWithPR(
   params: HandleDispatchImplementorParams,
   prDetails: NonNullable<PRDetailsResult>,
 ): Promise<string> {
-  const [issueDetails, prFiles, prReviews] = await Promise.all([
+  const [issueDetails, prFiles, prReviews, ciStatus] = await Promise.all([
     getIssueDetails(params.queriesConfig, params.issueNumber),
     getPRFiles(params.queriesConfig, prDetails.number),
     getPRReviews(params.queriesConfig, prDetails.number),
+    getCIStatus(params.queriesConfig, prDetails.number),
   ]);
 
   return buildImplementorTriggerPrompt({
@@ -667,6 +668,7 @@ async function buildImplementorPromptWithPR(
     prTitle: prDetails.title,
     prFiles,
     prReviews,
+    ciStatus,
   });
 }
 

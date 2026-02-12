@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 import type {
+  CIStatusResult,
   IssueDetailsResult,
   PRFileEntry,
   PRInlineComment,
@@ -494,4 +495,167 @@ test('it omits PR section when only prReviews is missing', () => {
   expect(result).toContain('## Task Issue #42');
   expect(result).not.toContain('## PR #99');
   expect(result).not.toContain('### Changed Files');
+});
+
+test('it includes CI Status section when overall status is failure', () => {
+  const ciStatus: CIStatusResult = {
+    overall: 'failure',
+    failedCheckRuns: [
+      {
+        name: 'lint',
+        status: 'completed',
+        conclusion: 'failure',
+        detailsURL: 'https://github.com/owner/repo/runs/123',
+      },
+      {
+        name: 'test',
+        status: 'completed',
+        conclusion: 'cancelled',
+        detailsURL: 'https://github.com/owner/repo/runs/456',
+      },
+    ],
+  };
+
+  const { params } = setupTest({
+    prNumber: 99,
+    prTitle: 'fix(auth): refresh expired tokens',
+    prFiles: [],
+    prReviews: { reviews: [], comments: [] },
+    ciStatus,
+  });
+
+  const result = buildImplementorTriggerPrompt(params);
+
+  expect(result).toContain('### CI Status: FAILURE');
+  expect(result).toContain('#### lint — failure');
+  expect(result).toContain('Details: https://github.com/owner/repo/runs/123');
+  expect(result).toContain('#### test — cancelled');
+  expect(result).toContain('Details: https://github.com/owner/repo/runs/456');
+});
+
+test('it omits CI Status section when overall status is success', () => {
+  const ciStatus: CIStatusResult = {
+    overall: 'success',
+    failedCheckRuns: [],
+  };
+
+  const { params } = setupTest({
+    prNumber: 99,
+    prTitle: 'fix(auth): refresh expired tokens',
+    prFiles: [],
+    prReviews: { reviews: [], comments: [] },
+    ciStatus,
+  });
+
+  const result = buildImplementorTriggerPrompt(params);
+
+  expect(result).not.toContain('### CI Status');
+});
+
+test('it omits CI Status section when overall status is pending', () => {
+  const ciStatus: CIStatusResult = {
+    overall: 'pending',
+    failedCheckRuns: [],
+  };
+
+  const { params } = setupTest({
+    prNumber: 99,
+    prTitle: 'fix(auth): refresh expired tokens',
+    prFiles: [],
+    prReviews: { reviews: [], comments: [] },
+    ciStatus,
+  });
+
+  const result = buildImplementorTriggerPrompt(params);
+
+  expect(result).not.toContain('### CI Status');
+});
+
+test('it omits CI Status section when ciStatus is undefined', () => {
+  const { params } = setupTest({
+    prNumber: 99,
+    prTitle: 'fix(auth): refresh expired tokens',
+    prFiles: [],
+    prReviews: { reviews: [], comments: [] },
+  });
+
+  const result = buildImplementorTriggerPrompt(params);
+
+  expect(result).not.toContain('### CI Status');
+});
+
+test('it places CI Status section between Changed Files and Prior Reviews', () => {
+  const ciStatus: CIStatusResult = {
+    overall: 'failure',
+    failedCheckRuns: [
+      {
+        name: 'build',
+        status: 'completed',
+        conclusion: 'failure',
+        detailsURL: 'https://github.com/owner/repo/runs/789',
+      },
+    ],
+  };
+
+  const prReviews: PRReviewsResult = {
+    reviews: [{ id: 1, author: 'alice', state: 'APPROVED', body: 'Looks good!' }],
+    comments: [],
+  };
+
+  const { params } = setupTest({
+    prNumber: 99,
+    prTitle: 'fix(auth): refresh expired tokens',
+    prFiles: [{ filename: 'src/code.ts', status: 'modified', patch: '@@ -1,1 +1,2 @@' }],
+    prReviews,
+    ciStatus,
+  });
+
+  const result = buildImplementorTriggerPrompt(params);
+
+  const changedFilesIndex = result.indexOf('### Changed Files');
+  const ciStatusIndex = result.indexOf('### CI Status: FAILURE');
+  const priorReviewsIndex = result.indexOf('### Prior Reviews');
+
+  expect(changedFilesIndex).toBeLessThan(ciStatusIndex);
+  expect(ciStatusIndex).toBeLessThan(priorReviewsIndex);
+});
+
+test('it includes all failed check run conclusions in CI Status section', () => {
+  const ciStatus: CIStatusResult = {
+    overall: 'failure',
+    failedCheckRuns: [
+      {
+        name: 'check-1',
+        status: 'completed',
+        conclusion: 'failure',
+        detailsURL: 'https://github.com/owner/repo/runs/1',
+      },
+      {
+        name: 'check-2',
+        status: 'completed',
+        conclusion: 'cancelled',
+        detailsURL: 'https://github.com/owner/repo/runs/2',
+      },
+      {
+        name: 'check-3',
+        status: 'completed',
+        conclusion: 'timed_out',
+        detailsURL: 'https://github.com/owner/repo/runs/3',
+      },
+    ],
+  };
+
+  const { params } = setupTest({
+    prNumber: 99,
+    prTitle: 'fix(auth): refresh expired tokens',
+    prFiles: [],
+    prReviews: { reviews: [], comments: [] },
+    ciStatus,
+  });
+
+  const result = buildImplementorTriggerPrompt(params);
+
+  expect(result).toContain('#### check-1 — failure');
+  expect(result).toContain('#### check-2 — cancelled');
+  expect(result).toContain('#### check-3 — timed_out');
 });
