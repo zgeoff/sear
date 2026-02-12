@@ -166,7 +166,11 @@ Your worktree is already on the existing PR branch.
 
 ### Complete and Submit
 
-Shared procedure used after implementation for new tasks and resumed-from-unblocked tasks:
+Shared procedure used after implementation for new tasks and resumed-from-unblocked tasks.
+
+**The PR is the agent's primary deliverable.** Code changes without a submitted PR have no value to
+the workflow — the engine cannot detect completion, the Reviewer cannot be dispatched, and the
+worktree will be destroyed. A task is not complete until a PR exists.
 
 1. **Write or update tests** that verify each acceptance criterion.
 2. **Run tests locally** and verify they pass. If tests fail:
