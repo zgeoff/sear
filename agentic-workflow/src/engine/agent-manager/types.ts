@@ -1,5 +1,11 @@
 import type { HookCallback } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentStream, AgentType } from '../../types.ts';
+import type {
+  AgentStream,
+  AgentType,
+  IssueDetailsResult,
+  PRFileEntry,
+  PRReviewsResult,
+} from '../../types.ts';
 import type { EventEmitter } from '../event-emitter/types.ts';
 import type { WorktreeManager } from '../worktree-manager/types.ts';
 
@@ -85,4 +91,12 @@ export interface AgentManager {
   isPlannerRunning: () => boolean;
   getRunningSessionIDs: () => string[];
   cancelAll: () => Promise<void>;
+}
+
+export interface BuildReviewerTriggerPromptParams {
+  issueDetails: IssueDetailsResult;
+  prNumber: number;
+  prTitle: string;
+  prFiles: PRFileEntry[];
+  prReviews: PRReviewsResult;
 }
