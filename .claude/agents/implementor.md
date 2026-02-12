@@ -169,14 +169,25 @@ Shared procedure used after implementation for new tasks and resumed-from-unbloc
    - If the failure is in your code, fix and re-run.
    - If the failure is outside your scope (pre-existing failure, broken dependency), treat it as a
      blocker.
-3. **Open or update the PR:**
-   - **New task:** Commit your changes. Open a ready-for-review (non-draft) PR on the current
-     branch:
+3. **Commit, push, and open/update the PR** — this step is REQUIRED before writing the Completion
+   Output. Do NOT skip it:
+   - **New task:**
+     1. Stage and commit your changes:
+        ```
+        git add <files>
+        git commit -m "<type>(<scope>): <description>"
+        ```
+     2. Push to the remote:
+        ```
+        git push -u origin HEAD
+        ```
+     3. Open a ready-for-review (non-draft) PR:
+        ```
+        scripts/workflow/gh.sh pr create --head <branch> --base main --title "<type>(<scope>): <description>" --body "Closes #<issue-number>"
+        ```
+   - **Resume from unblocked:** Push fixes, then convert the existing draft PR to ready-for-review:
      ```
-     scripts/workflow/gh.sh pr create --head <branch> --base main --title "<type>(<scope>): <description>" --body "Closes #<issue-number>"
-     ```
-   - **Resume from unblocked:** Convert the existing draft PR to ready-for-review:
-     ```
+     git push
      scripts/workflow/gh.sh pr ready <number>
      ```
 
@@ -298,7 +309,7 @@ summary as your final text:
 
 **Task:** #<issue-number> — <title>
 **Outcome:** completed | blocked | validation-failure
-**PR:** #<pr-number> (or "None")
+**PR:** #<pr-number> | None (ONLY valid when outcome is `blocked` or `validation-failure`)
 
 ### What Was Done
 Brief description of changes made (or "No changes" if stopped before implementation).
@@ -316,3 +327,5 @@ Any unresolved items, blocker references, or follow-up needed.
 - ALWAYS conform to the project's code style, naming conventions, and patterns defined in
   `CLAUDE.md`.
 - ALWAYS use conventional commit format for commit messages and PR titles.
+- NEVER report outcome `completed` without having committed, pushed, and opened/updated a PR. If you
+  cannot create a PR, your outcome is `blocked`, not `completed`.
