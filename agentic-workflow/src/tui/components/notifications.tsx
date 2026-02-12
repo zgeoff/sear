@@ -284,11 +284,17 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
     .with({ eventType: 'prUnapproved' }, (n) => (
       <>{renderIssueLink(n.issueNumber, repository)} unapproved</>
     ))
-    .with({ eventType: 'ciCheckFailed' }, (n) => (
-      <>CI check failed for {renderIssueLink(n.issueNumber, repository)}</>
-    ))
+    .with({ eventType: 'ciCheckFailed' }, (n) => {
+      const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+      return (
+        <>
+          CI failed on PR #{n.prNumber}
+          {guidance}
+        </>
+      );
+    })
     .with({ eventType: 'ciCheckRecovered' }, (n) => (
-      <>CI check recovered for {renderIssueLink(n.issueNumber, repository)}</>
+      <>CI recovered for {renderIssueLink(n.issueNumber, repository)}</>
     ))
     .with({ eventType: 'issueRemoved' }, (n) => (
       <>{renderIssueLink(n.issueNumber, repository)} removed</>
@@ -326,8 +332,8 @@ function getIndicatorGlyph(notification: Notification): string {
     .with({ eventType: 'issueRefined' }, () => '\u00D7')
     .with({ eventType: 'issueUnblocked' }, () => '\u00D7')
     .with({ eventType: 'prUnapproved' }, () => '\u00D7')
-    .with({ eventType: 'ciCheckFailed' }, () => '\u2717')
-    .with({ eventType: 'ciCheckRecovered' }, () => '\u2713')
+    .with({ eventType: 'ciCheckFailed' }, () => '!')
+    .with({ eventType: 'ciCheckRecovered' }, () => '\u00D7')
     .with({ eventType: 'issueRemoved' }, () => '\u2212')
     .with({ eventType: 'startup' }, () => '\u2713')
     .exhaustive();
@@ -352,7 +358,7 @@ export function getIndicatorColor(notification: Notification): InkColor {
     .with({ eventType: 'issueUnblocked' }, () => undefined)
     .with({ eventType: 'prUnapproved' }, () => undefined)
     .with({ eventType: 'ciCheckFailed' }, () => 'red')
-    .with({ eventType: 'ciCheckRecovered' }, () => 'green')
+    .with({ eventType: 'ciCheckRecovered' }, () => undefined)
     .with({ eventType: 'issueRemoved' }, () => undefined)
     .with({ eventType: 'startup' }, () => 'green')
     .exhaustive();
@@ -363,6 +369,7 @@ export function isIndicatorDim(notification: Notification): boolean {
     notification.eventType === 'issueRefined' ||
     notification.eventType === 'issueUnblocked' ||
     notification.eventType === 'prUnapproved' ||
+    notification.eventType === 'ciCheckRecovered' ||
     notification.eventType === 'issueRemoved'
   );
 }
@@ -439,8 +446,11 @@ function renderContentString(notification: Notification): string {
     .with({ eventType: 'issueRefined' }, (n) => `#${n.issueNumber} refined`)
     .with({ eventType: 'issueUnblocked' }, (n) => `#${n.issueNumber} unblocked`)
     .with({ eventType: 'prUnapproved' }, (n) => `#${n.issueNumber} unapproved`)
-    .with({ eventType: 'ciCheckFailed' }, (n) => `CI check failed for #${n.issueNumber}`)
-    .with({ eventType: 'ciCheckRecovered' }, (n) => `CI check recovered for #${n.issueNumber}`)
+    .with({ eventType: 'ciCheckFailed' }, (n) => {
+      const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+      return `CI failed on PR #${n.prNumber}${guidance}`;
+    })
+    .with({ eventType: 'ciCheckRecovered' }, (n) => `CI recovered for #${n.issueNumber}`)
     .with({ eventType: 'issueRemoved' }, (n) => `#${n.issueNumber} removed`)
     .with({ eventType: 'startup' }, (n) => {
       const base = `Startup complete: ${n.issueCount} issues tracked`;
