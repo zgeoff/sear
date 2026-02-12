@@ -21,11 +21,8 @@ function setupTest(overrides?: Partial<BuildImplementorTriggerPromptParams>): {
   };
 
   const params: BuildImplementorTriggerPromptParams = {
-    issueDetails: overrides?.issueDetails ?? issueDetails,
-    prNumber: overrides?.prNumber,
-    prTitle: overrides?.prTitle,
-    prFiles: overrides?.prFiles,
-    prReviews: overrides?.prReviews,
+    issueDetails,
+    ...overrides,
   };
 
   return { params };

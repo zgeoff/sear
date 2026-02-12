@@ -6,13 +6,12 @@ export function buildImplementorTriggerPrompt(params: BuildImplementorTriggerPro
 
   sections.push(buildIssueSection(params));
 
-  const hasPRData =
+  if (
     params.prNumber !== undefined &&
     params.prTitle !== undefined &&
     params.prFiles !== undefined &&
-    params.prReviews !== undefined;
-
-  if (hasPRData) {
+    params.prReviews !== undefined
+  ) {
     sections.push(buildPRSection(params.prNumber, params.prTitle, params.prFiles));
 
     const reviewsSection = buildReviewsSection(params.prReviews.reviews);
