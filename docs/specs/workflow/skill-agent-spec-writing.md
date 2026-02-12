@@ -1,8 +1,8 @@
 ---
 title: Agent Spec Writing Skill
 version: 0.1.0
-last_updated: 2026-02-12
-status: draft
+last_updated: 2026-02-13
+status: approved
 ---
 
 # Agent Spec Writing Skill
