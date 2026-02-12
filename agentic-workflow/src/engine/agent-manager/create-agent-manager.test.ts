@@ -1070,7 +1070,11 @@ test('it includes the session ID in the agentFailed event for implementor failur
 test('it includes branchName in agentFailed events for reviewers', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-pr-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+    prompt: 'enriched prompt',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
