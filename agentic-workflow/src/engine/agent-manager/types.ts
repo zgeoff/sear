@@ -73,6 +73,7 @@ export interface DispatchReviewerParams {
   issueNumber: number;
   branchName: string; // PR headRefName — used for worktree creation and failure reporting (branch persists after worktree cleanup)
   fetchRemote?: boolean; // when true, runs `git fetch origin <branchName>` before creating the worktree
+  prompt: string; // enriched prompt built by Engine Core via buildReviewerTriggerPrompt
 }
 
 export interface DispatchPlannerParams {
