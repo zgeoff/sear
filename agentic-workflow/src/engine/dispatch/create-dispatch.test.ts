@@ -428,19 +428,18 @@ test('it emits dispatchReady when an issue enters needs-changes status', async (
 // Issue status changed — notify-only (needs-refinement)
 // ---------------------------------------------------------------------------
 
-test('it emits a notification with clipboard command for needs-refinement status', async () => {
+test('it emits an issueNeedsRefinement event with clipboard command for needs-refinement status', async () => {
   const { dispatch, events } = setupTest();
 
   await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'needs-refinement', issueNumber: 7 }),
   );
 
-  const notifications = events.filter((e) => e.type === 'notification');
+  const notifications = events.filter((e) => e.type === 'issueNeedsRefinement');
   expect(notifications).toHaveLength(1);
   expect(notifications[0]).toStrictEqual({
-    type: 'notification',
+    type: 'issueNeedsRefinement',
     issueNumber: 7,
-    statusLabel: 'status:needs-refinement',
     clipboardCommand:
       'claude -p "Use /spec-writing to address the spec refinement needed for issue #7. See blocker comment: https://github.com/test-owner/test-repo/issues/7"',
     contextURL: 'https://github.com/test-owner/test-repo/issues/7',
@@ -455,9 +454,9 @@ test('it uses the correct clipboard command format for needs-refinement', async 
     buildIssueStatusChanged({ newStatus: 'needs-refinement', issueNumber: 15 }),
   );
 
-  const notification = events.find((e) => e.type === 'notification');
+  const notification = events.find((e) => e.type === 'issueNeedsRefinement');
   expect(notification).toBeDefined();
-  if (notification?.type === 'notification') {
+  if (notification?.type === 'issueNeedsRefinement') {
     expect(notification.clipboardCommand).toBe(
       'claude -p "Use /spec-writing to address the spec refinement needed for issue #15. See blocker comment: https://github.com/test-owner/test-repo/issues/15"',
     );
@@ -468,19 +467,18 @@ test('it uses the correct clipboard command format for needs-refinement', async 
 // Issue status changed — notify-only (blocked)
 // ---------------------------------------------------------------------------
 
-test('it emits a notification with issue URL and resolution guidance for blocked status', async () => {
+test('it emits an issueBlocked event with issue URL and resolution guidance for blocked status', async () => {
   const { dispatch, events } = setupTest();
 
   await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'blocked', issueNumber: 8 }),
   );
 
-  const notifications = events.filter((e) => e.type === 'notification');
+  const notifications = events.filter((e) => e.type === 'issueBlocked');
   expect(notifications).toHaveLength(1);
   expect(notifications[0]).toStrictEqual({
-    type: 'notification',
+    type: 'issueBlocked',
     issueNumber: 8,
-    statusLabel: 'status:blocked',
     contextURL: 'https://github.com/test-owner/test-repo/issues/8',
     resolutionGuidance: 'After resolving the blocker, change the label to status:unblocked.',
   });
@@ -490,19 +488,18 @@ test('it emits a notification with issue URL and resolution guidance for blocked
 // Issue status changed — notify-only (approved)
 // ---------------------------------------------------------------------------
 
-test('it emits a notification with issue URL for approved status', async () => {
+test('it emits a prApproved event with issue URL for approved status', async () => {
   const { dispatch, events } = setupTest();
 
   await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({ newStatus: 'approved', issueNumber: 9 }),
   );
 
-  const notifications = events.filter((e) => e.type === 'notification');
+  const notifications = events.filter((e) => e.type === 'prApproved');
   expect(notifications).toHaveLength(1);
   expect(notifications[0]).toStrictEqual({
-    type: 'notification',
+    type: 'prApproved',
     issueNumber: 9,
-    statusLabel: 'status:approved',
     contextURL: 'https://github.com/test-owner/test-repo/issues/9',
   });
 });
@@ -511,7 +508,7 @@ test('it emits a notification with issue URL for approved status', async () => {
 // Issue status changed — notification dismissal
 // ---------------------------------------------------------------------------
 
-test('it emits notificationDismissed when a notified issue changes status', async () => {
+test('it emits issueRefined when a needs-refinement issue changes status', async () => {
   const { dispatch, events } = setupTest();
 
   // First: issue enters needs-refinement -> notification emitted
@@ -519,7 +516,7 @@ test('it emits notificationDismissed when a notified issue changes status', asyn
     buildIssueStatusChanged({ newStatus: 'needs-refinement', issueNumber: 20 }),
   );
 
-  // Second: issue status changes to unblocked -> notification dismissed
+  // Second: issue status changes to unblocked -> issueRefined emitted
   await dispatch.handleIssueStatusChanged(
     buildIssueStatusChanged({
       newStatus: 'unblocked',
@@ -528,15 +525,15 @@ test('it emits notificationDismissed when a notified issue changes status', asyn
     }),
   );
 
-  const dismissedEvents = events.filter((e) => e.type === 'notificationDismissed');
-  expect(dismissedEvents).toHaveLength(1);
-  expect(dismissedEvents[0]).toStrictEqual({
-    type: 'notificationDismissed',
+  const refinedEvents = events.filter((e) => e.type === 'issueRefined');
+  expect(refinedEvents).toHaveLength(1);
+  expect(refinedEvents[0]).toStrictEqual({
+    type: 'issueRefined',
     issueNumber: 20,
   });
 });
 
-test('it does not emit notificationDismissed when no notification is active for the issue', async () => {
+test('it does not emit a dismissal event when no notification is active for the issue', async () => {
   const { dispatch, events } = setupTest();
 
   // Issue enters pending -- no notification was active
@@ -544,11 +541,12 @@ test('it does not emit notificationDismissed when no notification is active for 
     buildIssueStatusChanged({ newStatus: 'pending', issueNumber: 30 }),
   );
 
-  const dismissedEvents = events.filter((e) => e.type === 'notificationDismissed');
+  const dismissalTypes = ['issueRefined', 'issueUnblocked', 'prUnapproved'];
+  const dismissedEvents = events.filter((e) => dismissalTypes.includes(e.type));
   expect(dismissedEvents).toHaveLength(0);
 });
 
-test('it dismisses a blocked notification when the issue status changes', async () => {
+test('it emits issueUnblocked when a blocked issue changes status', async () => {
   const { dispatch, events } = setupTest();
 
   await dispatch.handleIssueStatusChanged(
@@ -563,15 +561,15 @@ test('it dismisses a blocked notification when the issue status changes', async 
     }),
   );
 
-  const dismissedEvents = events.filter((e) => e.type === 'notificationDismissed');
-  expect(dismissedEvents).toHaveLength(1);
-  expect(dismissedEvents[0]).toStrictEqual({
-    type: 'notificationDismissed',
+  const unblockedEvents = events.filter((e) => e.type === 'issueUnblocked');
+  expect(unblockedEvents).toHaveLength(1);
+  expect(unblockedEvents[0]).toStrictEqual({
+    type: 'issueUnblocked',
     issueNumber: 21,
   });
 });
 
-test('it dismisses an approved notification when the issue status changes', async () => {
+test('it emits prUnapproved when an approved issue changes status', async () => {
   const { dispatch, events } = setupTest();
 
   await dispatch.handleIssueStatusChanged(
@@ -586,11 +584,11 @@ test('it dismisses an approved notification when the issue status changes', asyn
     }),
   );
 
-  const dismissedEvents = events.filter((e) => e.type === 'notificationDismissed');
-  expect(dismissedEvents).toHaveLength(1);
+  const unapprovedEvents = events.filter((e) => e.type === 'prUnapproved');
+  expect(unapprovedEvents).toHaveLength(1);
 });
 
-test('it does not emit notificationDismissed twice for the same issue without a new notification', async () => {
+test('it does not emit a dismissal event twice for the same issue without a new notification', async () => {
   const { dispatch, events } = setupTest();
 
   await dispatch.handleIssueStatusChanged(
@@ -615,8 +613,8 @@ test('it does not emit notificationDismissed twice for the same issue without a 
     }),
   );
 
-  const dismissedEvents = events.filter((e) => e.type === 'notificationDismissed');
-  expect(dismissedEvents).toHaveLength(1);
+  const unblockedEvents = events.filter((e) => e.type === 'issueUnblocked');
+  expect(unblockedEvents).toHaveLength(1);
 });
 
 // ---------------------------------------------------------------------------
@@ -632,9 +630,14 @@ test('it triggers no dispatch action for in-progress status', async () => {
 
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 
-  const dispatchEvents = events.filter(
-    (e) => e.type === 'dispatchReady' || e.type === 'notification' || e.type === 'agentSkipped',
-  );
+  const notifyTypes = [
+    'dispatchReady',
+    'issueBlocked',
+    'issueNeedsRefinement',
+    'prApproved',
+    'agentSkipped',
+  ];
+  const dispatchEvents = events.filter((e) => notifyTypes.includes(e.type));
   expect(dispatchEvents).toHaveLength(0);
 });
 
@@ -647,9 +650,14 @@ test('it triggers no dispatch action for review status', async () => {
 
   expect(agentManager.dispatchPlanner).not.toHaveBeenCalled();
 
-  const dispatchEvents = events.filter(
-    (e) => e.type === 'dispatchReady' || e.type === 'notification' || e.type === 'agentSkipped',
-  );
+  const notifyTypes = [
+    'dispatchReady',
+    'issueBlocked',
+    'issueNeedsRefinement',
+    'prApproved',
+    'agentSkipped',
+  ];
+  const dispatchEvents = events.filter((e) => notifyTypes.includes(e.type));
   expect(dispatchEvents).toHaveLength(0);
 });
 

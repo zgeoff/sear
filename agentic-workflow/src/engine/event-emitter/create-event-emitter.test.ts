@@ -175,15 +175,50 @@ test('it accepts and delivers all engine event types', () => {
       statusLabel: 'status:pending',
     },
     {
-      type: 'notification',
+      type: 'issueNeedsRefinement',
       issueNumber: 5,
-      statusLabel: 'status:needs-refinement',
       clipboardCommand: 'claude -p "Use /spec-writing..."',
       contextURL: 'https://github.com/owner/repo/issues/5',
       resolutionGuidance: 'After amending the spec, change the label to status:unblocked.',
     },
     {
-      type: 'notificationDismissed',
+      type: 'issueRefined',
+      issueNumber: 5,
+    },
+    {
+      type: 'issueBlocked',
+      issueNumber: 8,
+      contextURL: 'https://github.com/owner/repo/issues/8',
+      resolutionGuidance: 'After resolving the blocker, change the label to status:unblocked.',
+    },
+    {
+      type: 'issueUnblocked',
+      issueNumber: 8,
+    },
+    {
+      type: 'prApproved',
+      issueNumber: 9,
+      contextURL: 'https://github.com/owner/repo/issues/9',
+    },
+    {
+      type: 'prUnapproved',
+      issueNumber: 9,
+    },
+    {
+      type: 'ciStatusChanged',
+      prNumber: 10,
+      issueNumber: 5,
+      oldCIStatus: null,
+      newCIStatus: 'failure',
+    },
+    {
+      type: 'ciCheckFailed',
+      issueNumber: 5,
+      prNumber: 10,
+      contextURL: 'https://github.com/owner/repo/pull/10',
+    },
+    {
+      type: 'ciCheckRecovered',
       issueNumber: 5,
     },
     {
