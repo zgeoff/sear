@@ -106,7 +106,7 @@ type RecoveryConfig = {
 
 // One entry per issue recovered during startup recovery. The Engine Core
 // uses these to emit recoveryPerformed and synthetic issueStatusChanged events.
-// RecoveredIssue carries the same issue metadata as IssueSnapshotEntry (see pollers spec).
+// RecoveredIssue carries the same issue metadata as IssueSnapshotEntry (see control-plane-engine-issue-poller.md).
 // The Engine Core maps issueNumber → number and sets statusLabel: 'pending' when
 // seeding the IssuePoller snapshot.
 type RecoveredIssue = {
@@ -160,7 +160,7 @@ GitHub API interaction (status checking and label resets).
 ## Dependencies
 
 - `control-plane-engine.md` — Parent engine spec (GitHubClient, event types, IssuePoller snapshot)
-- `control-plane-engine-pollers.md` — IssuePoller snapshot (recovery modifies the snapshot to
+- `control-plane-engine-issue-poller.md` — IssuePoller snapshot (recovery modifies the snapshot to
   prevent duplicate events)
 - `control-plane-engine-agent-manager.md` — Agent Manager (reports agent completion to Engine Core,
   which invokes recovery)

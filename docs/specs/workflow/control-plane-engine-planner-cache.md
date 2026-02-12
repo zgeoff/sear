@@ -129,7 +129,7 @@ type PlannerCache = {
 ```
 
 The `SpecPollerSnapshot` type is defined in
-[control-plane-engine-pollers.md: Type Definitions](./control-plane-engine-pollers.md#type-definitions).
+[control-plane-engine-spec-poller.md: Type Definitions](./control-plane-engine-spec-poller.md#type-definitions).
 `PlannerCacheEntry` pairs the snapshot with the commit SHA from the `SpecPollerBatchResult` —
 `load()` returns both so the engine can seed the SpecPoller and build the Planner's enriched prompt.
 `write()` takes them as separate parameters since they come from different sources at dispatch time
@@ -173,11 +173,11 @@ the top of `write()`.
 ## Dependencies
 
 - `control-plane-engine.md` — Parent engine spec (Repository Root Resolution, SpecPoller dispatch)
-- `control-plane-engine-pollers.md` — SpecPoller snapshot seeding and `getSnapshot()` method
+- `control-plane-engine-spec-poller.md` — SpecPoller snapshot seeding and `getSnapshot()` method
 
 ## References
 
-- [control-plane-engine-pollers.md: SpecPoller](./control-plane-engine-pollers.md#specpoller) —
-  Snapshot seeding and access
+- [control-plane-engine-spec-poller.md](./control-plane-engine-spec-poller.md) — Snapshot seeding
+  and access
 - [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) — Planner
   concurrency guard and deferred paths

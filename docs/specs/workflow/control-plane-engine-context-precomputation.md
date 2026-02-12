@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine — Context Pre-computation
-version: 0.2.0
+version: 0.3.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -118,6 +118,16 @@ selection). The presence or absence of a linked PR determines the prompt tier:
 <patch>
 ```
 
+### CI Status: FAILURE
+
+#### <checkName> — failure
+
+Details: <detailsURL>
+
+#### <checkName> — cancelled
+
+Details: <detailsURL>
+
 ### Prior Reviews
 
 #### Review by <author> — <state>
@@ -138,6 +148,10 @@ includes the filename and status but no code block. When no prior reviews or inl
 the "Prior Reviews" and "Prior Inline Comments" sections are omitted entirely. The `createdAt` field
 from `IssueDetailsResult` is excluded — it is not useful for implementation.
 
+The "CI Status" section is only included when `getCIStatus(prNumber)` returns `overall: 'failure'`.
+Only check runs with `conclusion` of `'failure'`, `'cancelled'`, or `'timed_out'` are listed. The
+section is omitted entirely when CI status is `'success'` or `'pending'`.
+
 > **Rationale:** Pre-computing the issue body eliminates a `gh.sh issue view` tool-call turn that
 > every Implementor invocation previously required. For resume scenarios, pre-computing PR diffs and
 > review comments eliminates additional turns the agent would spend fetching review feedback —
@@ -146,12 +160,13 @@ from `IssueDetailsResult` is excluded — it is not useful for implementation.
 
 **Data sources:**
 
-| Data           | Source                                                                                                                 | When fetched                 |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Issue details  | `getIssueDetails(issueNumber)`                                                                                         | At Implementor dispatch time |
-| PR details     | `getPRForIssue(issueNumber, { includeDrafts: true })` — already called for branch strategy; PR number and title reused | At Implementor dispatch time |
-| PR files       | `getPRFiles(prNumber)` — called only when `getPRForIssue` returned a linked PR                                         | At Implementor dispatch time |
-| Review history | `getPRReviews(prNumber)` — called only when `getPRForIssue` returned a linked PR                                       | At Implementor dispatch time |
+| Data           | Source                                                                                                                                       | When fetched                 |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Issue details  | `getIssueDetails(issueNumber)`                                                                                                               | At Implementor dispatch time |
+| PR details     | `getPRForIssue(issueNumber, { includeDrafts: true })` — already called for branch strategy; PR number and title reused                       | At Implementor dispatch time |
+| PR files       | `getPRFiles(prNumber)` — called only when `getPRForIssue` returned a linked PR                                                               | At Implementor dispatch time |
+| Review history | `getPRReviews(prNumber)` — called only when `getPRForIssue` returned a linked PR                                                             | At Implementor dispatch time |
+| CI status      | `getCIStatus(prNumber)` — called only when `getPRForIssue` returned a linked PR. Omitted from prompt when overall status is not `'failure'`. | At Implementor dispatch time |
 
 **Error handling:** If any fetch fails (GitHub API error), the Implementor dispatch fails. This is
 treated as an agent session creation failure — logged at `error` level. No automatic retry exists —
@@ -262,9 +277,16 @@ exists — the user can manually dispatch a Reviewer via the TUI's `dispatchRevi
 - [ ] Given the Engine Core dispatches the Implementor for an issue with a linked PR but no prior
       reviews or comments, when `getPRReviews` returns empty arrays, then the "Prior Reviews" and
       "Prior Inline Comments" sections are omitted from the prompt.
-- [ ] Given any fetch fails during Implementor dispatch (issue details, PR files, or review
-      history), when the error is caught, then the dispatch fails (treated as agent session creation
-      failure).
+- [ ] Given the Engine Core dispatches the Implementor for an issue with a linked PR and
+      `getCIStatus` returns `overall: 'failure'`, when it builds the trigger prompt, then the prompt
+      includes a "CI Status: FAILURE" section listing only failed, cancelled, or timed-out check
+      runs.
+- [ ] Given the Engine Core dispatches the Implementor for an issue with a linked PR and
+      `getCIStatus` returns `overall: 'success'`, when it builds the trigger prompt, then no "CI
+      Status" section is included.
+- [ ] Given any fetch fails during Implementor dispatch (issue details, PR files, review history, or
+      CI status), when the error is caught, then the dispatch fails (treated as agent session
+      creation failure).
 
 ### Reviewer Context Pre-computation
 
@@ -290,9 +312,9 @@ exists — the user can manually dispatch a Reviewer via the TUI's `dispatchRevi
 - [control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md) — Parent agent
   manager spec (`QueryFactory`, session creation)
 - [control-plane-engine.md](./control-plane-engine.md) — Parent engine spec (query interface:
-  `getIssueDetails`, `getPRForIssue`, `getPRFiles`, `getPRReviews`; `GitHubClient.repos.getContent`;
-  deferred paths buffer for Planner dispatch failures)
-- [control-plane-engine-pollers.md](./control-plane-engine-pollers.md) —
+  `getIssueDetails`, `getPRForIssue`, `getPRFiles`, `getPRReviews`, `getCIStatus`;
+  `GitHubClient.repos.getContent`; deferred paths buffer for Planner dispatch failures)
+- [control-plane-engine-spec-poller.md](./control-plane-engine-spec-poller.md) —
   `SpecPollerBatchResult.commitSHA` used for Planner diff computation
 - [control-plane-engine-planner-cache.md](./control-plane-engine-planner-cache.md) — Cached commit
   SHA for Planner diff computation

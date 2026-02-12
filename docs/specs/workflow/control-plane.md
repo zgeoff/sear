@@ -233,7 +233,7 @@ spec's own Known Limitations section.
 | No Planner cancel keybinding in the TUI                               | [control-plane-engine.md](./control-plane-engine.md)                             | Known Limitations |
 | No dependency graph enforcement — dispatch is label-driven            | [workflow.md](./workflow.md)                                                     | Known Limitations |
 | `settingSources` SDK workaround (worktree `.git` file issue)          | [control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md) | Known Limitations |
-| SpecPoller commit SHA is HEAD, not per-file                           | [control-plane-engine-pollers.md](./control-plane-engine-pollers.md)             | Known Limitations |
+| SpecPoller commit SHA is HEAD, not per-file                           | [control-plane-engine-spec-poller.md](./control-plane-engine-spec-poller.md)     | Known Limitations |
 | Null PR results not cached (re-fetched each view)                     | [control-plane-tui-detail-pane.md](./control-plane-tui-detail-pane.md)           | Known Limitations |
 
 ## Dependencies

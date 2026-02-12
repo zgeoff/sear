@@ -1,6 +1,6 @@
 ---
 title: Control Plane TUI — Detail Pane
-version: 0.5.0
+version: 0.6.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -55,9 +55,9 @@ terminal rows — no line wrapping occurs.
 | `pending`, `unblocked`, `needs-changes`       | Issue details: objective, spec reference, scope, acceptance criteria                                          | `getIssueDetails` query (cached in `issueDetails`)                                     |
 | `in-progress` (agent running)                 | Live streaming Implementor output                                                                             | `getAgentStream` stream accessor (buffered in `agentStreams`)                          |
 | `review` (Reviewer running)                   | Live streaming Reviewer output                                                                                | `getAgentStream` stream accessor (buffered in `agentStreams`)                          |
-| `review` (no agent)                           | PR summary — title, changed files count, CI status                                                            | `getPRForIssue` query (cached in `prDetails`)                                          |
+| `review` (no agent)                           | PR summary — title, changed files count, CI status. When `ciStatus` is `failure`, failed check names listed.  | `getPRForIssue` query (cached in `prDetails`)                                          |
 | `needs-refinement`, `blocked`                 | Issue details + resolution guidance                                                                           | `getIssueDetails` query (cached in `issueDetails`) + `TrackedIssue.resolutionGuidance` |
-| `approved`                                    | PR summary — ready for merge                                                                                  | `getPRForIssue` query (cached in `prDetails`)                                          |
+| `approved`                                    | PR summary — ready for merge. When `ciStatus` is `failure`, failed check names listed with advisory text.     | `getPRForIssue` query (cached in `prDetails`)                                          |
 | Failed (TUI overlay)                          | Error details, session ID, branch name (if Implementor or Reviewer), log file path (if present), retry prompt | `lastFailure` from Zustand store                                                       |
 | No issue selected (`selectedIssue` is `null`) | Empty state: "No issue selected"                                                                              | N/A                                                                                    |
 
@@ -117,6 +117,19 @@ shown.
 If the background re-fetch fails (network error, API error), the stale cached data is retained and
 the failure is logged. The cache remains marked stale so the next view attempt will retry.
 
+### CI Failure in PR Summary
+
+When a PR summary view is displayed and the `TrackedIssue.ciStatus` is `'failure'`, the detail pane
+appends a "CI: FAILURE" line below the PR summary header, followed by the names of failed checks
+from `CachedPRDetails.failedCheckNames`. The failed check names are fetched on-demand: when the
+store detects `ciStatus: 'failure'` on the `TrackedIssue` and the cached `CachedPRDetails` does not
+yet have `failedCheckNames`, it calls `getCIStatus(prNumber)` and stores the failed check names on
+the cached entry. The check names are refreshed whenever `ciStatus` transitions to `'failure'`
+(cleared on recovery, re-fetched on next failure).
+
+For `approved` issues with CI failure, the PR summary additionally shows the resolution guidance
+text from the `ciCheckFailed` event (stored on `TrackedIssue.resolutionGuidance`).
+
 ### Failure Overlay
 
 When an issue has a `lastFailure` in the store, the detail pane shows the error state regardless of
@@ -142,6 +155,7 @@ type CachedPRDetails = {
   title: string;
   changedFilesCount: number;
   ciStatus: "pending" | "success" | "failure";
+  failedCheckNames?: string[]; // populated on-demand via getCIStatus when ciStatus is 'failure'
   url: string;
   stale: boolean;
 };
@@ -186,6 +200,16 @@ type CachedPRDetails = {
       displays "No issue selected".
 - [ ] Given the detail pane has more content than fits in the visible window, when the user scrolls
       with the mouse wheel, then the viewport moves by one row per scroll tick.
+- [ ] Given an issue in `review` (no agent) with `ciStatus: 'failure'` is selected, when the detail
+      pane renders, then the PR summary includes a "CI: FAILURE" line with failed check names.
+- [ ] Given an issue with `status:approved` and `ciStatus: 'failure'` is selected, when the detail
+      pane renders, then the PR summary includes failed check names and the resolution guidance
+      text.
+- [ ] Given CI failure check names are not yet cached, when the PR summary with
+      `ciStatus: 'failure'` is first displayed, then `getCIStatus` is called to fetch check names on
+      demand.
+- [ ] Given CI status recovers (transitions away from `failure`), when the `TrackedIssue.ciStatus`
+      is cleared, then `failedCheckNames` on `CachedPRDetails` is also cleared.
 
 ## Known Limitations
 

@@ -1,6 +1,6 @@
 ---
 title: Control Plane TUI — Notifications
-version: 0.4.0
+version: 0.5.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -17,10 +17,10 @@ colored indicator glyph, timestamp, semantically highlighted content, and option
 ## Constraints
 
 - Notifications persist for the entire session as scrollable history — they are never removed.
-- The notification history is append-only. `notificationDismissed` events add a new dismissal entry;
-  they do not remove previous entries.
+- The notification history is append-only. Dismissal events (`issueUnblocked`, `issueRefined`,
+  `prUnapproved`, `ciCheckRecovered`) add new entries; they do not remove previous entries.
 - Notification `contextURL` may be updated in-place for `agentCompleted` (Implementor) and
-  `notification` (`approved`) after async PR URL lookup. This is the only exception to append-only.
+  `prApproved` after async PR URL lookup. This is the only exception to append-only.
 
 ## Specification
 
@@ -58,40 +58,46 @@ user has scrolled from the top:
 
 ### Notification Indicators
 
-| Event Type                                     | Glyph | Color   |
-| ---------------------------------------------- | ----- | ------- |
-| `dispatchReady`                                | `●`   | Green   |
-| `agentStarted`                                 | `▶`   | Blue    |
-| `agentCompleted`                               | `✓`   | Green   |
-| `agentFailed`                                  | `✗`   | Red     |
-| `agentSkipped`                                 | `–`   | Yellow  |
-| `issueStatusChanged`                           | `→`   | Cyan    |
-| `specChanged`                                  | `~`   | Magenta |
-| `recoveryPerformed`                            | `↻`   | Yellow  |
-| `notification` (`approved`)                    | `★`   | Green   |
-| `notification` (`needs-refinement`, `blocked`) | `★`   | Yellow  |
-| `notificationDismissed`                        | `×`   | Dim     |
-| `issueRemoved`                                 | `−`   | Dim     |
-| `startup`                                      | `✓`   | Green   |
+| Event Type                                       | Glyph | Color   |
+| ------------------------------------------------ | ----- | ------- |
+| `dispatchReady`                                  | `●`   | Green   |
+| `agentStarted`                                   | `▶`   | Blue    |
+| `agentCompleted`                                 | `✓`   | Green   |
+| `agentFailed`                                    | `✗`   | Red     |
+| `agentSkipped`                                   | `–`   | Yellow  |
+| `issueStatusChanged`                             | `→`   | Cyan    |
+| `specChanged`                                    | `~`   | Magenta |
+| `recoveryPerformed`                              | `↻`   | Yellow  |
+| `prApproved`                                     | `★`   | Green   |
+| `issueBlocked`, `issueNeedsRefinement`           | `★`   | Yellow  |
+| `issueUnblocked`, `issueRefined`, `prUnapproved` | `×`   | Dim     |
+| `ciCheckFailed`                                  | `!`   | Red     |
+| `ciCheckRecovered`                               | `×`   | Dim     |
+| `issueRemoved`                                   | `−`   | Dim     |
+| `startup`                                        | `✓`   | Green   |
 
 ### Notification Text
 
-| Engine Event                        | Notification Content                                                                                                                                                                                                                                                                            |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agentStarted`                      | `{AgentType} started for #{N}` (task agents) — `Planner started for {N} specs` (Planner)                                                                                                                                                                                                        |
-| `agentCompleted`                    | `{AgentType} completed for #{N}` (task agents) — `Planner completed for {N} specs` (Planner). When `logFilePath` is present, append ` (logs)` suffix.                                                                                                                                           |
-| `agentFailed`                       | `{AgentType} failed for #{N} — {error}` (task agents) — `Planner failed — {error}` (Planner). When `logFilePath` is present, append ` (logs)` suffix. Note: session ID is available on the `AgentFailedNotification` type for programmatic access but is not rendered in the notification text. |
-| `issueStatusChanged`                | `#{N}: {oldStatus} → {newStatus}` (e.g., `#39: none → pending`). When `oldStatus` is `null` (first detection), render as `none`.                                                                                                                                                                |
-| `specChanged`                       | `Spec changed: {fileName}` (filename only, directories stripped). `contextURL` links to the commit diff.                                                                                                                                                                                        |
-| `recoveryPerformed`                 | `#{N} recovered from stale`                                                                                                                                                                                                                                                                     |
-| `notification` (`needs-refinement`) | `#{N} needs refinement — {resolutionGuidance}`                                                                                                                                                                                                                                                  |
-| `notification` (`blocked`)          | `#{N} blocked — {resolutionGuidance}`                                                                                                                                                                                                                                                           |
-| `notification` (`approved`)         | `#{N} approved — ready to merge`                                                                                                                                                                                                                                                                |
-| `agentSkipped`                      | `{AgentType} skipped for #{N}` (task agents — agent already running for this issue) — `Planner skipped — paths deferred` (Planner)                                                                                                                                                              |
-| `dispatchReady`                     | `#{N} ready for dispatch`                                                                                                                                                                                                                                                                       |
-| `notificationDismissed`             | `#{N} dismissed`                                                                                                                                                                                                                                                                                |
-| `issueRemoved`                      | `#{N} removed`                                                                                                                                                                                                                                                                                  |
-| `startup`                           | `Startup complete: {issueCount} issues tracked, {recoveriesPerformed} recoveries performed` (recoveries clause omitted if zero)                                                                                                                                                                 |
+| Engine Event           | Notification Content                                                                                                                                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentStarted`         | `{AgentType} started for #{N}` (task agents) — `Planner started for {N} specs` (Planner)                                                                                                                                                                                                        |
+| `agentCompleted`       | `{AgentType} completed for #{N}` (task agents) — `Planner completed for {N} specs` (Planner). When `logFilePath` is present, append ` (logs)` suffix.                                                                                                                                           |
+| `agentFailed`          | `{AgentType} failed for #{N} — {error}` (task agents) — `Planner failed — {error}` (Planner). When `logFilePath` is present, append ` (logs)` suffix. Note: session ID is available on the `AgentFailedNotification` type for programmatic access but is not rendered in the notification text. |
+| `issueStatusChanged`   | `#{N}: {oldStatus} → {newStatus}` (e.g., `#39: none → pending`). When `oldStatus` is `null` (first detection), render as `none`.                                                                                                                                                                |
+| `specChanged`          | `Spec changed: {fileName}` (filename only, directories stripped). `contextURL` links to the commit diff.                                                                                                                                                                                        |
+| `recoveryPerformed`    | `#{N} recovered from stale`                                                                                                                                                                                                                                                                     |
+| `issueBlocked`         | `#{N} blocked — {resolutionGuidance}`                                                                                                                                                                                                                                                           |
+| `issueUnblocked`       | `#{N} unblocked`                                                                                                                                                                                                                                                                                |
+| `issueNeedsRefinement` | `#{N} needs refinement — {resolutionGuidance}`                                                                                                                                                                                                                                                  |
+| `issueRefined`         | `#{N} refined`                                                                                                                                                                                                                                                                                  |
+| `prApproved`           | `#{N} approved — ready to merge`                                                                                                                                                                                                                                                                |
+| `prUnapproved`         | `#{N} unapproved`                                                                                                                                                                                                                                                                               |
+| `agentSkipped`         | `{AgentType} skipped for #{N}` (task agents — agent already running for this issue) — `Planner skipped — paths deferred` (Planner)                                                                                                                                                              |
+| `dispatchReady`        | `#{N} ready for dispatch`                                                                                                                                                                                                                                                                       |
+| `ciCheckFailed`        | `CI failed on PR #{prNumber}`. When `resolutionGuidance` is present (issue is `approved`), append ` — {resolutionGuidance}`.                                                                                                                                                                    |
+| `ciCheckRecovered`     | `CI recovered for #{N}`                                                                                                                                                                                                                                                                         |
+| `issueRemoved`         | `#{N} removed`                                                                                                                                                                                                                                                                                  |
+| `startup`              | `Startup complete: {issueCount} issues tracked, {recoveriesPerformed} recoveries performed` (recoveries clause omitted if zero)                                                                                                                                                                 |
 
 ### Semantic Highlighting
 
@@ -131,16 +137,18 @@ The store sets `contextURL` when creating each notification:
 
 - **Issue-related notifications** — `contextURL` is the issue URL. This applies to all notifications
   with an `issueNumber`.
-- **`agentCompleted` (Implementor)** and **`notification` (`approved`)** — `contextURL` is set to
-  the issue URL initially, then updated asynchronously to the PR URL via `getPRForIssue` (in-place
-  update; no-op if the notification no longer exists). If `getPRForIssue` returns `null` (no linked
-  PR found), `contextURL` remains unchanged (falls back to the issue URL).
+- **`agentCompleted` (Implementor)** and **`prApproved`** — `contextURL` is set to the issue URL
+  initially, then updated asynchronously to the PR URL via `getPRForIssue` (in-place update; no-op
+  if the notification no longer exists). If `getPRForIssue` returns `null` (no linked PR found),
+  `contextURL` remains unchanged (falls back to the issue URL).
 - **`specChanged`** — `contextURL` is the commit diff URL:
   `https://github.com/{owner}/{repo}/commit/{commitSHA}` (where `commitSHA` is from the
   `SpecChangedEvent`). Note: the commit SHA is the HEAD at poll time, not per-file — if multiple
   commits were pushed between polls, the diff URL shows the HEAD commit's full diff (see
-  [control-plane-engine-pollers.md: SpecPoller](./control-plane-engine-pollers.md#specpoller) for
-  details).
+  [control-plane-engine-spec-poller.md: Known Limitations](./control-plane-engine-spec-poller.md#known-limitations)
+  for details).
+- **`ciCheckFailed`** — `contextURL` is the PR URL (from the engine event's `contextURL` field).
+- **`ciCheckRecovered`** — `contextURL` is the issue URL.
 - **Planner notifications** (no `issueNumber`) — No `contextURL`. Enter is a no-op.
 - **`startup`** — No `contextURL`. Enter is a no-op.
 
@@ -219,17 +227,49 @@ type DispatchReadyNotification = BaseNotification & {
   issueNumber: number;
 };
 
-type EngineEventNotification = BaseNotification & {
-  eventType: "notification";
+type IssueBlockedNotification = BaseNotification & {
+  eventType: "issueBlocked";
   issueNumber: number;
-  notificationType: "needs-refinement" | "blocked" | "approved";
-  resolutionGuidance?: string; // always present when notificationType is 'needs-refinement' or 'blocked' (engine guarantee)
-  // clipboardCommand is inherited from BaseNotification — map from the engine's
-  // NotificationEvent.clipboardCommand at creation time (present for needs-refinement only).
+  resolutionGuidance: string;
 };
 
-type NotificationDismissedNotification = BaseNotification & {
-  eventType: "notificationDismissed";
+type IssueUnblockedNotification = BaseNotification & {
+  eventType: "issueUnblocked";
+  issueNumber: number;
+};
+
+type IssueNeedsRefinementNotification = BaseNotification & {
+  eventType: "issueNeedsRefinement";
+  issueNumber: number;
+  resolutionGuidance: string;
+  // clipboardCommand is inherited from BaseNotification — map from the engine's
+  // IssueNeedsRefinementEvent.clipboardCommand at creation time.
+};
+
+type IssueRefinedNotification = BaseNotification & {
+  eventType: "issueRefined";
+  issueNumber: number;
+};
+
+type PRApprovedNotification = BaseNotification & {
+  eventType: "prApproved";
+  issueNumber: number;
+};
+
+type PRUnapprovedNotification = BaseNotification & {
+  eventType: "prUnapproved";
+  issueNumber: number;
+};
+
+type CICheckFailedNotification = BaseNotification & {
+  eventType: "ciCheckFailed";
+  issueNumber: number;
+  prNumber: number;
+  resolutionGuidance?: string; // present when issue status is 'approved'
+};
+
+type CICheckRecoveredNotification = BaseNotification & {
+  eventType: "ciCheckRecovered";
   issueNumber: number;
 };
 
@@ -253,8 +293,14 @@ type Notification =
   | SpecChangedNotification
   | RecoveryPerformedNotification
   | DispatchReadyNotification
-  | EngineEventNotification
-  | NotificationDismissedNotification
+  | IssueBlockedNotification
+  | IssueUnblockedNotification
+  | IssueNeedsRefinementNotification
+  | IssueRefinedNotification
+  | PRApprovedNotification
+  | PRUnapprovedNotification
+  | CICheckFailedNotification
+  | CICheckRecoveredNotification
   | IssueRemovedNotification
   | StartupNotification;
 ```
@@ -297,10 +343,18 @@ type Notification =
       and the content is `#{N} recovered from stale`.
 - [ ] Given a `startup` notification, when it renders, then the indicator is `✓` in green and the
       content includes the issue count and recoveries performed (recoveries clause omitted if zero).
-- [ ] Given a `notification` (`needs-refinement`) event, when the notification renders, then the
-      content includes the resolution guidance text.
-- [ ] Given a `notification` (`blocked`) event, when the notification renders, then the content
+- [ ] Given an `issueNeedsRefinement` event, when the notification renders, then the content
       includes the resolution guidance text.
+- [ ] Given an `issueBlocked` event, when the notification renders, then the content includes the
+      resolution guidance text.
+- [ ] Given a `ciCheckFailed` event, when it renders, then the indicator is `!` in red and the
+      content is `CI failed on PR #{prNumber}`.
+- [ ] Given a `ciCheckFailed` event with `resolutionGuidance`, when it renders, then the content
+      appends ` — {resolutionGuidance}` after the PR reference.
+- [ ] Given a `ciCheckFailed` notification is selected, when the user presses Enter, then the PR URL
+      is opened in the browser.
+- [ ] Given a `ciCheckRecovered` event, when it renders, then the indicator is `×` in dim and the
+      content is `CI recovered for #{N}`.
 - [ ] Given the notifications pane viewport is at the top (scroll offset 0), when a new notification
       arrives, then the viewport remains at offset 0 and the new notification is visible.
 - [ ] Given the notifications pane viewport is within one page of the top (scroll offset < visible
