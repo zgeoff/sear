@@ -2,7 +2,7 @@
 name: planner
 description: Decomposes approved specs into executable GitHub Issues
 tools: Read, Grep, Glob, Bash
-model: sonnet
+model: opus
 maxTurns: 50
 disallowedTools:
   Write, Edit, NotebookEdit, WebFetch, WebSearch, Task, TaskOutput, EnterPlanMode, ExitPlanMode,
