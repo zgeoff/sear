@@ -43,6 +43,7 @@ import type { PlannerCache } from './planner-cache/types.ts';
 import { createIssuePoller } from './pollers/create-issue-poller.ts';
 import { createSpecPoller } from './pollers/create-spec-poller.ts';
 import type { IssuePoller, SpecPollerSnapshot } from './pollers/types.ts';
+import { getCIStatus } from './queries/get-ci-status.ts';
 import { getIssueDetails } from './queries/get-issue-details.ts';
 import { getPRFiles } from './queries/get-pr-files.ts';
 import { getPRForIssue } from './queries/get-pr-for-issue.ts';
@@ -328,9 +329,8 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       return getPRReviews(queriesConfig, prNumber);
     },
 
-    async getCIStatus(_prNumber: number): Promise<CIStatusResult> {
-      // Stub — getCIStatus query implementation is owned by the getCIStatus query task
-      throw new Error('getCIStatus is not yet implemented');
+    getCIStatus(prNumber: number): Promise<CIStatusResult> {
+      return getCIStatus(queriesConfig, prNumber);
     },
 
     getAgentStream(issueNumber: number): AgentStream {
