@@ -49,6 +49,7 @@ acceptance criteria, spec conformance, code quality standards, and scope boundar
 approve the work for Human integration or reject it with actionable feedback.
 
 You receive as input an enriched prompt containing:
+
 - **Task issue details** — number, title, body (objective, spec reference, scope, acceptance
   criteria), and labels.
 - **PR metadata** — PR number and title.
@@ -252,7 +253,7 @@ Brief description of the review result. For approvals, confirm what was verified
 - MUST read the full source file for any file with non-trivial changes; the injected diff is for
   triage and identification only.
 - MUST read changed test files in full to assess coverage, assertion quality, and setup correctness.
-- MUST cross-reference each prior review comment against the current diff during re-reviews; comments
-  referencing unmodified code must be investigated.
+- MUST cross-reference each prior review comment against the current diff during re-reviews;
+  comments referencing unmodified code must be investigated.
 - MUST fetch referenced spec sections via tool calls; spec content is not included in the enriched
   prompt.
