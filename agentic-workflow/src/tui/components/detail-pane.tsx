@@ -232,6 +232,12 @@ function buildPrSummaryLines(issue: TrackedIssue, pr: CachedPRDetails): string[]
     `Changed files: ${pr.changedFilesCount}`,
     `CI: ${pr.ciStatus}`,
   ];
+  if (pr.ciStatus === 'failure' && pr.failedCheckNames) {
+    lines.push('CI: FAILURE');
+    for (const checkName of pr.failedCheckNames) {
+      lines.push(`  - ${checkName}`);
+    }
+  }
   if (pr.stale) {
     lines.push('(Refreshing...)');
   }
@@ -246,6 +252,16 @@ function buildPrApprovedLines(issue: TrackedIssue, pr: CachedPRDetails): string[
     `Changed files: ${pr.changedFilesCount}`,
     `CI: ${pr.ciStatus}`,
   ];
+  if (pr.ciStatus === 'failure' && pr.failedCheckNames) {
+    lines.push('CI: FAILURE');
+    for (const checkName of pr.failedCheckNames) {
+      lines.push(`  - ${checkName}`);
+    }
+    if (issue.resolutionGuidance) {
+      lines.push('');
+      lines.push(issue.resolutionGuidance);
+    }
+  }
   if (pr.stale) {
     lines.push('(Refreshing...)');
   }

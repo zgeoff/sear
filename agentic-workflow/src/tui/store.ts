@@ -8,6 +8,7 @@ import type {
   AgentSkippedNotification,
   AgentStartedNotification,
   BaseNotification,
+  CachedPRDetails,
   CICheckFailedNotification,
   CICheckRecoveredNotification,
   CreateEngineStoreConfig,
@@ -536,7 +537,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
 
         store.setState(updates);
       })
-      .with({ type: 'ciStatusChanged' }, (e) => {
+      .with({ type: 'ciStatusChanged' }, async (e) => {
         if (e.issueNumber === undefined) {
           return;
         }
@@ -561,6 +562,13 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
         }
 
         store.setState(updates);
+
+        if (e.newCIStatus === 'failure') {
+          const cachedPr = state.prDetails.get(e.issueNumber);
+          if (cachedPr) {
+            await fetchCIStatusIfNeeded(e.issueNumber, cachedPr);
+          }
+        }
       })
       .with({ type: 'ciCheckFailed' }, (e) => {
         const state = store.getState();
@@ -777,6 +785,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     const cached = state.prDetails.get(issueNumber);
 
     if (cached && !cached.stale) {
+      await fetchCIStatusIfNeeded(issueNumber, cached);
       return;
     }
 
@@ -795,8 +804,39 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       const prNotFound = new Set(current.prNotFound);
       prNotFound.delete(issueNumber);
       store.setState({ prDetails, prNotFound });
+
+      const cachedPr = store.getState().prDetails.get(issueNumber);
+      if (cachedPr) {
+        await fetchCIStatusIfNeeded(issueNumber, cachedPr);
+      }
     } catch {
       // Fetch failure is non-fatal; cache remains empty or stale for next retry
+    }
+  }
+
+  async function fetchCIStatusIfNeeded(issueNumber: number, pr: CachedPRDetails): Promise<void> {
+    const issue = store.getState().issues.get(issueNumber);
+    if (!issue || issue.ciStatus !== 'failure') {
+      return;
+    }
+
+    if (pr.failedCheckNames !== undefined) {
+      return;
+    }
+
+    try {
+      const ciStatus = await engine.getCIStatus(pr.number);
+      const failedCheckNames = ciStatus.failedCheckRuns.map((check) => check.name);
+
+      const current = store.getState();
+      const prDetails = new Map(current.prDetails);
+      const cachedPr = prDetails.get(issueNumber);
+      if (cachedPr) {
+        prDetails.set(issueNumber, { ...cachedPr, failedCheckNames });
+        store.setState({ prDetails });
+      }
+    } catch {
+      // CI status fetch failure is non-fatal
     }
   }
 
