@@ -3,9 +3,11 @@ import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentStartedEvent,
+  IssueBlockedEvent,
+  IssueNeedsRefinementEvent,
   IssueRemovedEvent,
   IssueStatusChangedEvent,
-  NotificationEvent,
+  PRApprovedEvent,
 } from '../types.ts';
 import { createEngineStore, selectRunningAgentCount } from './store.ts';
 import { createMockEngine } from './test-utils/create-mock-engine.ts';
@@ -732,10 +734,9 @@ test('it keeps the selected issue when a different issue is removed', () => {
 test('it notifies with a PR link when an issue is approved', async () => {
   const { store, emit, engine } = setupTest();
 
-  const event: NotificationEvent = {
-    type: 'notification',
+  const event: PRApprovedEvent = {
+    type: 'prApproved',
     issueNumber: 5,
-    statusLabel: 'approved',
     contextURL: 'https://github.com/owner/repo/issues/5',
   };
   emit(event);
@@ -746,7 +747,7 @@ test('it notifies with a PR link when an issue is approved', async () => {
   expect(notifications).toContainEqual(
     expect.objectContaining({
       summary: '#5 approved — ready to merge',
-      notificationType: 'approved',
+      eventType: 'prApproved',
       issueNumber: 5,
     }),
   );
@@ -762,10 +763,9 @@ test('it notifies with a PR link when an issue is approved', async () => {
 test('it includes a clipboard command in the notification when an issue needs refinement', () => {
   const { store, emit } = setupTest();
 
-  const event: NotificationEvent = {
-    type: 'notification',
+  const event: IssueNeedsRefinementEvent = {
+    type: 'issueNeedsRefinement',
     issueNumber: 3,
-    statusLabel: 'needs-refinement',
     clipboardCommand: 'claude -p "fix the spec"',
     contextURL: 'https://github.com/owner/repo/issues/3',
     resolutionGuidance: 'Amend the spec',
@@ -775,7 +775,7 @@ test('it includes a clipboard command in the notification when an issue needs re
   expect(store.getState().notifications).toContainEqual(
     expect.objectContaining({
       summary: '#3 needs refinement — Amend the spec',
-      notificationType: 'needs-refinement',
+      eventType: 'issueNeedsRefinement',
       resolutionGuidance: 'Amend the spec',
       clipboardCommand: 'claude -p "fix the spec"',
     }),
@@ -785,10 +785,9 @@ test('it includes a clipboard command in the notification when an issue needs re
 test('it notifies with guidance text when an issue is blocked', () => {
   const { store, emit } = setupTest();
 
-  const event: NotificationEvent = {
-    type: 'notification',
+  const event: IssueBlockedEvent = {
+    type: 'issueBlocked',
     issueNumber: 4,
-    statusLabel: 'blocked',
     contextURL: 'https://github.com/owner/repo/issues/4',
     resolutionGuidance: 'Waiting on dependency',
   };
@@ -797,7 +796,7 @@ test('it notifies with guidance text when an issue is blocked', () => {
   expect(store.getState().notifications).toContainEqual(
     expect.objectContaining({
       summary: '#4 blocked — Waiting on dependency',
-      notificationType: 'blocked',
+      eventType: 'issueBlocked',
     }),
   );
 });
@@ -806,17 +805,17 @@ test('it notifies with guidance text when an issue is blocked', () => {
 // resolutionGuidance on TrackedIssue
 // ---------------------------------------------------------------------------
 
-test('it sets resolution guidance on the tracked issue when a notification event has guidance', () => {
+test('it sets resolution guidance on the tracked issue when a needs-refinement event has guidance', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'needs-refinement' }));
 
-  const event: NotificationEvent = {
-    type: 'notification',
+  const event: IssueNeedsRefinementEvent = {
+    type: 'issueNeedsRefinement',
     issueNumber: 3,
-    statusLabel: 'needs-refinement',
     contextURL: 'https://github.com/owner/repo/issues/3',
     resolutionGuidance: 'Amend the spec to clarify constraints',
+    clipboardCommand: 'claude -p "fix the spec"',
   };
   emit(event);
 
@@ -829,12 +828,12 @@ test('it clears resolution guidance on a non-recovery status change', () => {
 
   emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'needs-refinement' }));
 
-  const event: NotificationEvent = {
-    type: 'notification',
+  const event: IssueNeedsRefinementEvent = {
+    type: 'issueNeedsRefinement',
     issueNumber: 3,
-    statusLabel: 'needs-refinement',
     contextURL: 'https://github.com/owner/repo/issues/3',
     resolutionGuidance: 'Fix the spec',
+    clipboardCommand: 'claude -p "fix the spec"',
   };
   emit(event);
 
@@ -850,10 +849,9 @@ test('it preserves resolution guidance on a recovery status change', () => {
 
   emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'blocked' }));
 
-  const event: NotificationEvent = {
-    type: 'notification',
+  const event: IssueBlockedEvent = {
+    type: 'issueBlocked',
     issueNumber: 3,
-    statusLabel: 'blocked',
     contextURL: 'https://github.com/owner/repo/issues/3',
     resolutionGuidance: 'Waiting on dependency',
   };
@@ -900,10 +898,9 @@ test('it preserves resolution guidance when an engine transition status change i
 
   emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'blocked' }));
 
-  const event: NotificationEvent = {
-    type: 'notification',
+  const event: IssueBlockedEvent = {
+    type: 'issueBlocked',
     issueNumber: 3,
-    statusLabel: 'blocked',
     contextURL: 'https://github.com/owner/repo/issues/3',
     resolutionGuidance: 'Waiting on dependency',
   };
@@ -958,14 +955,14 @@ test('it notifies without altering the issue when an issue becomes ready for dis
   expect(readyNotif?.summary).toBe('#1 ready for dispatch');
 });
 
-test('it records a notification when a prior notification is dismissed', () => {
+test('it records a notification when an issue is refined', () => {
   const { store, emit } = setupTest();
 
-  emit({ type: 'notificationDismissed', issueNumber: 3 });
+  emit({ type: 'issueRefined', issueNumber: 3 });
 
   const notifications = store.getState().notifications;
   expect(notifications).toHaveLength(1);
-  expect(notifications[0]?.summary).toBe('#3 dismissed');
+  expect(notifications[0]?.summary).toBe('#3 refined');
 });
 
 test('it notifies when an issue is recovered from a stale status', () => {
@@ -1351,12 +1348,26 @@ test('it produces a notification for every type of engine event', () => {
     statusLabel: 'status:pending',
   });
   emit({
-    type: 'notification',
+    type: 'issueNeedsRefinement',
     issueNumber: 1,
-    statusLabel: 'approved',
     contextURL: 'https://example.com',
-  } satisfies NotificationEvent);
-  emit({ type: 'notificationDismissed', issueNumber: 1 });
+    resolutionGuidance: 'Fix the spec',
+    clipboardCommand: 'claude -p "fix"',
+  } satisfies IssueNeedsRefinementEvent);
+  emit({ type: 'issueRefined', issueNumber: 1 });
+  emit({
+    type: 'issueBlocked',
+    issueNumber: 1,
+    contextURL: 'https://example.com',
+    resolutionGuidance: 'Resolve blocker',
+  } satisfies IssueBlockedEvent);
+  emit({ type: 'issueUnblocked', issueNumber: 1 });
+  emit({
+    type: 'prApproved',
+    issueNumber: 1,
+    contextURL: 'https://example.com',
+  } satisfies PRApprovedEvent);
+  emit({ type: 'prUnapproved', issueNumber: 1 });
   emit({ type: 'issueRemoved', issueNumber: 1 } satisfies IssueRemovedEvent);
   emit({
     type: 'recoveryPerformed',
@@ -1381,8 +1392,12 @@ test('it produces a notification for every type of engine event', () => {
   expect(eventTypes).toContain('agentFailed');
   expect(eventTypes).toContain('agentSkipped');
   expect(eventTypes).toContain('dispatchReady');
-  expect(eventTypes).toContain('notification');
-  expect(eventTypes).toContain('notificationDismissed');
+  expect(eventTypes).toContain('issueNeedsRefinement');
+  expect(eventTypes).toContain('issueRefined');
+  expect(eventTypes).toContain('issueBlocked');
+  expect(eventTypes).toContain('issueUnblocked');
+  expect(eventTypes).toContain('prApproved');
+  expect(eventTypes).toContain('prUnapproved');
   expect(eventTypes).toContain('issueRemoved');
   expect(eventTypes).toContain('recoveryPerformed');
   expect(eventTypes).toContain('specChanged');

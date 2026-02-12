@@ -67,6 +67,7 @@ function createMockEngine(): {
     })),
     getPRFiles: vi.fn(async () => []),
     getPRReviews: vi.fn(async () => ({ reviews: [], comments: [] })),
+    getCIStatus: vi.fn(async () => ({ overall: 'success' as const, failedCheckRuns: [] })),
     getAgentStream: vi.fn(() => null),
   };
 

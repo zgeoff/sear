@@ -1,8 +1,10 @@
 import { match, P } from 'ts-pattern';
 import type {
   EngineEvent,
+  IssueBlockedEvent,
+  IssueNeedsRefinementEvent,
   IssueStatusChangedEvent,
-  NotificationEvent,
+  PRApprovedEvent,
   SpecPollerBatchResult,
 } from '../../types.ts';
 import type { EventEmitter } from '../event-emitter/types.ts';
@@ -153,12 +155,10 @@ async function handleIssueStatusChanged(
 ): Promise<void> {
   const { emitter, config, activeNotifications } = deps;
   // Dismiss any active notification for this issue if the status changed
-  if (activeNotifications.has(event.issueNumber)) {
+  const activeStatus = activeNotifications.get(event.issueNumber);
+  if (activeStatus !== undefined) {
     activeNotifications.delete(event.issueNumber);
-    emitter.emit({
-      type: 'notificationDismissed',
-      issueNumber: event.issueNumber,
-    });
+    emitter.emit(buildDismissalEvent(event.issueNumber, activeStatus));
   }
 
   await match(event.newStatus)
@@ -173,19 +173,16 @@ async function handleIssueStatusChanged(
       },
     )
     .with('needs-refinement', () => {
-      const notification = buildNeedsRefinementNotification(event, config);
       activeNotifications.set(event.issueNumber, event.newStatus);
-      emitter.emit(notification);
+      emitter.emit(buildIssueNeedsRefinementEvent(event, config));
     })
     .with('blocked', () => {
-      const notification = buildBlockedNotification(event, config);
       activeNotifications.set(event.issueNumber, event.newStatus);
-      emitter.emit(notification);
+      emitter.emit(buildIssueBlockedEvent(event, config));
     })
     .with('approved', () => {
-      const notification = buildApprovedNotification(event, config);
       activeNotifications.set(event.issueNumber, event.newStatus);
-      emitter.emit(notification);
+      emitter.emit(buildPRApprovedEvent(event, config));
     })
     .otherwise(() => {
       // Fallthrough -- status changes like 'in-progress', 'review' trigger no dispatch action.
@@ -194,47 +191,64 @@ async function handleIssueStatusChanged(
 }
 
 // ---------------------------------------------------------------------------
-// Notification builders
+// Granular event builders
 // ---------------------------------------------------------------------------
 
-function buildNeedsRefinementNotification(
+function buildDismissalEvent(issueNumber: number, activeStatus: string): EngineEvent {
+  return match(activeStatus)
+    .with('needs-refinement', () => ({
+      type: 'issueRefined' as const,
+      issueNumber,
+    }))
+    .with('blocked', () => ({
+      type: 'issueUnblocked' as const,
+      issueNumber,
+    }))
+    .with('approved', () => ({
+      type: 'prUnapproved' as const,
+      issueNumber,
+    }))
+    .otherwise(() => ({
+      type: 'issueUnblocked' as const,
+      issueNumber,
+    }));
+}
+
+function buildIssueNeedsRefinementEvent(
   event: IssueStatusChangedEvent,
   config: DispatchConfig,
-): NotificationEvent {
+): IssueNeedsRefinementEvent {
   const [owner, repo] = config.repository.split('/');
   return {
-    type: 'notification',
+    type: 'issueNeedsRefinement',
     issueNumber: event.issueNumber,
-    statusLabel: `status:${event.newStatus}`,
     clipboardCommand: `claude -p "Use /spec-writing to address the spec refinement needed for issue #${event.issueNumber}. See blocker comment: https://github.com/${owner}/${repo}/issues/${event.issueNumber}"`,
     contextURL: `https://github.com/${owner}/${repo}/issues/${event.issueNumber}`,
     resolutionGuidance: 'After amending the spec, change the label to status:unblocked.',
   };
 }
 
-function buildBlockedNotification(
+function buildIssueBlockedEvent(
   event: IssueStatusChangedEvent,
   config: DispatchConfig,
-): NotificationEvent {
+): IssueBlockedEvent {
   const [owner, repo] = config.repository.split('/');
   return {
-    type: 'notification',
+    type: 'issueBlocked',
     issueNumber: event.issueNumber,
-    statusLabel: `status:${event.newStatus}`,
     contextURL: `https://github.com/${owner}/${repo}/issues/${event.issueNumber}`,
     resolutionGuidance: 'After resolving the blocker, change the label to status:unblocked.',
   };
 }
 
-function buildApprovedNotification(
+function buildPRApprovedEvent(
   event: IssueStatusChangedEvent,
   config: DispatchConfig,
-): NotificationEvent {
+): PRApprovedEvent {
   const [owner, repo] = config.repository.split('/');
   return {
-    type: 'notification',
+    type: 'prApproved',
     issueNumber: event.issueNumber,
-    statusLabel: `status:${event.newStatus}`,
     contextURL: `https://github.com/${owner}/${repo}/issues/${event.issueNumber}`,
   };
 }

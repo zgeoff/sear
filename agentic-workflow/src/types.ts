@@ -66,22 +66,65 @@ export interface DispatchReadyEvent {
   statusLabel: string;
 }
 
-export interface NotificationEvent {
-  type: 'notification';
+export interface IssueBlockedEvent {
+  type: 'issueBlocked';
   issueNumber: number;
-  statusLabel: string;
-  clipboardCommand?: string; // present for needs-refinement, absent for blocked and approved
-  contextURL: string; // issue URL for needs-refinement/blocked; issue URL initially for approved (async PR URL update by TUI)
-  resolutionGuidance?: string; // The engine guarantees this is always present when statusLabel is 'needs-refinement' or 'blocked'; absent only for 'approved'.
+  contextURL: string; // issue URL
+  resolutionGuidance: string; // "After resolving the blocker, change the label to status:unblocked."
 }
 
-export interface NotificationDismissedEvent {
-  type: 'notificationDismissed';
+export interface IssueUnblockedEvent {
+  type: 'issueUnblocked';
+  issueNumber: number;
+}
+
+export interface IssueNeedsRefinementEvent {
+  type: 'issueNeedsRefinement';
+  issueNumber: number;
+  contextURL: string; // issue URL
+  resolutionGuidance: string; // "After amending the spec, change the label to status:unblocked."
+  clipboardCommand: string;
+}
+
+export interface IssueRefinedEvent {
+  type: 'issueRefined';
+  issueNumber: number;
+}
+
+export interface PRApprovedEvent {
+  type: 'prApproved';
+  issueNumber: number;
+  contextURL: string; // issue URL (TUI async-updates to PR URL)
+}
+
+export interface PRUnapprovedEvent {
+  type: 'prUnapproved';
   issueNumber: number;
 }
 
 export interface IssueRemovedEvent {
   type: 'issueRemoved';
+  issueNumber: number;
+}
+
+export interface CIStatusChangedEvent {
+  type: 'ciStatusChanged';
+  prNumber: number;
+  issueNumber?: number; // present when the PR is linked to a tracked issue
+  oldCIStatus: 'pending' | 'success' | 'failure' | null; // null on first detection
+  newCIStatus: 'pending' | 'success' | 'failure';
+}
+
+export interface CICheckFailedEvent {
+  type: 'ciCheckFailed';
+  issueNumber: number;
+  prNumber: number;
+  contextURL: string; // PR URL
+  resolutionGuidance?: string; // present when issue status is 'approved'
+}
+
+export interface CICheckRecoveredEvent {
+  type: 'ciCheckRecovered';
   issueNumber: number;
 }
 
@@ -100,9 +143,16 @@ export type EngineEvent =
   | AgentFailedEvent
   | AgentSkippedEvent
   | DispatchReadyEvent
-  | NotificationEvent
-  | NotificationDismissedEvent
+  | IssueBlockedEvent
+  | IssueUnblockedEvent
+  | IssueNeedsRefinementEvent
+  | IssueRefinedEvent
+  | PRApprovedEvent
+  | PRUnapprovedEvent
   | IssueRemovedEvent
+  | CIStatusChangedEvent
+  | CICheckFailedEvent
+  | CICheckRecoveredEvent
   | RecoveryPerformedEvent;
 
 // ---------------------------------------------------------------------------
@@ -187,6 +237,27 @@ export interface PRReviewsResult {
   comments: PRInlineComment[];
 }
 
+export interface CICheckRun {
+  name: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  conclusion:
+    | 'success'
+    | 'failure'
+    | 'cancelled'
+    | 'timed_out'
+    | 'action_required'
+    | 'neutral'
+    | 'skipped'
+    | 'stale'
+    | null; // null when status is not 'completed'
+  detailsURL: string;
+}
+
+export interface CIStatusResult {
+  overall: 'pending' | 'success' | 'failure';
+  failedCheckRuns: CICheckRun[]; // only check runs with conclusion 'failure', 'cancelled', or 'timed_out'
+}
+
 // ---------------------------------------------------------------------------
 // Stream
 // ---------------------------------------------------------------------------
@@ -229,6 +300,10 @@ export interface SpecPollerConfig {
   defaultBranch?: string; // default: 'main'
 }
 
+export interface PRPollerConfig {
+  pollInterval?: number; // seconds, default: 30
+}
+
 export interface AgentsConfig {
   agentPlanner?: string; // agent name, default: 'planner'
   agentImplementor?: string; // agent name, default: 'implementor'
@@ -250,6 +325,7 @@ export interface EngineConfig {
   shutdownTimeout?: number; // seconds, default: 300
   issuePoller?: IssuePollerConfig;
   specPoller?: SpecPollerConfig;
+  prPoller?: PRPollerConfig;
   agents?: AgentsConfig;
   logging?: LoggingConfig;
 }
@@ -268,7 +344,7 @@ export interface StartupResult {
 // delivered synchronously within the start() call. If the caller subscribes
 // after start() resolves, startup recovery events are lost.
 export interface Engine {
-  start: () => Promise<StartupResult>; // resolves after startup recovery + first IssuePoller and SpecPoller cycles complete
+  start: () => Promise<StartupResult>; // resolves after planner cache load, startup recovery, and first IssuePoller, SpecPoller, and PR Poller cycles complete
   on: (handler: (event: EngineEvent) => void | Promise<void>) => () => void; // returns unsubscribe function
   send: (command: EngineCommand) => void;
   getIssueDetails: (issueNumber: number) => Promise<IssueDetailsResult>;
@@ -278,5 +354,6 @@ export interface Engine {
   ) => Promise<PRDetailsResult>;
   getPRFiles: (prNumber: number) => Promise<PRFileEntry[]>;
   getPRReviews: (prNumber: number) => Promise<PRReviewsResult>;
+  getCIStatus: (prNumber: number) => Promise<CIStatusResult>;
   getAgentStream: (issueNumber: number) => AgentStream;
 }

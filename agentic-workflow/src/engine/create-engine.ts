@@ -6,6 +6,7 @@ import type {
   AgentStream,
   CancelAgentCommand,
   CancelPlannerCommand,
+  CIStatusResult,
   DispatchImplementorCommand,
   DispatchReviewerCommand,
   Engine,
@@ -325,6 +326,11 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
 
     getPRReviews(prNumber: number): Promise<PRReviewsResult> {
       return getPRReviews(queriesConfig, prNumber);
+    },
+
+    async getCIStatus(_prNumber: number): Promise<CIStatusResult> {
+      // Stub — getCIStatus query implementation is owned by the getCIStatus query task
+      throw new Error('getCIStatus is not yet implemented');
     },
 
     getAgentStream(issueNumber: number): AgentStream {

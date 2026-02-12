@@ -9,6 +9,13 @@ export type {
   AgentType,
   CancelAgentCommand,
   CancelPlannerCommand,
+  // CI Events
+  CICheckFailedEvent,
+  CICheckRecoveredEvent,
+  // Query Results — CI
+  CICheckRun,
+  CIStatusChangedEvent,
+  CIStatusResult,
   // Commands
   DispatchImplementorCommand,
   DispatchReadyEvent,
@@ -18,14 +25,21 @@ export type {
   // Configuration
   EngineConfig,
   EngineEvent,
+  // Events — Issue
+  IssueBlockedEvent,
   // Query Results
   IssueDetailsResult,
+  IssueNeedsRefinementEvent,
+  IssueRefinedEvent,
   IssueRemovedEvent,
   // Events
   IssueStatusChangedEvent,
-  NotificationDismissedEvent,
-  NotificationEvent,
+  IssueUnblockedEvent,
+  PRApprovedEvent,
   PRDetailsResult,
+  // Configuration — PR Poller
+  PRPollerConfig,
+  PRUnapprovedEvent,
   RecoveryPerformedEvent,
   ShutdownCommand,
   // SpecPoller Batch Result
