@@ -25,6 +25,9 @@ assigning multiple tasks to one agent.
 - Must not reprioritize tasks or change task sequencing. Executes what is assigned.
 - Must not make interpretive decisions when the spec is ambiguous, contradictory, or incomplete.
   Escalate as a blocker instead.
+- The PR is the agent's primary deliverable. Code changes without a submitted PR have no value to
+  the workflow — the engine cannot detect completion, the Reviewer cannot be dispatched, and the
+  worktree will be destroyed. A task is not complete until a PR exists.
 - The agent definition body must include the permitted bash command list from
   [agent-hook-bash-validator.md: Allowlist Prefixes](./agent-hook-bash-validator.md#allowlist-prefixes)
   to prevent wasted turns on blocked commands.

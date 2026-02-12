@@ -37,7 +37,7 @@ Produced by the Implementor as its final text output, returned to the invoking p
 
 **Task:** #<issue-number> — <title>
 **Outcome:** completed | blocked | validation-failure
-**PR:** #<pr-number> (or "None")
+**PR:** #<pr-number> | None (only valid when outcome is `blocked` or `validation-failure`)
 
 ### What Was Done
 Brief description of changes made (or "No changes" if stopped before implementation).
