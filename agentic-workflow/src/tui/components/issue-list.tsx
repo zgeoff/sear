@@ -27,7 +27,7 @@ export interface IssueListProps {
 
 type PromptState =
   | { type: 'none' }
-  | { type: 'dispatch'; issueNumber: number }
+  | { type: 'dispatch'; issueNumber: number; hasCIFailure: boolean }
   | { type: 'cancel'; issueNumber: number }
   | { type: 'retry'; issueNumber: number; agentType: 'implementor' | 'reviewer' };
 
@@ -57,6 +57,7 @@ const REVIEW_MARKER = '\u25B6';
 const BLOCKED_MARKER = '\u26A0';
 const DONE_MARKER = '\u2713';
 const ERROR_MARKER = '\u2717';
+const CI_MARKER = '\u274C';
 
 export function IssueList(props: IssueListProps): ReactNode {
   const issues = useStore(props.store, (s) => s.issues);
@@ -178,7 +179,13 @@ export function IssueList(props: IssueListProps): ReactNode {
 
     match(action)
       .with({ type: 'dispatch' }, (a) => {
-        setPrompt({ type: 'dispatch', issueNumber: a.issueNumber });
+        setPrompt({
+          type: 'dispatch',
+          issueNumber: a.issueNumber,
+          hasCIFailure:
+            (issue as TrackedIssue & { ciStatus?: 'pending' | 'success' | 'failure' }).ciStatus ===
+            'failure',
+        });
       })
       .with({ type: 'cancel' }, (a) => {
         setPrompt({ type: 'cancel', issueNumber: a.issueNumber });
@@ -258,43 +265,65 @@ function buildRichIssueContent(issue: TrackedIssue, spinnerChar: string): ReactN
 }
 
 function getStateIndicator(issue: TrackedIssue, spinnerChar: string): string {
+  let baseIndicator = '';
+
   if (issue.lastFailure) {
-    return ERROR_MARKER;
-  }
-  if (issue.agentRunning) {
-    return spinnerChar;
+    baseIndicator = ERROR_MARKER;
+  } else if (issue.agentRunning) {
+    baseIndicator = spinnerChar;
+  } else {
+    baseIndicator = match(issue.statusLabel)
+      .with('pending', () => READY_MARKER)
+      .with('unblocked', () => READY_MARKER)
+      .with('needs-changes', () => READY_MARKER)
+      .with('in-progress', () => STALE_MARKER)
+      .with('review', () => REVIEW_MARKER)
+      .with('needs-refinement', () => BLOCKED_MARKER)
+      .with('blocked', () => BLOCKED_MARKER)
+      .with('approved', () => DONE_MARKER)
+      .otherwise(() => '');
   }
 
-  return match(issue.statusLabel)
-    .with('pending', () => READY_MARKER)
-    .with('unblocked', () => READY_MARKER)
-    .with('needs-changes', () => READY_MARKER)
-    .with('in-progress', () => STALE_MARKER)
-    .with('review', () => REVIEW_MARKER)
-    .with('needs-refinement', () => BLOCKED_MARKER)
-    .with('blocked', () => BLOCKED_MARKER)
-    .with('approved', () => DONE_MARKER)
-    .otherwise(() => '');
+  const ciIndicator =
+    (issue as TrackedIssue & { ciStatus?: 'pending' | 'success' | 'failure' }).ciStatus ===
+    'failure'
+      ? ` ${CI_MARKER}`
+      : '';
+  return `${baseIndicator}${ciIndicator}`;
 }
 
 function getStateIndicatorElement(issue: TrackedIssue, spinnerChar: string): ReactNode {
+  let baseIndicator: ReactNode = null;
+
   if (issue.lastFailure) {
-    return <Text color="red">{ERROR_MARKER}</Text>;
-  }
-  if (issue.agentRunning) {
-    return <Text color="cyan">{spinnerChar}</Text>;
+    baseIndicator = <Text color="red">{ERROR_MARKER}</Text>;
+  } else if (issue.agentRunning) {
+    baseIndicator = <Text color="cyan">{spinnerChar}</Text>;
+  } else {
+    baseIndicator = match(issue.statusLabel)
+      .with('pending', () => <Text color="green">{READY_MARKER}</Text>)
+      .with('unblocked', () => <Text color="green">{READY_MARKER}</Text>)
+      .with('needs-changes', () => <Text color="green">{READY_MARKER}</Text>)
+      .with('in-progress', () => <Text color="yellow">{STALE_MARKER}</Text>)
+      .with('review', () => <Text color="cyan">{REVIEW_MARKER}</Text>)
+      .with('needs-refinement', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
+      .with('blocked', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
+      .with('approved', () => <Text color="green">{DONE_MARKER}</Text>)
+      .otherwise(() => <Text />);
   }
 
-  return match(issue.statusLabel)
-    .with('pending', () => <Text color="green">{READY_MARKER}</Text>)
-    .with('unblocked', () => <Text color="green">{READY_MARKER}</Text>)
-    .with('needs-changes', () => <Text color="green">{READY_MARKER}</Text>)
-    .with('in-progress', () => <Text color="yellow">{STALE_MARKER}</Text>)
-    .with('review', () => <Text color="cyan">{REVIEW_MARKER}</Text>)
-    .with('needs-refinement', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
-    .with('blocked', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
-    .with('approved', () => <Text color="green">{DONE_MARKER}</Text>)
-    .otherwise(() => <Text />);
+  const ciIndicator =
+    (issue as TrackedIssue & { ciStatus?: 'pending' | 'success' | 'failure' }).ciStatus ===
+    'failure' ? (
+      <Text color="red"> {CI_MARKER}</Text>
+    ) : null;
+
+  return (
+    <>
+      {baseIndicator}
+      {ciIndicator}
+    </>
+  );
 }
 
 function getPriorityIndicator(priorityLabel: string): string {
@@ -351,7 +380,11 @@ function getEnterAction(
 
 function buildPromptMessage(prompt: PromptState): string {
   return match(prompt)
-    .with({ type: 'dispatch' }, (p) => `Dispatch Implementor for #${p.issueNumber}?`)
+    .with({ type: 'dispatch' }, (p) => {
+      const base = `Dispatch Implementor for #${p.issueNumber}?`;
+      const ciSuffix = p.hasCIFailure ? ' (CI failed)' : '';
+      return `${base}${ciSuffix}`;
+    })
     .with({ type: 'cancel' }, (p) => `Cancel agent for #${p.issueNumber}?`)
     .with({ type: 'retry' }, (p) => {
       const label = p.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
