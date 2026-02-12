@@ -2,7 +2,7 @@ import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
 import type { Engine, EngineCommand, EngineEvent } from '../../types.ts';
 import { createEngineStore } from '../store.ts';
-import type { CachedPRDetails } from '../types.ts';
+import type { CachedPRDetails, TrackedIssue } from '../types.ts';
 import { IssueList } from './issue-list.tsx';
 
 type EventHandler = (event: EngineEvent) => void;
@@ -13,6 +13,7 @@ const REVIEW_MARKER = '\u25B6';
 const BLOCKED_MARKER = '\u26A0';
 const DONE_MARKER = '\u2713';
 const ERROR_MARKER = '\u2717';
+const CI_MARKER = '\u274C';
 
 const SPINNER_FRAMES: readonly string[] = [
   '\u280B',
@@ -1025,5 +1026,120 @@ test('it shows a cancel confirmation when Enter is pressed on a review issue wit
 
   await vi.waitFor(() => {
     expect(onPromptChange).toHaveBeenCalledWith('Cancel agent for #4?');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CI failure marker
+// ---------------------------------------------------------------------------
+
+test('it displays the CI marker alongside the state indicator when an issue has CI failure', async () => {
+  const { lastFrame, emit, store } = setupTest();
+
+  addIssue(emit, 1, { status: 'pending' });
+
+  // Manually set ciStatus on the issue since the event handler for ciStatusChanged is out of scope
+  const issues = store.getState().issues;
+  const issue = issues.get(1);
+  if (issue) {
+    const updatedIssues = new Map(issues);
+    updatedIssues.set(1, { ...issue, ciStatus: 'failure' } as TrackedIssue);
+    store.setState({ issues: updatedIssues });
+  }
+
+  store.getState().selectIssue(1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain(READY_MARKER);
+    expect(frame).toContain(CI_MARKER);
+  });
+});
+
+test('it appends CI failed text to dispatch prompt when issue has CI failure', async () => {
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
+
+  addIssue(emit, 5, { status: 'pending' });
+
+  // Manually set ciStatus on the issue
+  const issues = store.getState().issues;
+  const issue = issues.get(5);
+  if (issue) {
+    const updatedIssues = new Map(issues);
+    updatedIssues.set(5, { ...issue, ciStatus: 'failure' } as TrackedIssue);
+    store.setState({ issues: updatedIssues });
+  }
+
+  store.getState().selectIssue(5);
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#5');
+  });
+
+  stdin.write('\r');
+
+  await vi.waitFor(() => {
+    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5? (CI failed)');
+  });
+});
+
+test('it does not append CI failed text to dispatch prompt when issue has no CI failure', async () => {
+  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
+
+  addIssue(emit, 5, { status: 'pending' });
+  store.getState().selectIssue(5);
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#5');
+  });
+
+  stdin.write('\r');
+
+  await vi.waitFor(() => {
+    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
+  });
+});
+
+test('it displays the CI marker for unblocked issues with CI failure', async () => {
+  const { lastFrame, emit, store } = setupTest();
+
+  addIssue(emit, 2, { status: 'unblocked' });
+
+  const issues = store.getState().issues;
+  const issue = issues.get(2);
+  if (issue) {
+    const updatedIssues = new Map(issues);
+    updatedIssues.set(2, { ...issue, ciStatus: 'failure' } as TrackedIssue);
+    store.setState({ issues: updatedIssues });
+  }
+
+  store.getState().selectIssue(2);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain(READY_MARKER);
+    expect(frame).toContain(CI_MARKER);
+  });
+});
+
+test('it displays the CI marker for needs-changes issues with CI failure', async () => {
+  const { lastFrame, emit, store } = setupTest();
+
+  addIssue(emit, 3, { status: 'needs-changes' });
+
+  const issues = store.getState().issues;
+  const issue = issues.get(3);
+  if (issue) {
+    const updatedIssues = new Map(issues);
+    updatedIssues.set(3, { ...issue, ciStatus: 'failure' } as TrackedIssue);
+    store.setState({ issues: updatedIssues });
+  }
+
+  store.getState().selectIssue(3);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain(READY_MARKER);
+    expect(frame).toContain(CI_MARKER);
   });
 });
