@@ -101,8 +101,8 @@ test('it renders the correct Unicode glyph for each notification type', () => {
     { eventType: 'issueRefined', glyph: '\u00D7' },
     { eventType: 'issueUnblocked', glyph: '\u00D7' },
     { eventType: 'prUnapproved', glyph: '\u00D7' },
-    { eventType: 'ciCheckFailed', glyph: '\u2717' },
-    { eventType: 'ciCheckRecovered', glyph: '\u2713' },
+    { eventType: 'ciCheckFailed', glyph: '!' },
+    { eventType: 'ciCheckRecovered', glyph: '\u00D7' },
     { eventType: 'issueRemoved', glyph: '\u2212' },
     { eventType: 'startup', glyph: '\u2713' },
   ];
@@ -212,6 +212,16 @@ test('it returns undefined for an issue-refined indicator', () => {
   expect(getIndicatorColor(notification)).toBeUndefined();
 });
 
+test('it returns red for a CI check failed indicator', () => {
+  const notification = buildTypedNotification('ciCheckFailed', 'n-1');
+  expect(getIndicatorColor(notification)).toBe('red');
+});
+
+test('it returns undefined for a CI check recovered indicator', () => {
+  const notification = buildTypedNotification('ciCheckRecovered', 'n-1');
+  expect(getIndicatorColor(notification)).toBeUndefined();
+});
+
 test('it returns undefined for an issue-removed indicator', () => {
   const notification = buildTypedNotification('issueRemoved', 'n-1');
   expect(getIndicatorColor(notification)).toBeUndefined();
@@ -228,6 +238,21 @@ test('it returns green for a startup indicator', () => {
 
 test('it dims the indicator for an issue-refined notification', () => {
   const notification = buildTypedNotification('issueRefined', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(true);
+});
+
+test('it dims the indicator for an issue-unblocked notification', () => {
+  const notification = buildTypedNotification('issueUnblocked', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(true);
+});
+
+test('it dims the indicator for a PR unapproved notification', () => {
+  const notification = buildTypedNotification('prUnapproved', 'n-1');
+  expect(isIndicatorDim(notification)).toBe(true);
+});
+
+test('it dims the indicator for a CI check recovered notification', () => {
+  const notification = buildTypedNotification('ciCheckRecovered', 'n-1');
   expect(isIndicatorDim(notification)).toBe(true);
 });
 
@@ -592,6 +617,51 @@ test('it renders startup with issue count and recoveries when non-zero', () => {
   const frame = lastFrame() ?? '';
   expect(frame).toContain('Startup complete: 8 issues tracked');
   expect(frame).toContain('2 recoveries performed');
+});
+
+// ---------------------------------------------------------------------------
+// CI notifications
+// ---------------------------------------------------------------------------
+
+test('it renders CI check failed with PR number', () => {
+  const notification = buildTypedNotification('ciCheckFailed', 'notif-ci-fail', {
+    issueNumber: 5,
+  });
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('CI failed on PR #10');
+});
+
+test('it renders CI check failed with resolution guidance when present', () => {
+  const notification: Notification = {
+    id: 'notif-ci-fail-guidance',
+    timestamp: '2026-02-08T10:30:45.000Z',
+    eventType: 'ciCheckFailed',
+    issueNumber: 7,
+    prNumber: 15,
+    resolutionGuidance: 'Fix lint errors',
+    summary: 'CI failed on PR #15 — Fix lint errors',
+  };
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('CI failed on PR #15');
+  expect(frame).toContain('Fix lint errors');
+});
+
+test('it renders CI check recovered with issue reference', () => {
+  const notification = buildTypedNotification('ciCheckRecovered', 'notif-ci-recover', {
+    issueNumber: 3,
+  });
+
+  const { lastFrame } = setupRenderTest({ notifications: [notification] });
+
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('#3');
+  expect(frame).toContain('CI recovered for');
 });
 
 // ---------------------------------------------------------------------------
