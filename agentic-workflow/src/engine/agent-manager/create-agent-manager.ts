@@ -63,7 +63,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
       const tracker = await startSession({
         agentType: 'implementor',
-        prompt: String(issueNumber),
+        prompt: params.prompt,
         cwd: worktreeResult.worktreePath,
         agent: agentImplementor,
         issueNumber,

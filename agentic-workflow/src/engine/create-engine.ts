@@ -20,6 +20,7 @@ import type {
   StartupResult,
 } from '../types.ts';
 import { createBashValidatorHook } from './agent-manager/bash-validator/create-bash-validator-hook.ts';
+import { buildImplementorTriggerPrompt } from './agent-manager/build-implementor-trigger-prompt.ts';
 import { buildQueryFactory } from './agent-manager/build-query-factory.ts';
 import { buildReviewerTriggerPrompt } from './agent-manager/build-reviewer-trigger-prompt.ts';
 import { createAgentManager } from './agent-manager/create-agent-manager.ts';
@@ -550,11 +551,16 @@ async function handleDispatchImplementor(params: HandleDispatchImplementorParams
     });
     const branchStrategy = buildBranchStrategy(params.issueNumber, prDetails);
 
+    const prompt = prDetails
+      ? await buildImplementorPromptWithPR(params, prDetails)
+      : await buildImplementorPromptWithoutPR(params);
+
     await params.agentManager.dispatchImplementor({
       issueNumber: params.issueNumber,
       branchName: branchStrategy.branchName,
       ...(branchStrategy.branchBase !== undefined && { branchBase: branchStrategy.branchBase }),
       ...(modelOverride !== undefined && { modelOverride }),
+      prompt,
     });
   } catch (error) {
     params.logger.error('Failed to dispatch implementor', {
@@ -620,6 +626,36 @@ async function handleDispatchReviewer(params: HandleDispatchReviewerParams): Pro
       error: String(error),
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Implementor context pre-computation
+// ---------------------------------------------------------------------------
+
+async function buildImplementorPromptWithPR(
+  params: HandleDispatchImplementorParams,
+  prDetails: NonNullable<PRDetailsResult>,
+): Promise<string> {
+  const [issueDetails, prFiles, prReviews] = await Promise.all([
+    getIssueDetails(params.queriesConfig, params.issueNumber),
+    getPRFiles(params.queriesConfig, prDetails.number),
+    getPRReviews(params.queriesConfig, prDetails.number),
+  ]);
+
+  return buildImplementorTriggerPrompt({
+    issueDetails,
+    prNumber: prDetails.number,
+    prTitle: prDetails.title,
+    prFiles,
+    prReviews,
+  });
+}
+
+async function buildImplementorPromptWithoutPR(
+  params: HandleDispatchImplementorParams,
+): Promise<string> {
+  const issueDetails = await getIssueDetails(params.queriesConfig, params.issueNumber);
+  return buildImplementorTriggerPrompt({ issueDetails });
 }
 
 // ---------------------------------------------------------------------------

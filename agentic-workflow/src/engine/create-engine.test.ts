@@ -2078,3 +2078,279 @@ test('it uses the PR branch when a linked PR exists', async () => {
 
   engine.send({ command: 'shutdown' });
 });
+
+// ---------------------------------------------------------------------------
+// Implementor Context Pre-computation
+// ---------------------------------------------------------------------------
+
+test('it calls getIssueDetails before every implementor dispatch', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit } = setupTest({ issues, autoComplete: true });
+
+  // No linked PR
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  await engine.start();
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
+
+  // getIssueDetails calls octokit.issues.get — verify it was called with the issue number
+  expect(octokit.issues.get).toHaveBeenCalledWith(expect.objectContaining({ issue_number: 42 }));
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it builds an enriched prompt with issue details only when no linked PR exists', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, capturedQueryParams, octokit } = setupTest({ issues, autoComplete: true });
+
+  // No linked PR
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  await engine.start();
+
+  const paramsBeforeDispatch = capturedQueryParams.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+    expect(implementorParams.length).toBeGreaterThanOrEqual(1);
+  });
+
+  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+  invariant(implementorParams[0], 'implementor params must exist');
+  const prompt = implementorParams[0].prompt;
+
+  // Prompt should contain the issue section
+  expect(prompt).toContain('## Task Issue #42');
+  expect(prompt).toContain('Task body for #42');
+  expect(prompt).toContain('### Labels');
+
+  // Prompt should NOT contain PR, reviews, or inline comments sections
+  expect(prompt).not.toContain('## PR #');
+  expect(prompt).not.toContain('### Changed Files');
+  expect(prompt).not.toContain('### Prior Reviews');
+  expect(prompt).not.toContain('### Prior Inline Comments');
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it builds an enriched prompt with PR data when a linked PR exists', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, capturedQueryParams, octokit } = setupTest({ issues, autoComplete: true });
+
+  // Linked PR
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 100, body: 'Closes #42', draft: true }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'Fix issue 42',
+      changed_files: 2,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'pr-sha-1', ref: 'issue-42-branch' },
+      draft: true,
+    },
+  });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({
+    data: [{ filename: 'src/foo.ts', status: 'modified', patch: '@@ -1 +1 @@\n-old\n+new' }],
+  });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({
+    data: [
+      {
+        id: 1,
+        user: { login: 'reviewer1' },
+        state: 'CHANGES_REQUESTED',
+        body: 'Please fix the bug',
+      },
+    ],
+  });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({
+    data: [
+      {
+        id: 2,
+        user: { login: 'reviewer1' },
+        body: 'This line is wrong',
+        path: 'src/foo.ts',
+        line: 5,
+      },
+    ],
+  });
+
+  await engine.start();
+
+  const paramsBeforeDispatch = capturedQueryParams.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+    expect(implementorParams.length).toBeGreaterThanOrEqual(1);
+  });
+
+  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+  invariant(implementorParams[0], 'implementor params must exist');
+  const prompt = implementorParams[0].prompt;
+
+  // Prompt should contain the issue section
+  expect(prompt).toContain('## Task Issue #42');
+  expect(prompt).toContain('Task body for #42');
+
+  // Prompt should contain the PR section with files
+  expect(prompt).toContain('## PR #100 — Fix issue 42');
+  expect(prompt).toContain('### Changed Files');
+  expect(prompt).toContain('src/foo.ts (modified)');
+  expect(prompt).toContain('@@ -1 +1 @@');
+
+  // Prompt should contain review and inline comment sections
+  expect(prompt).toContain('### Prior Reviews');
+  expect(prompt).toContain('Review by reviewer1 — CHANGES_REQUESTED');
+  expect(prompt).toContain('Please fix the bug');
+  expect(prompt).toContain('### Prior Inline Comments');
+  expect(prompt).toContain('src/foo.ts:5 — reviewer1');
+  expect(prompt).toContain('This line is wrong');
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it calls getPRFiles and getPRReviews when a linked PR exists during implementor dispatch', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit } = setupTest({ issues, autoComplete: true });
+
+  // Linked PR
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 100, body: 'Closes #42', draft: true }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR for issue 42',
+      changed_files: 1,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'pr-sha-1', ref: 'issue-42-branch' },
+      draft: true,
+    },
+  });
+
+  await engine.start();
+
+  vi.mocked(octokit.pulls.listFiles).mockClear();
+  vi.mocked(octokit.pulls.listReviews).mockClear();
+  vi.mocked(octokit.pulls.listReviewComments).mockClear();
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
+
+  // getPRFiles and getPRReviews should have been called with the PR number
+  expect(octokit.pulls.listFiles).toHaveBeenCalledWith(
+    expect.objectContaining({ pull_number: 100 }),
+  );
+  expect(octokit.pulls.listReviews).toHaveBeenCalledWith(
+    expect.objectContaining({ pull_number: 100 }),
+  );
+  expect(octokit.pulls.listReviewComments).toHaveBeenCalledWith(
+    expect.objectContaining({ pull_number: 100 }),
+  );
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it omits review sections when a linked PR has no prior reviews or comments', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, capturedQueryParams, octokit } = setupTest({ issues, autoComplete: true });
+
+  // Linked PR with no reviews or comments
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 100, body: 'Closes #42', draft: true }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR for issue 42',
+      changed_files: 1,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'pr-sha-1', ref: 'issue-42-branch' },
+      draft: true,
+    },
+  });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({
+    data: [{ filename: 'src/bar.ts', status: 'added', patch: '+new content' }],
+  });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({ data: [] });
+
+  await engine.start();
+
+  const paramsBeforeDispatch = capturedQueryParams.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+    expect(implementorParams.length).toBeGreaterThanOrEqual(1);
+  });
+
+  const implementorParams = capturedQueryParams.slice(paramsBeforeDispatch);
+  invariant(implementorParams[0], 'implementor params must exist');
+  const prompt = implementorParams[0].prompt;
+
+  // Prompt should contain issue and PR sections
+  expect(prompt).toContain('## Task Issue #42');
+  expect(prompt).toContain('## PR #100');
+  expect(prompt).toContain('### Changed Files');
+
+  // Prompt should NOT contain review sections since there are none
+  expect(prompt).not.toContain('### Prior Reviews');
+  expect(prompt).not.toContain('### Prior Inline Comments');
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it fails the implementor dispatch when getIssueDetails throws', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit, capturedQueryParams } = setupTest({
+    issues,
+    autoComplete: true,
+  });
+
+  // No linked PR
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  // Make getIssueDetails fail
+  vi.mocked(octokit.issues.get).mockRejectedValue(new Error('GitHub API error'));
+
+  await engine.start();
+
+  const paramsBeforeDispatch = capturedQueryParams.length;
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  // Wait a tick to let the command handler run
+  await vi.waitFor(() => {
+    // No new agent should have been dispatched (the context fetch failed)
+    expect(capturedQueryParams.length).toBe(paramsBeforeDispatch);
+  });
+
+  // No agentStarted should have been emitted for issue 42 after the dispatch attempt
+  const agentStarted = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentStarted).toHaveLength(0);
+
+  engine.send({ command: 'shutdown' });
+});
