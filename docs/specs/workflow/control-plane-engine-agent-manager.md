@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine — Agent Manager
-version: 0.12.0
+version: 0.13.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -49,6 +49,14 @@ When the engine dispatches an agent:
      tracking ref (`git worktree add .worktrees/<branchName> origin/<branchName>`).
      > **Rationale:** This ensures the Reviewer sees the latest pushed state, even if the branch was
      > modified outside the local repository.
+
+   After the worktree is created (all strategies), run `yarn install` in the worktree directory. If
+   `yarn install` fails, remove the worktree and treat the failure as a dispatch failure — emit
+   `agentFailed` and do not create a session.
+
+   > **Rationale:** Yarn PnP requires the install/link step in each worktree for platform-specific
+   > binaries (turbo, esbuild) and module resolution (`.pnp.cjs`) to work. Without it, agents cannot
+   > run typechecking, tests, or builds.
 
    See [control-plane.md: Worktree Isolation](./control-plane.md#worktree-isolation).
 
@@ -453,6 +461,9 @@ type AgentStream = AsyncIterable<string> | null;
 - [ ] Given `modelOverride` is provided in `QueryFactoryParams`, when the `QueryFactory` constructs
       the `AgentDefinition`, then the `model` field uses the override value instead of the
       frontmatter value.
+- [ ] Given the engine dispatches an Implementor or Reviewer, when `yarn install` fails in the
+      worktree, then the worktree is removed, `agentFailed` is emitted, and no agent session is
+      created.
 - [ ] Given the engine dispatches an Implementor for issue N with no linked PR, when the worktree is
       created, then it uses a fresh branch `issue-<N>-<timestamp>` from `main` and `cwd` is set to
       `.worktrees/issue-<N>-<timestamp>`.
