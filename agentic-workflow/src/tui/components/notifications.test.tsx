@@ -101,7 +101,6 @@ test('it renders the correct Unicode glyph for each notification type', () => {
     { eventType: 'issueRefined', glyph: '\u00D7' },
     { eventType: 'issueUnblocked', glyph: '\u00D7' },
     { eventType: 'prUnapproved', glyph: '\u00D7' },
-    { eventType: 'ciStatusChanged', glyph: '\u2192' },
     { eventType: 'ciCheckFailed', glyph: '\u2717' },
     { eventType: 'ciCheckRecovered', glyph: '\u2713' },
     { eventType: 'issueRemoved', glyph: '\u2212' },
@@ -1178,11 +1177,6 @@ function buildTypedNotification(
     .with('issueRefined', (t) => buildIssueNumberNotification(t, id, overrides))
     .with('issueUnblocked', (t) => buildIssueNumberNotification(t, id, overrides))
     .with('prUnapproved', (t) => buildIssueNumberNotification(t, id, overrides))
-    .with('ciStatusChanged', () => ({
-      ...buildBaseFields(id, 'ciStatusChanged'),
-      eventType: 'ciStatusChanged' as const,
-      prNumber: 10,
-    }))
     .with('ciCheckFailed', () => ({
       ...buildBaseFields(id, 'ciCheckFailed'),
       eventType: 'ciCheckFailed' as const,

@@ -3,6 +3,9 @@ import type {
   AgentCompletedEvent,
   AgentFailedEvent,
   AgentStartedEvent,
+  CICheckFailedEvent,
+  CICheckRecoveredEvent,
+  CIStatusChangedEvent,
   IssueBlockedEvent,
   IssueNeedsRefinementEvent,
   IssueRemovedEvent,
@@ -1314,7 +1317,7 @@ test('it assigns unique IDs and timestamps to each notification', () => {
 // All engine events produce notifications
 // ---------------------------------------------------------------------------
 
-test('it produces a notification for every type of engine event', () => {
+test('it produces a notification for every notification-emitting engine event', () => {
   const { store, emit } = setupTest();
 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
@@ -1382,6 +1385,13 @@ test('it produces a notification for every type of engine event', () => {
     changeType: 'added',
     commitSHA: 'sha123',
   });
+  emit({
+    type: 'ciCheckFailed',
+    issueNumber: 2,
+    prNumber: 10,
+    contextURL: 'https://github.com/owner/repo/pull/10',
+  } satisfies CICheckFailedEvent);
+  emit({ type: 'ciCheckRecovered', issueNumber: 2 } satisfies CICheckRecoveredEvent);
 
   const notifications = store.getState().notifications;
   const eventTypes = notifications.map((n) => n.eventType);
@@ -1401,6 +1411,8 @@ test('it produces a notification for every type of engine event', () => {
   expect(eventTypes).toContain('issueRemoved');
   expect(eventTypes).toContain('recoveryPerformed');
   expect(eventTypes).toContain('specChanged');
+  expect(eventTypes).toContain('ciCheckFailed');
+  expect(eventTypes).toContain('ciCheckRecovered');
 });
 
 // ---------------------------------------------------------------------------
@@ -1794,4 +1806,300 @@ test('it clears the no-PR marker when the issue is removed', async () => {
   emit({ type: 'issueRemoved', issueNumber: 1 } satisfies IssueRemovedEvent);
 
   expect(store.getState().prNotFound.has(1)).toBe(false);
+});
+
+// ---------------------------------------------------------------------------
+// ciStatusChanged
+// ---------------------------------------------------------------------------
+
+test('it updates the CI status on the tracked issue when a CI status change is received', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  emit({
+    type: 'ciStatusChanged',
+    prNumber: 10,
+    issueNumber: 1,
+    oldCIStatus: null,
+    newCIStatus: 'pending',
+  } satisfies CIStatusChangedEvent);
+
+  expect(store.getState().issues.get(1)?.ciStatus).toBe('pending');
+});
+
+test('it does not add a notification when a CI status change is received', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+  const notifCountBefore = store.getState().notifications.length;
+
+  emit({
+    type: 'ciStatusChanged',
+    prNumber: 10,
+    issueNumber: 1,
+    oldCIStatus: null,
+    newCIStatus: 'pending',
+  } satisfies CIStatusChangedEvent);
+
+  expect(store.getState().notifications).toHaveLength(notifCountBefore);
+});
+
+test('it clears cached failed check names when CI status transitions away from failure', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'PR',
+    changedFilesCount: 2,
+    ciStatus: 'failure',
+    url: 'https://example.com',
+    stale: false,
+    failedCheckNames: ['lint', 'test'],
+  });
+  store.setState({ prDetails });
+
+  emit({
+    type: 'ciStatusChanged',
+    prNumber: 10,
+    issueNumber: 1,
+    oldCIStatus: 'failure',
+    newCIStatus: 'success',
+  } satisfies CIStatusChangedEvent);
+
+  const cached = store.getState().prDetails.get(1);
+  expect(cached).toBeDefined();
+  expect(cached).not.toHaveProperty('failedCheckNames');
+});
+
+test('it is a no-op when a CI status change has no linked issue', () => {
+  const { store, emit } = setupTest();
+
+  const stateBefore = store.getState();
+
+  emit({
+    type: 'ciStatusChanged',
+    prNumber: 99,
+    oldCIStatus: null,
+    newCIStatus: 'pending',
+  } satisfies CIStatusChangedEvent);
+
+  expect(store.getState().issues).toBe(stateBefore.issues);
+  expect(store.getState().notifications).toBe(stateBefore.notifications);
+});
+
+// ---------------------------------------------------------------------------
+// ciCheckFailed
+// ---------------------------------------------------------------------------
+
+test('it adds a notification with the PR URL when a CI check fails', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  emit({
+    type: 'ciCheckFailed',
+    issueNumber: 1,
+    prNumber: 10,
+    contextURL: 'https://github.com/owner/repo/pull/10',
+  } satisfies CICheckFailedEvent);
+
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'ciCheckFailed',
+      issueNumber: 1,
+      prNumber: 10,
+      summary: 'CI failed on PR #10',
+      contextURL: 'https://github.com/owner/repo/pull/10',
+    }),
+  );
+});
+
+test('it includes resolution guidance in the notification and on the tracked issue when a CI check fails with guidance', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'approved' }));
+
+  emit({
+    type: 'ciCheckFailed',
+    issueNumber: 1,
+    prNumber: 10,
+    contextURL: 'https://github.com/owner/repo/pull/10',
+    resolutionGuidance: 'Fix the failing lint check',
+  } satisfies CICheckFailedEvent);
+
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'ciCheckFailed',
+      summary: 'CI failed on PR #10 — Fix the failing lint check',
+      resolutionGuidance: 'Fix the failing lint check',
+    }),
+  );
+
+  expect(store.getState().issues.get(1)?.resolutionGuidance).toBe('Fix the failing lint check');
+});
+
+test('it does not set resolution guidance on the tracked issue when a CI check fails without guidance', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  emit({
+    type: 'ciCheckFailed',
+    issueNumber: 1,
+    prNumber: 10,
+    contextURL: 'https://github.com/owner/repo/pull/10',
+  } satisfies CICheckFailedEvent);
+
+  expect(store.getState().issues.get(1)?.resolutionGuidance).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// ciCheckRecovered
+// ---------------------------------------------------------------------------
+
+test('it clears CI status and resolution guidance on the tracked issue when CI recovers', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'approved' }));
+
+  emit({
+    type: 'ciCheckFailed',
+    issueNumber: 1,
+    prNumber: 10,
+    contextURL: 'https://github.com/owner/repo/pull/10',
+    resolutionGuidance: 'Fix lint',
+  } satisfies CICheckFailedEvent);
+
+  emit({
+    type: 'ciStatusChanged',
+    prNumber: 10,
+    issueNumber: 1,
+    oldCIStatus: null,
+    newCIStatus: 'failure',
+  } satisfies CIStatusChangedEvent);
+
+  expect(store.getState().issues.get(1)?.ciStatus).toBe('failure');
+  expect(store.getState().issues.get(1)?.resolutionGuidance).toBe('Fix lint');
+
+  emit({ type: 'ciCheckRecovered', issueNumber: 1 } satisfies CICheckRecoveredEvent);
+
+  const issue = store.getState().issues.get(1);
+  expect(issue?.ciStatus).toBeUndefined();
+  expect(issue?.resolutionGuidance).toBeUndefined();
+});
+
+test('it clears cached failed check names when CI recovers', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'PR',
+    changedFilesCount: 2,
+    ciStatus: 'failure',
+    url: 'https://example.com',
+    stale: false,
+    failedCheckNames: ['lint'],
+  });
+  store.setState({ prDetails });
+
+  emit({ type: 'ciCheckRecovered', issueNumber: 1 } satisfies CICheckRecoveredEvent);
+
+  const cached = store.getState().prDetails.get(1);
+  expect(cached).toBeDefined();
+  expect(cached).not.toHaveProperty('failedCheckNames');
+});
+
+test('it adds a dismissal notification when CI recovers', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'review' }));
+
+  emit({ type: 'ciCheckRecovered', issueNumber: 1 } satisfies CICheckRecoveredEvent);
+
+  expect(store.getState().notifications).toContainEqual(
+    expect.objectContaining({
+      eventType: 'ciCheckRecovered',
+      issueNumber: 1,
+      summary: 'CI recovered for #1',
+      contextURL: 'https://github.com/owner/repo/issues/1',
+    }),
+  );
+});
+
+// ---------------------------------------------------------------------------
+// issueUnblocked clears resolutionGuidance
+// ---------------------------------------------------------------------------
+
+test('it clears resolution guidance on the tracked issue when an issue is unblocked', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'blocked' }));
+
+  emit({
+    type: 'issueBlocked',
+    issueNumber: 3,
+    contextURL: 'https://github.com/owner/repo/issues/3',
+    resolutionGuidance: 'Waiting on dependency',
+  } satisfies IssueBlockedEvent);
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Waiting on dependency');
+
+  emit({ type: 'issueUnblocked', issueNumber: 3 });
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// issueRefined clears resolutionGuidance
+// ---------------------------------------------------------------------------
+
+test('it clears resolution guidance on the tracked issue when an issue is refined', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'needs-refinement' }));
+
+  emit({
+    type: 'issueNeedsRefinement',
+    issueNumber: 3,
+    contextURL: 'https://github.com/owner/repo/issues/3',
+    resolutionGuidance: 'Amend the spec',
+    clipboardCommand: 'claude -p "fix"',
+  } satisfies IssueNeedsRefinementEvent);
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Amend the spec');
+
+  emit({ type: 'issueRefined', issueNumber: 3 });
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// prUnapproved clears resolutionGuidance
+// ---------------------------------------------------------------------------
+
+test('it clears resolution guidance on the tracked issue when a PR is unapproved', () => {
+  const { store, emit } = setupTest();
+
+  emit(buildIssueStatusChanged({ issueNumber: 3, newStatus: 'approved' }));
+
+  emit({
+    type: 'ciCheckFailed',
+    issueNumber: 3,
+    prNumber: 10,
+    contextURL: 'https://github.com/owner/repo/pull/10',
+    resolutionGuidance: 'Fix CI',
+  } satisfies CICheckFailedEvent);
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBe('Fix CI');
+
+  emit({ type: 'prUnapproved', issueNumber: 3 });
+
+  expect(store.getState().issues.get(3)?.resolutionGuidance).toBeUndefined();
 });

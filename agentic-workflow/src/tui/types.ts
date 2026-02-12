@@ -19,7 +19,8 @@ export interface TrackedIssue {
   agentRunning: boolean;
   agentType?: TaskAgentType;
   lastFailure?: LastFailure;
-  resolutionGuidance?: string;
+  ciStatus?: 'pending' | 'success' | 'failure'; // set by ciStatusChanged event, cleared on issueRemoved or ciCheckRecovered
+  resolutionGuidance?: string; // set by issueBlocked, issueNeedsRefinement, or ciCheckFailed events; cleared by issueStatusChanged (non-recovery, non-engine-transition), issueUnblocked, issueRefined, prUnapproved, or ciCheckRecovered
 }
 
 export interface BaseNotification {
@@ -114,16 +115,11 @@ export type PRUnapprovedNotification = BaseNotification & {
   issueNumber: number;
 };
 
-export type CIStatusChangedNotification = BaseNotification & {
-  eventType: 'ciStatusChanged';
-  prNumber: number;
-  issueNumber?: number;
-};
-
 export type CICheckFailedNotification = BaseNotification & {
   eventType: 'ciCheckFailed';
   issueNumber: number;
   prNumber: number;
+  resolutionGuidance?: string; // present when issue status is 'approved'
 };
 
 export type CICheckRecoveredNotification = BaseNotification & {
@@ -157,7 +153,6 @@ export type Notification =
   | IssueRefinedNotification
   | IssueUnblockedNotification
   | PRUnapprovedNotification
-  | CIStatusChangedNotification
   | CICheckFailedNotification
   | CICheckRecoveredNotification
   | IssueRemovedNotification
@@ -181,6 +176,7 @@ export interface CachedPRDetails {
   ciStatus: 'pending' | 'success' | 'failure';
   url: string;
   stale: boolean;
+  failedCheckNames?: string[];
 }
 
 export interface Repository {

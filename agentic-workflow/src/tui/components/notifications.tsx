@@ -284,7 +284,6 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
     .with({ eventType: 'prUnapproved' }, (n) => (
       <>{renderIssueLink(n.issueNumber, repository)} unapproved</>
     ))
-    .with({ eventType: 'ciStatusChanged' }, (n) => <>PR #{n.prNumber} CI status changed</>)
     .with({ eventType: 'ciCheckFailed' }, (n) => (
       <>CI check failed for {renderIssueLink(n.issueNumber, repository)}</>
     ))
@@ -327,7 +326,6 @@ function getIndicatorGlyph(notification: Notification): string {
     .with({ eventType: 'issueRefined' }, () => '\u00D7')
     .with({ eventType: 'issueUnblocked' }, () => '\u00D7')
     .with({ eventType: 'prUnapproved' }, () => '\u00D7')
-    .with({ eventType: 'ciStatusChanged' }, () => '\u2192')
     .with({ eventType: 'ciCheckFailed' }, () => '\u2717')
     .with({ eventType: 'ciCheckRecovered' }, () => '\u2713')
     .with({ eventType: 'issueRemoved' }, () => '\u2212')
@@ -353,7 +351,6 @@ export function getIndicatorColor(notification: Notification): InkColor {
     .with({ eventType: 'issueRefined' }, () => undefined)
     .with({ eventType: 'issueUnblocked' }, () => undefined)
     .with({ eventType: 'prUnapproved' }, () => undefined)
-    .with({ eventType: 'ciStatusChanged' }, () => 'cyan')
     .with({ eventType: 'ciCheckFailed' }, () => 'red')
     .with({ eventType: 'ciCheckRecovered' }, () => 'green')
     .with({ eventType: 'issueRemoved' }, () => undefined)
@@ -442,7 +439,6 @@ function renderContentString(notification: Notification): string {
     .with({ eventType: 'issueRefined' }, (n) => `#${n.issueNumber} refined`)
     .with({ eventType: 'issueUnblocked' }, (n) => `#${n.issueNumber} unblocked`)
     .with({ eventType: 'prUnapproved' }, (n) => `#${n.issueNumber} unapproved`)
-    .with({ eventType: 'ciStatusChanged' }, (n) => `PR #${n.prNumber} CI status changed`)
     .with({ eventType: 'ciCheckFailed' }, (n) => `CI check failed for #${n.issueNumber}`)
     .with({ eventType: 'ciCheckRecovered' }, (n) => `CI check recovered for #${n.issueNumber}`)
     .with({ eventType: 'issueRemoved' }, (n) => `#${n.issueNumber} removed`)
