@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { vol } from 'memfs';
 import invariant from 'tiny-invariant';
 import { expect, test, vi } from 'vitest';
+import { buildPullsListItem } from '../test-utils/build-pulls-list-item.ts';
 import { buildValidConfig } from '../test-utils/build-valid-config.ts';
 import { createMockGitHubClient } from '../test-utils/create-mock-github-client.ts';
 import type {
@@ -162,11 +163,13 @@ function setupMockGitHubClient(
   });
 
   // Queries: PRs — generate a linked PR for each issue so getPRForIssue can resolve branchName
-  const mockPRListItems = issues.map((issue, index) => ({
-    number: 100 + index,
-    body: `Closes #${issue.number}`,
-    draft: false,
-  }));
+  const mockPRListItems = issues.map((issue, index) =>
+    buildPullsListItem({
+      number: 100 + index,
+      body: `Closes #${issue.number}`,
+      draft: false,
+    }),
+  );
   const mockPRDetails = issues.map((issue, index) => ({
     number: 100 + index,
     title: `PR for #${issue.number}`,
@@ -615,7 +618,7 @@ test('it passes fetchRemote: true when dispatching a reviewer with a linked PR',
   });
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: false }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: false })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -907,7 +910,7 @@ test('it cancels a running agent when its issue is removed from the poller snaps
     data: { object: { sha: 'commit-sha-1' } },
   });
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: false }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: false })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -1655,7 +1658,7 @@ test('it dispatches the reviewer when an implementor completes with a linked non
 
   // Set up a linked non-draft PR for issue #42
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: false }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: false })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -1722,7 +1725,7 @@ test('it passes fetchRemote: true when dispatching reviewer after implementor co
   });
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: false }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: false })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -1786,7 +1789,7 @@ test('it does not emit a duplicate status change when the poller runs after comp
 
   // Set up a linked non-draft PR for issue #42
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: false }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: false })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -1926,7 +1929,7 @@ test('it does not check for a PR or dispatch a reviewer when an implementor fail
 
   // Set up a linked non-draft PR (should NOT be checked for failures)
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: false }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: false })],
   });
 
   await engine.start();
@@ -2047,7 +2050,7 @@ test('it uses the PR branch when a linked PR exists', async () => {
 
   // Linked PR with headRefName 'issue-42-1738000000'
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: true }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: true })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -2149,7 +2152,7 @@ test('it builds an enriched prompt with PR data when a linked PR exists', async 
 
   // Linked PR
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: true }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: true })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -2228,7 +2231,7 @@ test('it calls getPRFiles and getPRReviews when a linked PR exists during implem
 
   // Linked PR
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: true }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: true })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -2276,7 +2279,7 @@ test('it omits review sections when a linked PR has no prior reviews or comments
 
   // Linked PR with no reviews or comments
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #42', draft: true }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #42', draft: true })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {

@@ -80,6 +80,10 @@ export interface PullsListParams {
 
 export interface PullsListItem {
   number: number;
+  title: string;
+  html_url: string;
+  user: { login: string } | null;
+  head: PullHeadRef;
   body: string | null;
   draft: boolean;
 }
