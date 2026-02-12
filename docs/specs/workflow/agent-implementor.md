@@ -1,6 +1,6 @@
 ---
 title: Implementor Agent
-version: 0.8.0
+version: 0.9.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -63,7 +63,11 @@ The Engine injects the following into the agent's session at dispatch time (see
 [control-plane-engine-agent-manager.md: Trigger Context](./control-plane-engine-agent-manager.md#trigger-context)
 and [Project Context Injection](./control-plane-engine-agent-manager.md#project-context-injection)):
 
-1. **Trigger prompt:** The task issue number (e.g., `"42"`).
+1. **Trigger prompt:** An enriched prompt containing the task issue details (number, title, body,
+   labels). When a linked PR exists (resume scenarios), the prompt additionally includes per-file PR
+   diffs and prior review history. See
+   [control-plane-engine-context-precomputation.md: Implementor Context Pre-computation](./control-plane-engine-context-precomputation.md#implementor-context-pre-computation)
+   for the prompt format.
 2. **Project context:** CLAUDE.md content (coding conventions, style rules, architecture) appended
    to the agent's system prompt.
 3. **Working directory:** A git worktree (see
@@ -71,8 +75,8 @@ and [Project Context Injection](./control-plane-engine-agent-manager.md#project-
    step 2). For new tasks, the worktree is on a fresh branch. For resumed tasks (`status:unblocked`,
    `status:needs-changes`), the worktree is on the existing PR branch.
 
-The agent fetches all remaining data via tool calls: the task issue body, referenced spec sections,
-in-scope file state, and (for resumed tasks) existing PR and review comments.
+The agent fetches remaining data via tool calls: referenced spec sections and in-scope file state.
+The task issue body, PR diffs, and review comments are pre-computed in the trigger prompt.
 
 ## Input Validation
 

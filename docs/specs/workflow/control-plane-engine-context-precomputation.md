@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine — Context Pre-computation
-version: 0.1.0
+version: 0.2.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -9,10 +9,10 @@ status: approved
 
 ## Overview
 
-Before dispatching the Planner or Reviewer, the Engine Core builds enriched trigger prompts so
-agents start with all context in hand, avoiding costly tool-call turns for data gathering. The
-Engine Core assembles these prompts and passes them to the `QueryFactory` as the session's initial
-prompt.
+Before dispatching the Planner, Implementor, or Reviewer, the Engine Core builds enriched trigger
+prompts so agents start with all context in hand, avoiding costly tool-call turns for data
+gathering. The Engine Core assembles these prompts and passes them to the `QueryFactory` as the
+session's initial prompt.
 
 ## Constraints
 
@@ -65,6 +65,97 @@ Planner run.
 **Error handling:** If spec content or issue list fetching fails (GitHub API error), the Planner
 dispatch fails. This is treated as an agent session creation failure — logged at `error` level,
 retried on the next SpecPoller cycle (the deferred paths mechanism re-adds the spec paths).
+
+### Implementor Context Pre-computation
+
+When dispatching the Implementor (via `dispatchImplementor`), the Engine Core builds an enriched
+trigger prompt so the Implementor starts with the task issue context in hand and — when resuming a
+task with a linked PR — the current PR diff and prior review feedback. This eliminates the
+Implementor's initial data-gathering tool-call turns (issue fetch via `gh.sh`, and for resume
+scenarios, PR diff and review comment fetch).
+
+The Engine Core already calls `getPRForIssue` before every Implementor dispatch (for branch strategy
+selection). The presence or absence of a linked PR determines the prompt tier:
+
+- **No linked PR:** The prompt includes the task issue details only.
+- **Linked PR exists:** The prompt includes the task issue details, per-file PR diffs, and prior
+  review history (same sections as the Reviewer prompt).
+
+**Enriched prompt format — no linked PR:**
+
+```
+## Task Issue #<number> — <title>
+
+<issue body>
+
+### Labels
+<comma-separated label names>
+```
+
+**Enriched prompt format — linked PR exists:**
+
+```
+## Task Issue #<number> — <title>
+
+<issue body>
+
+### Labels
+<comma-separated label names>
+
+## PR #<prNumber> — <prTitle>
+
+### Changed Files
+
+#### <filename> (<status>)
+```
+
+<patch>
+```
+
+#### <filename> (<status>)
+
+```
+<patch>
+```
+
+### Prior Reviews
+
+#### Review by <author> — <state>
+
+<body>
+
+### Prior Inline Comments
+
+#### <path>:<line> — <author>
+
+<body>
+```
+
+The issue section format is identical to the Reviewer prompt format. When a linked PR exists, the PR
+section, Prior Reviews, and Prior Inline Comments sections also use the identical Reviewer format.
+For files with no `patch` (binary files or files exceeding the diff size limit), the file entry
+includes the filename and status but no code block. When no prior reviews or inline comments exist,
+the "Prior Reviews" and "Prior Inline Comments" sections are omitted entirely. The `createdAt` field
+from `IssueDetailsResult` is excluded — it is not useful for implementation.
+
+> **Rationale:** Pre-computing the issue body eliminates a `gh.sh issue view` tool-call turn that
+> every Implementor invocation previously required. For resume scenarios, pre-computing PR diffs and
+> review comments eliminates additional turns the agent would spend fetching review feedback —
+> particularly valuable for `status:needs-changes` where understanding review comments is the first
+> step.
+
+**Data sources:**
+
+| Data           | Source                                                                                                                 | When fetched                 |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Issue details  | `getIssueDetails(issueNumber)`                                                                                         | At Implementor dispatch time |
+| PR details     | `getPRForIssue(issueNumber, { includeDrafts: true })` — already called for branch strategy; PR number and title reused | At Implementor dispatch time |
+| PR files       | `getPRFiles(prNumber)` — called only when `getPRForIssue` returned a linked PR                                         | At Implementor dispatch time |
+| Review history | `getPRReviews(prNumber)` — called only when `getPRForIssue` returned a linked PR                                       | At Implementor dispatch time |
+
+**Error handling:** If any fetch fails (GitHub API error), the Implementor dispatch fails. This is
+treated as an agent session creation failure — logged at `error` level. No automatic retry exists —
+the user can manually dispatch an Implementor via the TUI's `dispatchImplementor` command.
 
 ### Reviewer Context Pre-computation
 
@@ -155,6 +246,26 @@ exists — the user can manually dispatch a Reviewer via the TUI's `dispatchRevi
       dispatch fails (treated as agent session creation failure) and the spec paths are re-added to
       the deferred buffer.
 
+### Implementor Context Pre-computation
+
+- [ ] Given the Engine Core dispatches the Implementor, when it builds the trigger prompt, then the
+      prompt includes the issue body and labels fetched via `getIssueDetails`.
+- [ ] Given the Engine Core dispatches the Implementor for an issue with no linked PR, when it
+      builds the trigger prompt, then the prompt contains only the issue section (no PR, reviews, or
+      inline comments sections).
+- [ ] Given the Engine Core dispatches the Implementor for an issue with a linked PR, when it builds
+      the trigger prompt, then the prompt includes per-file patches fetched via `getPRFiles` using
+      the PR number from the preceding `getPRForIssue` call.
+- [ ] Given the Engine Core dispatches the Implementor for an issue with a linked PR, when it builds
+      the trigger prompt, then the prompt includes prior review submissions and inline comments
+      fetched via `getPRReviews`.
+- [ ] Given the Engine Core dispatches the Implementor for an issue with a linked PR but no prior
+      reviews or comments, when `getPRReviews` returns empty arrays, then the "Prior Reviews" and
+      "Prior Inline Comments" sections are omitted from the prompt.
+- [ ] Given any fetch fails during Implementor dispatch (issue details, PR files, or review
+      history), when the error is caught, then the dispatch fails (treated as agent session creation
+      failure).
+
 ### Reviewer Context Pre-computation
 
 - [ ] Given the Engine Core dispatches the Reviewer (via completion-dispatch or manual
@@ -190,9 +301,13 @@ exists — the user can manually dispatch a Reviewer via the TUI's `dispatchRevi
 
 - [control-plane-engine.md: Dispatch Logic — Auto-dispatch](./control-plane-engine.md#auto-dispatch)
   — When the Planner is dispatched
+- [control-plane-engine.md: Command Interface — dispatchImplementor](./control-plane-engine.md#command-interface)
+  — When the Implementor is dispatched
 - [control-plane-engine.md: Dispatch Logic — Completion-dispatch](./control-plane-engine.md#completion-dispatch)
   — When the Reviewer is dispatched
 - [agent-planner.md](./agent-planner.md) — Planner agent definition (consumer of the enriched
   prompt)
+- [agent-implementor.md](./agent-implementor.md) — Implementor agent definition (consumer of the
+  enriched prompt)
 - [agent-reviewer.md](./agent-reviewer.md) — Reviewer agent definition (consumer of the enriched
   prompt)
