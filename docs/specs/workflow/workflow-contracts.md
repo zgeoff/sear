@@ -1,6 +1,6 @@
 ---
 title: Workflow Contracts
-version: 0.3.0
+version: 0.4.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -354,6 +354,23 @@ enforces them during implementation) and the Reviewer (which audits compliance d
    Changes that do **not** qualify as incidental include: adding a new function, modifying control
    flow, changing default values, or adding new test cases for behavior that doesn't yet exist.
 
+4. **Scope inaccuracy:** When the In Scope list names a file that does not contain the expected code
+   (e.g., the task describes modifying a handler in file A, but the handler actually lives in file
+   B), the agent determines the correct target file from the codebase and treats it as the effective
+   primary scope. The agent documents the discrepancy in the PR body using a "Scope correction"
+   section:
+
+   ```
+   ## Scope correction
+   - **Listed:** `<file from In Scope list>`
+   - **Actual:** `<correct file>`
+   - **Reason:** <why the listed file is wrong and the actual file is correct>
+   ```
+
+   This rule applies when the task intent is unambiguous and the correct target is identifiable from
+   reading the code. If the discrepancy makes the task intent unclear, the agent treats it as a
+   blocker (type: `spec-gap`).
+
 When a file outside scope needs non-incidental changes:
 
 - **Implementor:** Treats it as a blocker (type: `technical-constraint`) if it blocks progress, or
@@ -385,6 +402,13 @@ When a file outside scope needs non-incidental changes:
 - [ ] Given a scope enforcement decision, when a change fails any one of the three incidental-change
       criteria, then the Implementor treats it as a blocker or escalation (not a silent
       modification).
+- [ ] Given a task whose In Scope list names a file that does not contain the expected code, when
+      the correct target is identifiable from reading the codebase and the task intent is
+      unambiguous, then the agent treats the correct file as effective primary scope and documents
+      the discrepancy in the PR body.
+- [ ] Given a task whose In Scope list names a file that does not contain the expected code, when
+      the discrepancy makes the task intent unclear, then the agent treats it as a blocker (type:
+      `spec-gap`).
 
 ## Dependencies
 

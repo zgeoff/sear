@@ -1,7 +1,7 @@
 ---
 title: Implementor Agent
-version: 0.7.0
-last_updated: 2026-02-11
+version: 0.8.0
+last_updated: 2026-02-12
 status: approved
 ---
 
@@ -83,6 +83,10 @@ Before starting work, the agent validates:
 4. **Existing PR** (resume only) — For `status:unblocked` or `status:needs-changes`, a PR linked to
    the task issue exists.
 
+These four checks are exhaustive — no other checks are performed during input validation.
+Discrepancies discovered during implementation (e.g., the In Scope list names the wrong file) are
+handled by the scope enforcement rules, not by validation.
+
 If any check fails, the agent posts a comment using the Validation Failure Comment format (see
 [workflow-contracts.md: Validation Failure Comment](./workflow-contracts.md#validation-failure-comment))
 and stops. The agent does not change the status label on validation failure.
@@ -149,7 +153,7 @@ later prevents progress, it becomes a blocker.
 The agent must only modify files listed in the task issue's "In Scope" section, subject to the scope
 enforcement rules defined in
 [workflow-contracts.md: Scope Enforcement Rules](./workflow-contracts.md#scope-enforcement-rules)
-(primary scope, co-located test files, incidental changes).
+(primary scope, co-located test files, incidental changes, scope inaccuracy).
 
 When non-incidental changes to out-of-scope files are needed:
 
@@ -191,7 +195,17 @@ as its final text output to the invoking process.
       `status:needs-changes`), when the agent validates inputs, then it posts a validation failure
       comment and stops without changing the status label.
 - [ ] Given a task with an "In Scope" file list, when the agent completes work, then only files in
-      primary scope, co-located test files, and incidental changes have been modified.
+      primary scope, co-located test files, incidental changes, and documented scope inaccuracies
+      have been modified.
+- [ ] Given a task whose In Scope list names a file that does not contain the expected code, when
+      the task intent is unambiguous, then the agent determines the correct target file, proceeds
+      with implementation, and documents the discrepancy in the PR body.
+- [ ] Given a task whose In Scope list names a file that does not contain the expected code, when
+      the discrepancy makes the task intent unclear, then the agent treats it as a blocker (type:
+      `spec-gap`).
+- [ ] Given a condition not covered by the four input validation checks, when the agent discovers it
+      during implementation, then the agent does not post a validation failure comment or stop — it
+      handles the condition through scope enforcement rules or blocker handling instead.
 - [ ] Given a satisfiable task, when the agent completes work, then a ready-for-review PR exists
       linked to the task issue via `Closes #<issue-number>`.
 - [ ] Given a satisfiable task, when the agent completes work, then all tests pass locally before

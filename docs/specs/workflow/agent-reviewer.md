@@ -1,6 +1,6 @@
 ---
 title: Reviewer Agent
-version: 0.8.0
+version: 0.9.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -107,8 +107,12 @@ Compare files modified in the PR diff against the task issue's scope, applying t
 rules defined in
 [workflow-contracts.md: Scope Enforcement Rules](./workflow-contracts.md#scope-enforcement-rules).
 
-If a modified file is neither in primary scope, a co-located test file, nor an incidental change,
-record it as a warning (not a finding) with an explanation.
+If the PR body contains a "Scope correction" section (rule 4 of the scope enforcement rules), files
+listed as the corrected scope are treated as effective primary scope — no warning is recorded.
+
+If a modified file is neither in primary scope, a co-located test file, an incidental change, nor
+covered by a documented scope inaccuracy, record it as a warning (not a finding) with an
+explanation.
 
 ### 3. Task Constraints
 
@@ -194,6 +198,9 @@ as its final text output to the invoking process.
 - [ ] Given a PR that modifies files outside primary scope where the modification does not qualify
       as incidental, then the Reviewer records a scope warning. The warning does not trigger
       rejection.
+- [ ] Given a PR whose body contains a "Scope correction" section documenting a scope inaccuracy,
+      when the Reviewer checks scope compliance, then files listed as the corrected scope are
+      treated as effective primary scope and no scope warning is recorded for them.
 - [ ] Given a PR that satisfies all checklist steps, when the agent completes the review, then the
       task label is `status:approved` and a PR review comment confirms the approval.
 - [ ] Given a PR that fails one or more acceptance criteria, when the agent rejects it, then the
