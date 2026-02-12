@@ -2369,3 +2369,710 @@ test('it fails the implementor dispatch when getIssueDetails throws', async () =
 
   engine.send({ command: 'shutdown' });
 });
+
+// ---------------------------------------------------------------------------
+// Granular notification events: issueBlocked / issueUnblocked
+// ---------------------------------------------------------------------------
+
+test('it emits issueBlocked with contextURL and resolutionGuidance when an issue transitions to blocked', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(10, 'pending')] };
+    }
+    // Second poll: issue moved to blocked
+    return { data: [buildMockIssueData(10, 'blocked')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // Advance past the poll interval to trigger the second cycle
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const blockedEvents = events.filter((e) => e.type === 'issueBlocked');
+  expect(blockedEvents).toHaveLength(1);
+  expect(blockedEvents[0]).toMatchObject({
+    type: 'issueBlocked',
+    issueNumber: 10,
+    contextURL: 'https://github.com/owner/repo/issues/10',
+    resolutionGuidance: 'After resolving the blocker, change the label to status:unblocked.',
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits issueUnblocked when an issue transitions away from blocked', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(10, 'blocked')] };
+    }
+    // Second poll: issue moved to pending (away from blocked)
+    return { data: [buildMockIssueData(10, 'pending')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // First poll detected blocked — verify issueBlocked was emitted
+  const blockedBefore = events.filter((e) => e.type === 'issueBlocked');
+  expect(blockedBefore).toHaveLength(1);
+
+  // Advance past the poll interval to trigger the second cycle
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const unblockedEvents = events.filter((e) => e.type === 'issueUnblocked');
+  expect(unblockedEvents).toHaveLength(1);
+  expect(unblockedEvents[0]).toStrictEqual({
+    type: 'issueUnblocked',
+    issueNumber: 10,
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// Granular notification events: issueNeedsRefinement / issueRefined
+// ---------------------------------------------------------------------------
+
+test('it emits issueNeedsRefinement with contextURL, resolutionGuidance, and clipboardCommand when an issue transitions to needs-refinement', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(15, 'pending')] };
+    }
+    return { data: [buildMockIssueData(15, 'needs-refinement')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const refinementEvents = events.filter((e) => e.type === 'issueNeedsRefinement');
+  expect(refinementEvents).toHaveLength(1);
+  expect(refinementEvents[0]).toMatchObject({
+    type: 'issueNeedsRefinement',
+    issueNumber: 15,
+    contextURL: 'https://github.com/owner/repo/issues/15',
+    resolutionGuidance: 'After amending the spec, change the label to status:unblocked.',
+    clipboardCommand:
+      'claude -p "Use /spec-writing to address the spec refinement needed for issue #15. See blocker comment: https://github.com/owner/repo/issues/15"',
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits issueRefined when an issue transitions away from needs-refinement', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(15, 'needs-refinement')] };
+    }
+    return { data: [buildMockIssueData(15, 'unblocked')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // First poll detected needs-refinement
+  const refinementBefore = events.filter((e) => e.type === 'issueNeedsRefinement');
+  expect(refinementBefore).toHaveLength(1);
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const refinedEvents = events.filter((e) => e.type === 'issueRefined');
+  expect(refinedEvents).toHaveLength(1);
+  expect(refinedEvents[0]).toStrictEqual({
+    type: 'issueRefined',
+    issueNumber: 15,
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// Granular notification events: prApproved / prUnapproved
+// ---------------------------------------------------------------------------
+
+test('it emits prApproved with contextURL as issue URL when an issue transitions to approved', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(20, 'review')] };
+    }
+    return { data: [buildMockIssueData(20, 'approved')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const approvedEvents = events.filter((e) => e.type === 'prApproved');
+  expect(approvedEvents).toHaveLength(1);
+  expect(approvedEvents[0]).toMatchObject({
+    type: 'prApproved',
+    issueNumber: 20,
+    contextURL: 'https://github.com/owner/repo/issues/20',
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits prUnapproved when an issue transitions away from approved', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(20, 'approved')] };
+    }
+    return { data: [buildMockIssueData(20, 'needs-changes')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // First poll detected approved
+  const approvedBefore = events.filter((e) => e.type === 'prApproved');
+  expect(approvedBefore).toHaveLength(1);
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const unapprovedEvents = events.filter((e) => e.type === 'prUnapproved');
+  expect(unapprovedEvents).toHaveLength(1);
+  expect(unapprovedEvents[0]).toStrictEqual({
+    type: 'prUnapproved',
+    issueNumber: 20,
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// Event ordering: issueStatusChanged emitted before dispatch-tier events
+// ---------------------------------------------------------------------------
+
+test('it emits issueStatusChanged before dispatchReady for user-dispatch statuses', async () => {
+  const issues = [buildMockIssueData(1, 'pending')];
+  const { engine, events } = setupTest(issues);
+
+  await engine.start();
+
+  const statusIndex = events.findIndex(
+    (e) => e.type === 'issueStatusChanged' && 'issueNumber' in e && e.issueNumber === 1,
+  );
+  const dispatchIndex = events.findIndex(
+    (e) => e.type === 'dispatchReady' && 'issueNumber' in e && e.issueNumber === 1,
+  );
+
+  expect(statusIndex).toBeGreaterThanOrEqual(0);
+  expect(dispatchIndex).toBeGreaterThanOrEqual(0);
+  expect(statusIndex).toBeLessThan(dispatchIndex);
+});
+
+test('it emits issueStatusChanged before issueBlocked for blocked status', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(10, 'pending')] };
+    }
+    return { data: [buildMockIssueData(10, 'blocked')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  // Find the issueStatusChanged event for blocked transition
+  const statusIndex = events.findIndex(
+    (e): e is IssueStatusChangedEvent =>
+      e.type === 'issueStatusChanged' && e.issueNumber === 10 && e.newStatus === 'blocked',
+  );
+  const blockedIndex = events.findIndex(
+    (e) => e.type === 'issueBlocked' && 'issueNumber' in e && e.issueNumber === 10,
+  );
+
+  expect(statusIndex).toBeGreaterThanOrEqual(0);
+  expect(blockedIndex).toBeGreaterThanOrEqual(0);
+  expect(statusIndex).toBeLessThan(blockedIndex);
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits issueStatusChanged before issueNeedsRefinement for needs-refinement status', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(10, 'pending')] };
+    }
+    return { data: [buildMockIssueData(10, 'needs-refinement')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const statusIndex = events.findIndex(
+    (e): e is IssueStatusChangedEvent =>
+      e.type === 'issueStatusChanged' && e.issueNumber === 10 && e.newStatus === 'needs-refinement',
+  );
+  const refinementIndex = events.findIndex(
+    (e) => e.type === 'issueNeedsRefinement' && 'issueNumber' in e && e.issueNumber === 10,
+  );
+
+  expect(statusIndex).toBeGreaterThanOrEqual(0);
+  expect(refinementIndex).toBeGreaterThanOrEqual(0);
+  expect(statusIndex).toBeLessThan(refinementIndex);
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits issueStatusChanged before prApproved for approved status', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return { data: [buildMockIssueData(10, 'review')] };
+    }
+    return { data: [buildMockIssueData(10, 'approved')] };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const statusIndex = events.findIndex(
+    (e): e is IssueStatusChangedEvent =>
+      e.type === 'issueStatusChanged' && e.issueNumber === 10 && e.newStatus === 'approved',
+  );
+  const approvedIndex = events.findIndex(
+    (e) => e.type === 'prApproved' && 'issueNumber' in e && e.issueNumber === 10,
+  );
+
+  expect(statusIndex).toBeGreaterThanOrEqual(0);
+  expect(approvedIndex).toBeGreaterThanOrEqual(0);
+  expect(statusIndex).toBeLessThan(approvedIndex);
+
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// No NotificationEvent or NotificationDismissedEvent emitted
+// ---------------------------------------------------------------------------
+
+test('it does not emit any legacy notification event types', async () => {
+  vi.useFakeTimers();
+
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  let pollCount = 0;
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    pollCount += 1;
+    if (pollCount === 1) {
+      return {
+        data: [
+          buildMockIssueData(1, 'blocked'),
+          buildMockIssueData(2, 'needs-refinement'),
+          buildMockIssueData(3, 'approved'),
+        ],
+      };
+    }
+    // Second poll: all move to different statuses
+    return {
+      data: [
+        buildMockIssueData(1, 'pending'),
+        buildMockIssueData(2, 'unblocked'),
+        buildMockIssueData(3, 'needs-changes'),
+      ],
+    };
+  });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ issuePoller: { pollInterval: 1 } });
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock — no-op in tests
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  // Verify no event types named 'notification' or 'notificationDismissed' exist
+  const legacyEvents = events.filter(
+    (e) => e.type === ('notification' as string) || e.type === ('notificationDismissed' as string),
+  );
+  expect(legacyEvents).toHaveLength(0);
+
+  // Verify the granular events were emitted instead
+  expect(events.some((e) => e.type === 'issueBlocked')).toBe(true);
+  expect(events.some((e) => e.type === 'issueNeedsRefinement')).toBe(true);
+  expect(events.some((e) => e.type === 'prApproved')).toBe(true);
+  expect(events.some((e) => e.type === 'issueUnblocked')).toBe(true);
+  expect(events.some((e) => e.type === 'issueRefined')).toBe(true);
+  expect(events.some((e) => e.type === 'prUnapproved')).toBe(true);
+
+  engine.send({ command: 'shutdown' });
+});
