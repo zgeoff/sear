@@ -101,3 +101,11 @@ export interface BuildReviewerTriggerPromptParams {
   prFiles: PRFileEntry[];
   prReviews: PRReviewsResult;
 }
+
+export interface BuildImplementorTriggerPromptParams {
+  issueDetails: IssueDetailsResult;
+  prNumber?: number;
+  prTitle?: string;
+  prFiles?: PRFileEntry[];
+  prReviews?: PRReviewsResult;
+}
