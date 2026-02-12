@@ -222,8 +222,10 @@ export interface ChecksListForRefParams {
 }
 
 export interface CheckRun {
+  name?: string;
   status: string;
   conclusion: string | null;
+  details_url?: string;
 }
 
 export interface ChecksListForRefData {
