@@ -1,6 +1,6 @@
 ---
 title: Planner Agent
-version: 0.4.0
+version: 0.5.0
 last_updated: 2026-02-11
 status: approved
 ---
@@ -33,7 +33,7 @@ priority.
 
 | Constraint       | Value                                   | Rationale                                                           |
 | ---------------- | --------------------------------------- | ------------------------------------------------------------------- |
-| Model tier       | Sonnet                                  | Decomposition and issue creation; Opus not required                 |
+| Model tier       | Opus                                    | Reliable multi-phase execution and codebase delta assessment        |
 | Tool access      | No write tools (Read, Grep, Glob, Bash) | Reads codebase and creates issues via `gh.sh`; never modifies files |
 | Turn budget      | 50                                      | Bounded analysis with batch issue creation                          |
 | Permission model | Non-interactive with bash validation    | Runs unattended; bash validator enforces command safety             |
