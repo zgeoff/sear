@@ -48,6 +48,8 @@ export interface QueryFactoryParams {
 
 export type LogError = (message: string, error: unknown) => void;
 
+export type ExecCommand = (cwd: string, command: string, args: string[]) => Promise<void>;
+
 export interface AgentManagerDeps {
   emitter: EventEmitter;
   worktreeManager: WorktreeManager;
@@ -60,6 +62,7 @@ export interface AgentManagerDeps {
   loggingEnabled: boolean;
   logsDir: string;
   logError: LogError;
+  execCommand: ExecCommand;
 }
 
 export interface DispatchImplementorParams {

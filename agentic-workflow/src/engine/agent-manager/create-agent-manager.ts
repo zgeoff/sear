@@ -39,6 +39,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     loggingEnabled,
     logsDir,
     logError,
+    execCommand,
   } = deps;
 
   const issueAgents = new Map<number, AgentSessionTracker>();
@@ -60,6 +61,23 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         branchName,
         ...(params.branchBase !== undefined && { branchBase: params.branchBase }),
       });
+
+      try {
+        await execCommand(worktreeResult.worktreePath, 'yarn', ['install']);
+      } catch {
+        await worktreeManager.removeByPath(worktreeResult.worktreePath).catch(() => {
+          // Worktree removal failure is non-fatal
+        });
+        emitter.emit(
+          buildFailedEventForYarnInstall(
+            'implementor',
+            issueNumber,
+            worktreeResult.branch,
+            'yarn install failed',
+          ),
+        );
+        return;
+      }
 
       const tracker = await startSession({
         agentType: 'implementor',
@@ -91,6 +109,23 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
         branchName,
         ...(params.fetchRemote === true && { fetchRemote: true }),
       });
+
+      try {
+        await execCommand(worktreeResult.worktreePath, 'yarn', ['install']);
+      } catch {
+        await worktreeManager.removeByPath(worktreeResult.worktreePath).catch(() => {
+          // Worktree removal failure is non-fatal
+        });
+        emitter.emit(
+          buildFailedEventForYarnInstall(
+            'reviewer',
+            issueNumber,
+            worktreeResult.branch,
+            'yarn install failed',
+          ),
+        );
+        return;
+      }
 
       const tracker = await startSession({
         agentType: 'reviewer',
@@ -819,4 +854,20 @@ function formatUtcTime(date: Date): string {
   const minutes = String(date.getUTCMinutes()).padStart(2, '0');
   const seconds = String(date.getUTCSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
+}
+
+function buildFailedEventForYarnInstall(
+  agentType: AgentType,
+  issueNumber: number,
+  branchName: string,
+  error: string,
+): AgentFailedEvent {
+  return {
+    type: 'agentFailed',
+    agentType,
+    sessionID: '',
+    error,
+    issueNumber,
+    branchName,
+  };
 }
