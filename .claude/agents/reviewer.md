@@ -72,23 +72,14 @@ Use `scripts/workflow/gh.sh` for all GitHub CLI operations.
 
 Execute these phases in order.
 
-### Phase 1: Gather Inputs
+### Phase 1: Read Referenced Specs
 
-Read all of the following before proceeding:
+Your enriched prompt contains the task issue details (objective, spec reference, scope, acceptance
+criteria, constraints, labels), PR metadata, per-file diffs, and prior review history. The only
+remaining input you need to fetch is the spec:
 
-1. **Task issue:**
-   `scripts/workflow/gh.sh issue view <number> --json number,title,body,labels,state,assignees,comments`
-   -- extract Objective, Spec Reference, Scope (In Scope), Acceptance Criteria, and Constraints.
-2. **Linked PR:** Find the PR via
-   `scripts/workflow/gh.sh pr list --search "Closes #<N>" --json number,title,headRefName,url`. Then
-   read its metadata:
-   `scripts/workflow/gh.sh pr view <number> --json number,title,body,state,isDraft,mergeable,headRefName,baseRefName,files,reviewDecision,statusCheckRollup,reviews`.
-3. **PR diff:** `scripts/workflow/gh.sh pr diff <number>` to see all changed files.
-4. **Referenced spec sections:** Read the spec file(s) and section(s) listed in the task's "Spec
-   Reference" field.
-5. **PR review comments:** Read all review comments on the PR from the PR metadata (reviews field)
-   and `scripts/workflow/gh.sh pr view <number> --json comments,reviews`.
-6. **CLAUDE.md:** Read the project's `CLAUDE.md` for code style, naming conventions, and patterns.
+1. **Referenced spec sections:** Read the spec file(s) and section(s) listed in the task's "Spec
+   Reference" field. Spec content is not in the enriched prompt — fetch it via tool calls.
 
 ### Phase 2: Review Checklist
 
