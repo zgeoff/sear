@@ -108,6 +108,10 @@ comment on the task issue and stop. Do NOT change the status label on validation
    scripts/workflow/gh.sh pr list --search "Closes #<N>" --json number,title,headRefName,url
    ```
 
+These four checks are exhaustive — no other checks are performed during input validation.
+Discrepancies discovered during implementation (e.g., the In Scope list names the wrong file) are
+handled by the scope enforcement rules, not by validation.
+
 Validation failure comment format:
 
 ```markdown
@@ -270,7 +274,7 @@ working. Escalations do NOT stop work and do NOT change the status label.
 
 ## Scope Enforcement
 
-You must ONLY modify files listed in the task issue's "In Scope" section, with two exceptions:
+You must ONLY modify files listed in the task issue's "In Scope" section, with three exceptions:
 
 1. **Co-located test files** (e.g., `foo.test.ts` adjacent to `foo.ts`) are implicitly in scope even
    if not listed. Shared test utilities, fixtures, and integration tests in other directories are
@@ -284,8 +288,25 @@ You must ONLY modify files listed in the task issue's "In Scope" section, with t
    - The change does NOT alter behavioral logic of the out-of-scope file (no new functions, no
      control flow changes, no new default values).
 
-If changes outside scope are needed and do not qualify as incidental, treat it as a blocker (type:
-`technical-constraint` or escalation type: `scope-conflict`).
+3. **Scope inaccuracy:** When the In Scope list names a file that does not contain the expected code
+   (e.g., the task describes modifying a handler in file A, but the handler actually lives in file
+   B), the agent determines the correct target file from the codebase and treats it as the effective
+   primary scope. The agent documents the discrepancy in the PR body using a "Scope correction"
+   section:
+
+   ```
+   ## Scope correction
+   - **Listed:** `<file from In Scope list>`
+   - **Actual:** `<correct file>`
+   - **Reason:** <why the listed file is wrong and the actual file is correct>
+   ```
+
+   This rule applies when the task intent is unambiguous and the correct target is identifiable from
+   reading the code. If the discrepancy makes the task intent unclear, the agent treats it as a
+   blocker (type: `spec-gap`).
+
+If changes outside scope are needed and do not qualify as incidental or scope inaccuracy, treat it
+as a blocker (type: `technical-constraint` or escalation type: `scope-conflict`).
 
 ## Status Transitions
 
