@@ -1189,3 +1189,270 @@ test('it shows a loading indicator instead of no-PR when the PR lookup has not c
     expect(frame).not.toContain('No PR found');
   });
 });
+
+// ---------------------------------------------------------------------------
+// CI failure display
+// ---------------------------------------------------------------------------
+
+test('it displays CI failure details when a review issue has ciStatus failure and failed check names', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, { ...issue, ciStatus: 'failure' });
+  }
+
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'feat: add login',
+    changedFilesCount: 5,
+    ciStatus: 'failure',
+    failedCheckNames: ['lint', 'typecheck', 'test'],
+    url: 'https://github.com/owner/repo/pull/10',
+    stale: false,
+  });
+  store.setState({ issues, prDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('CI: FAILURE');
+    expect(frame).toContain('  - lint');
+    expect(frame).toContain('  - typecheck');
+    expect(frame).toContain('  - test');
+  });
+});
+
+test('it displays CI failure with resolution guidance when an approved issue has ciStatus failure', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Approved task',
+    oldStatus: null,
+    newStatus: 'approved',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, {
+      ...issue,
+      ciStatus: 'failure',
+      resolutionGuidance: 'Fix the linting errors and push a new commit.',
+    });
+  }
+
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'feat: approved PR',
+    changedFilesCount: 2,
+    ciStatus: 'failure',
+    failedCheckNames: ['lint'],
+    url: 'https://github.com/owner/repo/pull/10',
+    stale: false,
+  });
+  store.setState({ issues, prDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('CI: FAILURE');
+    expect(frame).toContain('  - lint');
+    expect(frame).toContain('Fix the linting errors and push a new commit.');
+  });
+});
+
+test('it does not show CI failure details when ciStatus is failure but failedCheckNames are not yet cached', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, { ...issue, ciStatus: 'failure' });
+  }
+
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'feat: add login',
+    changedFilesCount: 5,
+    ciStatus: 'failure',
+    url: 'https://github.com/owner/repo/pull/10',
+    stale: false,
+  });
+  store.setState({ issues, prDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('CI: failure');
+    expect(frame).not.toContain('CI: FAILURE');
+  });
+});
+
+test('it does not show CI failure details when ciStatus is not failure', async () => {
+  const { store, emit, lastFrame } = setupTest();
+
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'feat: add login',
+    changedFilesCount: 5,
+    ciStatus: 'success',
+    url: 'https://github.com/owner/repo/pull/10',
+    stale: false,
+  });
+  store.setState({ prDetails, selectedIssue: 1 });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('CI: success');
+    expect(frame).not.toContain('CI: FAILURE');
+  });
+});
+
+test('it fetches CI check names on demand when a CI failure event fires and check names are not cached', async () => {
+  const getCIStatus = vi.fn(async () => ({
+    overall: 'failure' as const,
+    failedCheckRuns: [
+      {
+        name: 'lint',
+        status: 'completed' as const,
+        conclusion: 'failure' as const,
+        detailsURL: '',
+      },
+      {
+        name: 'test',
+        status: 'completed' as const,
+        conclusion: 'failure' as const,
+        detailsURL: '',
+      },
+    ],
+  }));
+  const { engine: _engine, emit: _emit } = createMockEngine({ getCIStatus });
+  const store = createEngineStore({ engine: _engine, repository: 'owner/repo' });
+
+  // Create the issue via event
+  _emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  // Set ciStatus failure on the issue and PR without failedCheckNames
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, { ...issue, ciStatus: 'failure' });
+  }
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'feat: add login',
+    changedFilesCount: 5,
+    ciStatus: 'failure',
+    url: 'https://github.com/owner/repo/pull/10',
+    stale: false,
+  });
+  store.setState({ issues, prDetails });
+
+  // Trigger ciStatusChanged with failure
+  _emit({
+    type: 'ciStatusChanged',
+    prNumber: 10,
+    issueNumber: 1,
+    oldCIStatus: null,
+    newCIStatus: 'failure',
+  });
+
+  // Verify getCIStatus was called and the result stored
+  await vi.waitFor(() => {
+    expect(getCIStatus).toHaveBeenCalledWith(10);
+    const pr = store.getState().prDetails.get(1);
+    expect(pr?.failedCheckNames).toStrictEqual(['lint', 'test']);
+  });
+});
+
+test('it clears cached failed check names when CI status recovers', async () => {
+  const { store, emit } = setupTest();
+
+  // Create issue with ciStatus failure
+  emit({
+    type: 'issueStatusChanged',
+    issueNumber: 1,
+    title: 'Review task',
+    oldStatus: null,
+    newStatus: 'review',
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
+  });
+
+  // Set up issue with ciStatus failure and PR with cached failedCheckNames
+  const issues = new Map(store.getState().issues);
+  const issue = issues.get(1);
+  if (issue) {
+    issues.set(1, { ...issue, ciStatus: 'failure' });
+  }
+  const prDetails = new Map(store.getState().prDetails);
+  prDetails.set(1, {
+    number: 10,
+    title: 'feat: add login',
+    changedFilesCount: 5,
+    ciStatus: 'failure',
+    failedCheckNames: ['lint', 'test'],
+    url: 'https://github.com/owner/repo/pull/10',
+    stale: false,
+  });
+  store.setState({ issues, prDetails });
+
+  // Emit ciCheckRecovered to clear CI failure state
+  emit({
+    type: 'ciCheckRecovered',
+    issueNumber: 1,
+  });
+
+  // Verify failedCheckNames is cleared from cached PR
+  await vi.waitFor(() => {
+    const pr = store.getState().prDetails.get(1);
+    expect(pr).toBeDefined();
+    expect(pr?.failedCheckNames).toBeUndefined();
+  });
+});
