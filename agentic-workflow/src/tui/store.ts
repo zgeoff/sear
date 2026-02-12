@@ -10,7 +10,6 @@ import type {
   BaseNotification,
   CICheckFailedNotification,
   CICheckRecoveredNotification,
-  CIStatusChangedNotification,
   CreateEngineStoreConfig,
   DispatchReadyNotification,
   EngineStore,
@@ -150,6 +149,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
             shouldClearOverlays && existing?.lastFailure !== undefined
               ? undefined
               : existing?.lastFailure,
+          ciStatus: existing?.ciStatus,
           resolutionGuidance:
             shouldClearOverlays && existing?.resolutionGuidance !== undefined
               ? undefined
@@ -473,9 +473,20 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           summary: `#${e.issueNumber} refined`,
           contextURL: buildIssueUrl(repository, e.issueNumber),
         };
-        store.setState({
+
+        const updates: Partial<EngineStoreState> = {
           notifications: [notification, ...state.notifications],
-        });
+        };
+
+        const issues = new Map(state.issues);
+        const existing = issues.get(e.issueNumber);
+        if (existing) {
+          const { resolutionGuidance: _, ...rest } = existing;
+          issues.set(e.issueNumber, rest);
+          updates.issues = issues;
+        }
+
+        store.setState(updates);
       })
       .with({ type: 'issueUnblocked' }, (e) => {
         const state = store.getState();
@@ -486,9 +497,20 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           summary: `#${e.issueNumber} unblocked`,
           contextURL: buildIssueUrl(repository, e.issueNumber),
         };
-        store.setState({
+
+        const updates: Partial<EngineStoreState> = {
           notifications: [notification, ...state.notifications],
-        });
+        };
+
+        const issues = new Map(state.issues);
+        const existing = issues.get(e.issueNumber);
+        if (existing) {
+          const { resolutionGuidance: _, ...rest } = existing;
+          issues.set(e.issueNumber, rest);
+          updates.issues = issues;
+        }
+
+        store.setState(updates);
       })
       .with({ type: 'prUnapproved' }, (e) => {
         const state = store.getState();
@@ -499,38 +521,79 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           summary: `#${e.issueNumber} unapproved`,
           contextURL: buildIssueUrl(repository, e.issueNumber),
         };
-        store.setState({
+
+        const updates: Partial<EngineStoreState> = {
           notifications: [notification, ...state.notifications],
-        });
+        };
+
+        const issues = new Map(state.issues);
+        const existing = issues.get(e.issueNumber);
+        if (existing) {
+          const { resolutionGuidance: _, ...rest } = existing;
+          issues.set(e.issueNumber, rest);
+          updates.issues = issues;
+        }
+
+        store.setState(updates);
       })
       .with({ type: 'ciStatusChanged' }, (e) => {
-        const state = store.getState();
-        const notification: CIStatusChangedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'ciStatusChanged',
-          prNumber: e.prNumber,
-          summary: `PR #${e.prNumber} CI: ${e.oldCIStatus ?? 'none'} → ${e.newCIStatus}`,
-        };
-        if (e.issueNumber !== undefined) {
-          notification.issueNumber = e.issueNumber;
+        if (e.issueNumber === undefined) {
+          return;
         }
-        store.setState({
-          notifications: [notification, ...state.notifications],
-        });
+        const state = store.getState();
+        const issues = new Map(state.issues);
+        const existing = issues.get(e.issueNumber);
+        if (!existing) {
+          return;
+        }
+        issues.set(e.issueNumber, { ...existing, ciStatus: e.newCIStatus });
+
+        const updates: Partial<EngineStoreState> = { issues };
+
+        if (e.oldCIStatus === 'failure' && e.newCIStatus !== 'failure') {
+          const cachedPr = state.prDetails.get(e.issueNumber);
+          if (cachedPr?.failedCheckNames !== undefined) {
+            const prDetails = new Map(state.prDetails);
+            const { failedCheckNames: _, ...rest } = cachedPr;
+            prDetails.set(e.issueNumber, rest);
+            updates.prDetails = prDetails;
+          }
+        }
+
+        store.setState(updates);
       })
       .with({ type: 'ciCheckFailed' }, (e) => {
         const state = store.getState();
+        let summary = `CI failed on PR #${e.prNumber}`;
+        if (e.resolutionGuidance !== undefined) {
+          summary += ` — ${e.resolutionGuidance}`;
+        }
         const notification: CICheckFailedNotification = {
           ...buildBaseNotification(),
           eventType: 'ciCheckFailed',
           issueNumber: e.issueNumber,
           prNumber: e.prNumber,
-          summary: `CI check failed for #${e.issueNumber}`,
+          summary,
           contextURL: e.contextURL,
         };
-        store.setState({
+        if (e.resolutionGuidance !== undefined) {
+          notification.resolutionGuidance = e.resolutionGuidance;
+        }
+
+        const updates: Partial<EngineStoreState> = {
           notifications: [notification, ...state.notifications],
-        });
+        };
+
+        if (e.resolutionGuidance !== undefined) {
+          const issues = new Map(state.issues);
+          const existing = issues.get(e.issueNumber);
+          if (existing) {
+            issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
+            updates.issues = issues;
+          }
+        }
+
+        store.setState(updates);
       })
       .with({ type: 'ciCheckRecovered' }, (e) => {
         const state = store.getState();
@@ -538,12 +601,31 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           ...buildBaseNotification(),
           eventType: 'ciCheckRecovered',
           issueNumber: e.issueNumber,
-          summary: `CI check recovered for #${e.issueNumber}`,
+          summary: `CI recovered for #${e.issueNumber}`,
           contextURL: buildIssueUrl(repository, e.issueNumber),
         };
-        store.setState({
+
+        const updates: Partial<EngineStoreState> = {
           notifications: [notification, ...state.notifications],
-        });
+        };
+
+        const issues = new Map(state.issues);
+        const existing = issues.get(e.issueNumber);
+        if (existing) {
+          const { ciStatus: _, resolutionGuidance: _rg, ...rest } = existing;
+          issues.set(e.issueNumber, rest);
+          updates.issues = issues;
+        }
+
+        const cachedPr = state.prDetails.get(e.issueNumber);
+        if (cachedPr?.failedCheckNames !== undefined) {
+          const prDetails = new Map(state.prDetails);
+          const { failedCheckNames: _, ...rest } = cachedPr;
+          prDetails.set(e.issueNumber, rest);
+          updates.prDetails = prDetails;
+        }
+
+        store.setState(updates);
       })
       .with({ type: 'issueRemoved' }, (e) => {
         const state = store.getState();
@@ -758,6 +840,7 @@ interface BuildTrackedIssueParams {
   agentRunning: boolean;
   agentType: TaskAgentType | undefined;
   lastFailure: LastFailure | undefined;
+  ciStatus: TrackedIssue['ciStatus'];
   resolutionGuidance: string | undefined;
 }
 
@@ -775,6 +858,9 @@ function buildTrackedIssue(params: BuildTrackedIssueParams): TrackedIssue {
   }
   if (params.lastFailure !== undefined) {
     issue.lastFailure = params.lastFailure;
+  }
+  if (params.ciStatus !== undefined) {
+    issue.ciStatus = params.ciStatus;
   }
   if (params.resolutionGuidance !== undefined) {
     issue.resolutionGuidance = params.resolutionGuidance;
