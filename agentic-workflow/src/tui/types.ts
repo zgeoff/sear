@@ -82,15 +82,52 @@ export type DispatchReadyNotification = BaseNotification & {
   issueNumber: number;
 };
 
-export type EngineEventNotification = BaseNotification & {
-  eventType: 'notification';
+export type IssueNeedsRefinementNotification = BaseNotification & {
+  eventType: 'issueNeedsRefinement';
   issueNumber: number;
-  notificationType: 'needs-refinement' | 'blocked' | 'approved';
-  resolutionGuidance?: string;
+  resolutionGuidance: string;
 };
 
-export type NotificationDismissedNotification = BaseNotification & {
-  eventType: 'notificationDismissed';
+export type IssueBlockedNotification = BaseNotification & {
+  eventType: 'issueBlocked';
+  issueNumber: number;
+  resolutionGuidance: string;
+};
+
+export type PRApprovedNotification = BaseNotification & {
+  eventType: 'prApproved';
+  issueNumber: number;
+};
+
+export type IssueRefinedNotification = BaseNotification & {
+  eventType: 'issueRefined';
+  issueNumber: number;
+};
+
+export type IssueUnblockedNotification = BaseNotification & {
+  eventType: 'issueUnblocked';
+  issueNumber: number;
+};
+
+export type PRUnapprovedNotification = BaseNotification & {
+  eventType: 'prUnapproved';
+  issueNumber: number;
+};
+
+export type CIStatusChangedNotification = BaseNotification & {
+  eventType: 'ciStatusChanged';
+  prNumber: number;
+  issueNumber?: number;
+};
+
+export type CICheckFailedNotification = BaseNotification & {
+  eventType: 'ciCheckFailed';
+  issueNumber: number;
+  prNumber: number;
+};
+
+export type CICheckRecoveredNotification = BaseNotification & {
+  eventType: 'ciCheckRecovered';
   issueNumber: number;
 };
 
@@ -114,8 +151,15 @@ export type Notification =
   | SpecChangedNotification
   | RecoveryPerformedNotification
   | DispatchReadyNotification
-  | EngineEventNotification
-  | NotificationDismissedNotification
+  | IssueNeedsRefinementNotification
+  | IssueBlockedNotification
+  | PRApprovedNotification
+  | IssueRefinedNotification
+  | IssueUnblockedNotification
+  | PRUnapprovedNotification
+  | CIStatusChangedNotification
+  | CICheckFailedNotification
+  | CICheckRecoveredNotification
   | IssueRemovedNotification
   | StartupNotification;
 

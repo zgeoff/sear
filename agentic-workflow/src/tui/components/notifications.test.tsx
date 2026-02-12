@@ -98,7 +98,12 @@ test('it renders the correct Unicode glyph for each notification type', () => {
     { eventType: 'issueStatusChanged', glyph: '\u2192' },
     { eventType: 'specChanged', glyph: '~' },
     { eventType: 'recoveryPerformed', glyph: '\u21BB' },
-    { eventType: 'notificationDismissed', glyph: '\u00D7' },
+    { eventType: 'issueRefined', glyph: '\u00D7' },
+    { eventType: 'issueUnblocked', glyph: '\u00D7' },
+    { eventType: 'prUnapproved', glyph: '\u00D7' },
+    { eventType: 'ciStatusChanged', glyph: '\u2192' },
+    { eventType: 'ciCheckFailed', glyph: '\u2717' },
+    { eventType: 'ciCheckRecovered', glyph: '\u2713' },
     { eventType: 'issueRemoved', glyph: '\u2212' },
     { eventType: 'startup', glyph: '\u2713' },
   ];
@@ -113,9 +118,7 @@ test('it renders the correct Unicode glyph for each notification type', () => {
 });
 
 test('it renders a green star indicator for an approved notification', () => {
-  const notification = buildTypedNotification('notification', 'notif-approved', {
-    notificationType: 'approved',
-  });
+  const notification = buildTypedNotification('prApproved', 'notif-approved');
 
   const { lastFrame } = setupRenderTest({ notifications: [notification] });
 
@@ -123,8 +126,7 @@ test('it renders a green star indicator for an approved notification', () => {
 });
 
 test('it renders a yellow star indicator for a needs-refinement notification', () => {
-  const notification = buildTypedNotification('notification', 'notif-nr', {
-    notificationType: 'needs-refinement',
+  const notification = buildTypedNotification('issueNeedsRefinement', 'notif-nr', {
     resolutionGuidance: 'fix the spec',
   });
 
@@ -134,8 +136,7 @@ test('it renders a yellow star indicator for a needs-refinement notification', (
 });
 
 test('it renders a yellow star indicator for a blocked notification', () => {
-  const notification = buildTypedNotification('notification', 'notif-blocked', {
-    notificationType: 'blocked',
+  const notification = buildTypedNotification('issueBlocked', 'notif-blocked', {
     resolutionGuidance: 'waiting on dependency',
   });
 
@@ -189,30 +190,26 @@ test('it returns yellow for a recovery-performed indicator', () => {
 });
 
 test('it returns green for an approved notification indicator', () => {
-  const notification = buildTypedNotification('notification', 'n-1', {
-    notificationType: 'approved',
-  });
+  const notification = buildTypedNotification('prApproved', 'n-1');
   expect(getIndicatorColor(notification)).toBe('green');
 });
 
 test('it returns yellow for a needs-refinement notification indicator', () => {
-  const notification = buildTypedNotification('notification', 'n-1', {
-    notificationType: 'needs-refinement',
+  const notification = buildTypedNotification('issueNeedsRefinement', 'n-1', {
     resolutionGuidance: 'fix it',
   });
   expect(getIndicatorColor(notification)).toBe('yellow');
 });
 
 test('it returns yellow for a blocked notification indicator', () => {
-  const notification = buildTypedNotification('notification', 'n-1', {
-    notificationType: 'blocked',
+  const notification = buildTypedNotification('issueBlocked', 'n-1', {
     resolutionGuidance: 'waiting',
   });
   expect(getIndicatorColor(notification)).toBe('yellow');
 });
 
-test('it returns undefined for a dismissed notification indicator', () => {
-  const notification = buildTypedNotification('notificationDismissed', 'n-1');
+test('it returns undefined for an issue-refined indicator', () => {
+  const notification = buildTypedNotification('issueRefined', 'n-1');
   expect(getIndicatorColor(notification)).toBeUndefined();
 });
 
@@ -230,8 +227,8 @@ test('it returns green for a startup indicator', () => {
 // Indicator dimming (isIndicatorDim)
 // ---------------------------------------------------------------------------
 
-test('it dims the indicator for a dismissed notification', () => {
-  const notification = buildTypedNotification('notificationDismissed', 'n-1');
+test('it dims the indicator for an issue-refined notification', () => {
+  const notification = buildTypedNotification('issueRefined', 'n-1');
   expect(isIndicatorDim(notification)).toBe(true);
 });
 
@@ -508,9 +505,7 @@ test('it renders dispatch ready with issue reference', () => {
 });
 
 test('it renders approved notification with ready to merge message', () => {
-  const notification = buildTypedNotification('notification', 'notif-approved', {
-    notificationType: 'approved',
-  });
+  const notification = buildTypedNotification('prApproved', 'notif-approved');
 
   const { lastFrame } = setupRenderTest({ notifications: [notification] });
 
@@ -521,8 +516,7 @@ test('it renders approved notification with ready to merge message', () => {
 });
 
 test('it renders needs-refinement notification with resolution guidance', () => {
-  const notification = buildTypedNotification('notification', 'notif-nr', {
-    notificationType: 'needs-refinement',
+  const notification = buildTypedNotification('issueNeedsRefinement', 'notif-nr', {
     resolutionGuidance: 'ambiguous acceptance criteria',
   });
 
@@ -535,8 +529,7 @@ test('it renders needs-refinement notification with resolution guidance', () => 
 });
 
 test('it renders blocked notification with resolution guidance', () => {
-  const notification = buildTypedNotification('notification', 'notif-blocked', {
-    notificationType: 'blocked',
+  const notification = buildTypedNotification('issueBlocked', 'notif-blocked', {
     resolutionGuidance: 'waiting on external API',
   });
 
@@ -548,14 +541,14 @@ test('it renders blocked notification with resolution guidance', () => {
   expect(frame).toContain('waiting on external API');
 });
 
-test('it renders notification dismissed with issue reference', () => {
-  const notification = buildTypedNotification('notificationDismissed', 'notif-dismiss');
+test('it renders issue refined with issue reference', () => {
+  const notification = buildTypedNotification('issueRefined', 'notif-refined');
 
   const { lastFrame } = setupRenderTest({ notifications: [notification] });
 
   const frame = lastFrame() ?? '';
   expect(frame).toContain('#1');
-  expect(frame).toContain('dismissed');
+  expect(frame).toContain('refined');
 });
 
 test('it renders issue removed with issue reference', () => {
@@ -769,8 +762,7 @@ test('it renders issue references as hyperlinks in status change notifications',
 });
 
 test('it renders issue references as hyperlinks in approved notifications', () => {
-  const notification = buildTypedNotification('notification', 'notif-approved-link', {
-    notificationType: 'approved',
+  const notification = buildTypedNotification('prApproved', 'notif-approved-link', {
     issueNumber: 25,
   });
 
@@ -788,8 +780,7 @@ test('it renders issue references as hyperlinks in approved notifications', () =
 // ---------------------------------------------------------------------------
 
 test('it shows a copy indicator for notifications with a clipboard command', () => {
-  const notification = buildTypedNotification('notification', 'notif-copy', {
-    notificationType: 'needs-refinement',
+  const notification = buildTypedNotification('issueNeedsRefinement', 'notif-copy', {
     resolutionGuidance: 'fix the spec',
     clipboardCommand: 'claude -p "fix the spec"',
   });
@@ -958,8 +949,7 @@ test('it does not open anything when Enter is pressed on a notification without 
 // ---------------------------------------------------------------------------
 
 test('it copies the clipboard command when c is pressed on a notification with one', () => {
-  const notification = buildTypedNotification('notification', 'notif-copy', {
-    notificationType: 'needs-refinement',
+  const notification = buildTypedNotification('issueNeedsRefinement', 'notif-copy', {
     issueNumber: 3,
     resolutionGuidance: 'fix it',
     clipboardCommand: 'claude -p "fix the spec"',
@@ -1008,7 +998,6 @@ interface NotificationOverrides {
   specCount?: number;
   error?: string;
   sessionID?: string;
-  notificationType?: 'needs-refinement' | 'blocked' | 'approved';
   resolutionGuidance?: string;
   clipboardCommand?: string;
   oldStatus?: string | null;
@@ -1087,28 +1076,37 @@ function buildAgentSkippedNotification(
   return { ...base, issueNumber: overrides?.issueNumber ?? 1 };
 }
 
-function buildEngineEventNotification(id: string, overrides?: NotificationOverrides): Notification {
-  const notificationType = overrides?.notificationType ?? 'approved';
-  const base = {
-    ...buildBaseFields(id, 'notification'),
-    eventType: 'notification' as const,
+function buildPRApprovedNotification(id: string, overrides?: NotificationOverrides): Notification {
+  return {
+    ...buildBaseFields(id, 'prApproved'),
+    eventType: 'prApproved' as const,
     issueNumber: overrides?.issueNumber ?? 1,
-    notificationType,
   };
-  if (overrides?.clipboardCommand !== undefined && overrides?.resolutionGuidance !== undefined) {
-    return {
-      ...base,
-      resolutionGuidance: overrides.resolutionGuidance,
-      clipboardCommand: overrides.clipboardCommand,
-    };
-  }
-  if (overrides?.clipboardCommand !== undefined) {
-    return { ...base, clipboardCommand: overrides.clipboardCommand };
-  }
-  if (overrides?.resolutionGuidance !== undefined) {
-    return { ...base, resolutionGuidance: overrides.resolutionGuidance };
-  }
-  return base;
+}
+
+function buildIssueNeedsRefinementNotification(
+  id: string,
+  overrides?: NotificationOverrides,
+): Notification {
+  return {
+    ...buildBaseFields(id, 'issueNeedsRefinement'),
+    eventType: 'issueNeedsRefinement' as const,
+    issueNumber: overrides?.issueNumber ?? 1,
+    resolutionGuidance: overrides?.resolutionGuidance ?? 'Fix the spec',
+    clipboardCommand: overrides?.clipboardCommand ?? 'claude -p "fix"',
+  };
+}
+
+function buildIssueBlockedNotification(
+  id: string,
+  overrides?: NotificationOverrides,
+): Notification {
+  return {
+    ...buildBaseFields(id, 'issueBlocked'),
+    eventType: 'issueBlocked' as const,
+    issueNumber: overrides?.issueNumber ?? 1,
+    resolutionGuidance: overrides?.resolutionGuidance ?? 'Resolve blocker',
+  };
 }
 
 function buildIssueStatusChangedNotification(
@@ -1133,7 +1131,14 @@ function buildSpecChangedNotification(id: string, overrides?: NotificationOverri
 }
 
 function buildIssueNumberNotification(
-  eventType: 'recoveryPerformed' | 'dispatchReady' | 'notificationDismissed' | 'issueRemoved',
+  eventType:
+    | 'recoveryPerformed'
+    | 'dispatchReady'
+    | 'issueRefined'
+    | 'issueUnblocked'
+    | 'prUnapproved'
+    | 'ciCheckRecovered'
+    | 'issueRemoved',
   id: string,
   overrides?: NotificationOverrides,
 ): Notification {
@@ -1167,8 +1172,24 @@ function buildTypedNotification(
     .with('specChanged', () => buildSpecChangedNotification(id, overrides))
     .with('recoveryPerformed', (t) => buildIssueNumberNotification(t, id, overrides))
     .with('dispatchReady', (t) => buildIssueNumberNotification(t, id, overrides))
-    .with('notification', () => buildEngineEventNotification(id, overrides))
-    .with('notificationDismissed', (t) => buildIssueNumberNotification(t, id, overrides))
+    .with('prApproved', () => buildPRApprovedNotification(id, overrides))
+    .with('issueNeedsRefinement', () => buildIssueNeedsRefinementNotification(id, overrides))
+    .with('issueBlocked', () => buildIssueBlockedNotification(id, overrides))
+    .with('issueRefined', (t) => buildIssueNumberNotification(t, id, overrides))
+    .with('issueUnblocked', (t) => buildIssueNumberNotification(t, id, overrides))
+    .with('prUnapproved', (t) => buildIssueNumberNotification(t, id, overrides))
+    .with('ciStatusChanged', () => ({
+      ...buildBaseFields(id, 'ciStatusChanged'),
+      eventType: 'ciStatusChanged' as const,
+      prNumber: 10,
+    }))
+    .with('ciCheckFailed', () => ({
+      ...buildBaseFields(id, 'ciCheckFailed'),
+      eventType: 'ciCheckFailed' as const,
+      issueNumber: overrides?.issueNumber ?? 1,
+      prNumber: 10,
+    }))
+    .with('ciCheckRecovered', (t) => buildIssueNumberNotification(t, id, overrides))
     .with('issueRemoved', (t) => buildIssueNumberNotification(t, id, overrides))
     .with('startup', () => buildStartupNotification(id, overrides))
     .exhaustive();

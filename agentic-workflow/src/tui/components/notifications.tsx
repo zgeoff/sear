@@ -1,7 +1,7 @@
 import { Text } from 'ink';
 import Link from 'ink-link';
 import type { ReactNode } from 'react';
-import { match, P } from 'ts-pattern';
+import { match } from 'ts-pattern';
 import type { Notification } from '../types.ts';
 import { List } from './list/list.tsx';
 import type { ListItemData } from './list/types.ts';
@@ -238,35 +238,58 @@ function renderRichBody(notification: Notification, repository: string): ReactNo
     .with({ eventType: 'recoveryPerformed' }, (n) => (
       <>{renderIssueLink(n.issueNumber, repository)} recovered from stale</>
     ))
-    .with({ eventType: 'notification', notificationType: 'approved' }, (n) => (
+    .with({ eventType: 'prApproved' }, (n) => (
       <>
         {renderIssueLink(n.issueNumber, repository)} <Text color="green">approved</Text> — ready to
         merge
       </>
     ))
-    .with(
-      { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
-      (n) => {
-        const label = n.notificationType === 'needs-refinement' ? 'needs refinement' : 'blocked';
-        const labelStyle = getStatusStyle(n.notificationType);
-        const labelColorProps = labelStyle.color ? { color: labelStyle.color } : {};
-        const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
-        return (
-          <>
-            {renderIssueLink(n.issueNumber, repository)}{' '}
-            <Text {...labelColorProps} dimColor={labelStyle.dimColor}>
-              {label}
-            </Text>
-            {guidance}
-          </>
-        );
-      },
-    )
+    .with({ eventType: 'issueNeedsRefinement' }, (n) => {
+      const labelStyle = getStatusStyle('needs-refinement');
+      const labelColorProps = labelStyle.color ? { color: labelStyle.color } : {};
+      const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+      return (
+        <>
+          {renderIssueLink(n.issueNumber, repository)}{' '}
+          <Text {...labelColorProps} dimColor={labelStyle.dimColor}>
+            needs refinement
+          </Text>
+          {guidance}
+        </>
+      );
+    })
+    .with({ eventType: 'issueBlocked' }, (n) => {
+      const labelStyle = getStatusStyle('blocked');
+      const labelColorProps = labelStyle.color ? { color: labelStyle.color } : {};
+      const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+      return (
+        <>
+          {renderIssueLink(n.issueNumber, repository)}{' '}
+          <Text {...labelColorProps} dimColor={labelStyle.dimColor}>
+            blocked
+          </Text>
+          {guidance}
+        </>
+      );
+    })
     .with({ eventType: 'dispatchReady' }, (n) => (
       <>{renderIssueLink(n.issueNumber, repository)} ready for dispatch</>
     ))
-    .with({ eventType: 'notificationDismissed' }, (n) => (
-      <>{renderIssueLink(n.issueNumber, repository)} dismissed</>
+    .with({ eventType: 'issueRefined' }, (n) => (
+      <>{renderIssueLink(n.issueNumber, repository)} refined</>
+    ))
+    .with({ eventType: 'issueUnblocked' }, (n) => (
+      <>{renderIssueLink(n.issueNumber, repository)} unblocked</>
+    ))
+    .with({ eventType: 'prUnapproved' }, (n) => (
+      <>{renderIssueLink(n.issueNumber, repository)} unapproved</>
+    ))
+    .with({ eventType: 'ciStatusChanged' }, (n) => <>PR #{n.prNumber} CI status changed</>)
+    .with({ eventType: 'ciCheckFailed' }, (n) => (
+      <>CI check failed for {renderIssueLink(n.issueNumber, repository)}</>
+    ))
+    .with({ eventType: 'ciCheckRecovered' }, (n) => (
+      <>CI check recovered for {renderIssueLink(n.issueNumber, repository)}</>
     ))
     .with({ eventType: 'issueRemoved' }, (n) => (
       <>{renderIssueLink(n.issueNumber, repository)} removed</>
@@ -298,12 +321,15 @@ function getIndicatorGlyph(notification: Notification): string {
     .with({ eventType: 'issueStatusChanged' }, () => '\u2192')
     .with({ eventType: 'specChanged' }, () => '~')
     .with({ eventType: 'recoveryPerformed' }, () => '\u21BB')
-    .with({ eventType: 'notification', notificationType: 'approved' }, () => '\u2605')
-    .with(
-      { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
-      () => '\u2605',
-    )
-    .with({ eventType: 'notificationDismissed' }, () => '\u00D7')
+    .with({ eventType: 'prApproved' }, () => '\u2605')
+    .with({ eventType: 'issueNeedsRefinement' }, () => '\u2605')
+    .with({ eventType: 'issueBlocked' }, () => '\u2605')
+    .with({ eventType: 'issueRefined' }, () => '\u00D7')
+    .with({ eventType: 'issueUnblocked' }, () => '\u00D7')
+    .with({ eventType: 'prUnapproved' }, () => '\u00D7')
+    .with({ eventType: 'ciStatusChanged' }, () => '\u2192')
+    .with({ eventType: 'ciCheckFailed' }, () => '\u2717')
+    .with({ eventType: 'ciCheckRecovered' }, () => '\u2713')
     .with({ eventType: 'issueRemoved' }, () => '\u2212')
     .with({ eventType: 'startup' }, () => '\u2713')
     .exhaustive();
@@ -321,12 +347,15 @@ export function getIndicatorColor(notification: Notification): InkColor {
     .with({ eventType: 'issueStatusChanged' }, () => 'cyan')
     .with({ eventType: 'specChanged' }, () => 'magenta')
     .with({ eventType: 'recoveryPerformed' }, () => 'yellow')
-    .with({ eventType: 'notification', notificationType: 'approved' }, () => 'green')
-    .with(
-      { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
-      () => 'yellow',
-    )
-    .with({ eventType: 'notificationDismissed' }, () => undefined)
+    .with({ eventType: 'prApproved' }, () => 'green')
+    .with({ eventType: 'issueNeedsRefinement' }, () => 'yellow')
+    .with({ eventType: 'issueBlocked' }, () => 'yellow')
+    .with({ eventType: 'issueRefined' }, () => undefined)
+    .with({ eventType: 'issueUnblocked' }, () => undefined)
+    .with({ eventType: 'prUnapproved' }, () => undefined)
+    .with({ eventType: 'ciStatusChanged' }, () => 'cyan')
+    .with({ eventType: 'ciCheckFailed' }, () => 'red')
+    .with({ eventType: 'ciCheckRecovered' }, () => 'green')
     .with({ eventType: 'issueRemoved' }, () => undefined)
     .with({ eventType: 'startup' }, () => 'green')
     .exhaustive();
@@ -334,7 +363,10 @@ export function getIndicatorColor(notification: Notification): InkColor {
 
 export function isIndicatorDim(notification: Notification): boolean {
   return (
-    notification.eventType === 'notificationDismissed' || notification.eventType === 'issueRemoved'
+    notification.eventType === 'issueRefined' ||
+    notification.eventType === 'issueUnblocked' ||
+    notification.eventType === 'prUnapproved' ||
+    notification.eventType === 'issueRemoved'
   );
 }
 
@@ -397,20 +429,22 @@ function renderContentString(notification: Notification): string {
     )
     .with({ eventType: 'specChanged' }, (n) => `Spec changed: ${n.specFileName}`)
     .with({ eventType: 'recoveryPerformed' }, (n) => `#${n.issueNumber} recovered from stale`)
-    .with(
-      { eventType: 'notification', notificationType: 'approved' },
-      (n) => `#${n.issueNumber} approved \u2014 ready to merge`,
-    )
-    .with(
-      { eventType: 'notification', notificationType: P.union('needs-refinement', 'blocked') },
-      (n) => {
-        const label = n.notificationType === 'needs-refinement' ? 'needs refinement' : 'blocked';
-        const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
-        return `#${n.issueNumber} ${label}${guidance}`;
-      },
-    )
+    .with({ eventType: 'prApproved' }, (n) => `#${n.issueNumber} approved \u2014 ready to merge`)
+    .with({ eventType: 'issueNeedsRefinement' }, (n) => {
+      const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+      return `#${n.issueNumber} needs refinement${guidance}`;
+    })
+    .with({ eventType: 'issueBlocked' }, (n) => {
+      const guidance = n.resolutionGuidance ? ` \u2014 ${n.resolutionGuidance}` : '';
+      return `#${n.issueNumber} blocked${guidance}`;
+    })
     .with({ eventType: 'dispatchReady' }, (n) => `#${n.issueNumber} ready for dispatch`)
-    .with({ eventType: 'notificationDismissed' }, (n) => `#${n.issueNumber} dismissed`)
+    .with({ eventType: 'issueRefined' }, (n) => `#${n.issueNumber} refined`)
+    .with({ eventType: 'issueUnblocked' }, (n) => `#${n.issueNumber} unblocked`)
+    .with({ eventType: 'prUnapproved' }, (n) => `#${n.issueNumber} unapproved`)
+    .with({ eventType: 'ciStatusChanged' }, (n) => `PR #${n.prNumber} CI status changed`)
+    .with({ eventType: 'ciCheckFailed' }, (n) => `CI check failed for #${n.issueNumber}`)
+    .with({ eventType: 'ciCheckRecovered' }, (n) => `CI check recovered for #${n.issueNumber}`)
     .with({ eventType: 'issueRemoved' }, (n) => `#${n.issueNumber} removed`)
     .with({ eventType: 'startup' }, (n) => {
       const base = `Startup complete: ${n.issueCount} issues tracked`;

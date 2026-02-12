@@ -8,16 +8,23 @@ import type {
   AgentSkippedNotification,
   AgentStartedNotification,
   BaseNotification,
+  CICheckFailedNotification,
+  CICheckRecoveredNotification,
+  CIStatusChangedNotification,
   CreateEngineStoreConfig,
   DispatchReadyNotification,
-  EngineEventNotification,
   EngineStore,
   EngineStoreState,
   FocusedPane,
+  IssueBlockedNotification,
+  IssueNeedsRefinementNotification,
+  IssueRefinedNotification,
   IssueRemovedNotification,
   IssueStatusChangedNotification,
+  IssueUnblockedNotification,
   LastFailure,
-  NotificationDismissedNotification,
+  PRApprovedNotification,
+  PRUnapprovedNotification,
   RecoveryPerformedNotification,
   Repository,
   SpecChangedNotification,
@@ -394,64 +401,144 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
           notifications: [notification, ...state.notifications],
         });
       })
-      .with({ type: 'notification' }, async (e) => {
+      .with({ type: 'issueNeedsRefinement' }, (e) => {
         const state = store.getState();
-
-        const { notificationType, summary } = match(e.statusLabel)
-          .with('needs-refinement', (s) => ({
-            notificationType: s,
-            summary: `#${e.issueNumber} needs refinement — ${e.resolutionGuidance}`,
-          }))
-          .with('blocked', (s) => ({
-            notificationType: s,
-            summary: `#${e.issueNumber} blocked — ${e.resolutionGuidance}`,
-          }))
-          .otherwise(() => ({
-            notificationType: 'approved' as const,
-            summary: `#${e.issueNumber} approved — ready to merge`,
-          }));
-
-        const notification: EngineEventNotification = {
+        const notification: IssueNeedsRefinementNotification = {
           ...buildBaseNotification(),
-          eventType: 'notification',
+          eventType: 'issueNeedsRefinement',
           issueNumber: e.issueNumber,
-          notificationType,
-          summary,
+          summary: `#${e.issueNumber} needs refinement — ${e.resolutionGuidance}`,
           contextURL: e.contextURL,
+          clipboardCommand: e.clipboardCommand,
+          resolutionGuidance: e.resolutionGuidance,
         };
-        if (e.resolutionGuidance !== undefined) {
-          notification.resolutionGuidance = e.resolutionGuidance;
-        }
-        if (e.clipboardCommand !== undefined) {
-          notification.clipboardCommand = e.clipboardCommand;
-        }
 
         const issues = new Map(state.issues);
         const existing = issues.get(e.issueNumber);
-        if (existing && e.resolutionGuidance !== undefined) {
-          issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
-        }
-
         const updates: Partial<EngineStoreState> = {
           notifications: [notification, ...state.notifications],
         };
-        if (existing && e.resolutionGuidance !== undefined) {
+        if (existing) {
+          issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
           updates.issues = issues;
         }
 
         store.setState(updates);
-
-        if (e.statusLabel === 'approved') {
-          await updateNotificationWithPrurl(notification.id, e.issueNumber);
-        }
       })
-      .with({ type: 'notificationDismissed' }, (e) => {
+      .with({ type: 'issueBlocked' }, (e) => {
         const state = store.getState();
-        const notification: NotificationDismissedNotification = {
+        const notification: IssueBlockedNotification = {
           ...buildBaseNotification(),
-          eventType: 'notificationDismissed',
+          eventType: 'issueBlocked',
           issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} dismissed`,
+          summary: `#${e.issueNumber} blocked — ${e.resolutionGuidance}`,
+          contextURL: e.contextURL,
+          resolutionGuidance: e.resolutionGuidance,
+        };
+
+        const issues = new Map(state.issues);
+        const existing = issues.get(e.issueNumber);
+        const updates: Partial<EngineStoreState> = {
+          notifications: [notification, ...state.notifications],
+        };
+        if (existing) {
+          issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
+          updates.issues = issues;
+        }
+
+        store.setState(updates);
+      })
+      .with({ type: 'prApproved' }, async (e) => {
+        const state = store.getState();
+        const notification: PRApprovedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'prApproved',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} approved — ready to merge`,
+          contextURL: e.contextURL,
+        };
+
+        store.setState({
+          notifications: [notification, ...state.notifications],
+        });
+
+        await updateNotificationWithPrurl(notification.id, e.issueNumber);
+      })
+      .with({ type: 'issueRefined' }, (e) => {
+        const state = store.getState();
+        const notification: IssueRefinedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'issueRefined',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} refined`,
+          contextURL: buildIssueUrl(repository, e.issueNumber),
+        };
+        store.setState({
+          notifications: [notification, ...state.notifications],
+        });
+      })
+      .with({ type: 'issueUnblocked' }, (e) => {
+        const state = store.getState();
+        const notification: IssueUnblockedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'issueUnblocked',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} unblocked`,
+          contextURL: buildIssueUrl(repository, e.issueNumber),
+        };
+        store.setState({
+          notifications: [notification, ...state.notifications],
+        });
+      })
+      .with({ type: 'prUnapproved' }, (e) => {
+        const state = store.getState();
+        const notification: PRUnapprovedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'prUnapproved',
+          issueNumber: e.issueNumber,
+          summary: `#${e.issueNumber} unapproved`,
+          contextURL: buildIssueUrl(repository, e.issueNumber),
+        };
+        store.setState({
+          notifications: [notification, ...state.notifications],
+        });
+      })
+      .with({ type: 'ciStatusChanged' }, (e) => {
+        const state = store.getState();
+        const notification: CIStatusChangedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'ciStatusChanged',
+          prNumber: e.prNumber,
+          summary: `PR #${e.prNumber} CI: ${e.oldCIStatus ?? 'none'} → ${e.newCIStatus}`,
+        };
+        if (e.issueNumber !== undefined) {
+          notification.issueNumber = e.issueNumber;
+        }
+        store.setState({
+          notifications: [notification, ...state.notifications],
+        });
+      })
+      .with({ type: 'ciCheckFailed' }, (e) => {
+        const state = store.getState();
+        const notification: CICheckFailedNotification = {
+          ...buildBaseNotification(),
+          eventType: 'ciCheckFailed',
+          issueNumber: e.issueNumber,
+          prNumber: e.prNumber,
+          summary: `CI check failed for #${e.issueNumber}`,
+          contextURL: e.contextURL,
+        };
+        store.setState({
+          notifications: [notification, ...state.notifications],
+        });
+      })
+      .with({ type: 'ciCheckRecovered' }, (e) => {
+        const state = store.getState();
+        const notification: CICheckRecoveredNotification = {
+          ...buildBaseNotification(),
+          eventType: 'ciCheckRecovered',
+          issueNumber: e.issueNumber,
+          summary: `CI check recovered for #${e.issueNumber}`,
           contextURL: buildIssueUrl(repository, e.issueNumber),
         };
         store.setState({
