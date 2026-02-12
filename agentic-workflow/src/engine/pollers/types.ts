@@ -1,4 +1,5 @@
 import type { SpecPollerBatchResult } from '../../types.ts';
+import type { GitHubClient } from '../github-client/types.ts';
 
 // ---------------------------------------------------------------------------
 // IssuePoller
@@ -39,4 +40,41 @@ export interface SpecPollerSnapshot {
 export interface SpecPoller {
   poll: () => Promise<SpecPollerBatchResult>;
   getSnapshot: () => SpecPollerSnapshot;
+}
+
+// ---------------------------------------------------------------------------
+// PRPoller
+// ---------------------------------------------------------------------------
+
+export type PRCIStatus = 'pending' | 'success' | 'failure';
+
+export interface PRSnapshotEntry {
+  number: number;
+  title: string;
+  url: string;
+  headSHA: string;
+  author: string;
+  body: string;
+  ciStatus: PRCIStatus | null;
+}
+
+export type PRPollerSnapshot = Map<number, PRSnapshotEntry>;
+
+export interface PRPoller {
+  poll: () => Promise<void>;
+  getSnapshot: () => PRPollerSnapshot;
+  stop: () => void;
+}
+
+export interface PRPollerConfig {
+  gitHubClient: GitHubClient;
+  owner: string;
+  repo: string;
+  pollInterval: number;
+  onCIStatusChanged: (
+    prNumber: number,
+    oldCIStatus: PRCIStatus | null,
+    newCIStatus: PRCIStatus,
+  ) => void;
+  onPRRemoved: (prNumber: number) => void;
 }
