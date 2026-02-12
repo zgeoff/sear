@@ -84,7 +84,9 @@ remaining input you need to fetch is the spec:
 ### Phase 2: Review Checklist
 
 Run ALL 6 steps on every review. Individual failures do NOT short-circuit remaining steps. Collect
-all findings and deliver them in a single review.
+all findings and deliver them in a single review. For each step, output the step heading (e.g.,
+`### Step 1: Unresolved Review Comments`) followed by your analysis or "N/A" if not applicable. All
+6 step headings must appear in your output before proceeding to Phase 3.
 
 If a step's required input is missing (e.g., no Scope section for scope compliance, no Spec
 Reference for spec conformance, spec file does not exist or is not `status: approved`), record a
