@@ -80,7 +80,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     },
 
     async dispatchReviewer(params: DispatchReviewerParams): Promise<void> {
-      const { issueNumber, branchName } = params;
+      const { issueNumber, branchName, prompt } = params;
 
       if (issueAgents.has(issueNumber)) {
         emitter.emit(buildSkippedEvent('reviewer', { issueNumber }));
@@ -94,7 +94,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
 
       const tracker = await startSession({
         agentType: 'reviewer',
-        prompt: String(issueNumber),
+        prompt,
         cwd: worktreeResult.worktreePath,
         agent: agentReviewer,
         issueNumber,

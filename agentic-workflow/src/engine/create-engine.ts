@@ -21,6 +21,7 @@ import type {
 } from '../types.ts';
 import { createBashValidatorHook } from './agent-manager/bash-validator/create-bash-validator-hook.ts';
 import { buildQueryFactory } from './agent-manager/build-query-factory.ts';
+import { buildReviewerTriggerPrompt } from './agent-manager/build-reviewer-trigger-prompt.ts';
 import { createAgentManager } from './agent-manager/create-agent-manager.ts';
 import type { AgentManager, QueryFactory } from './agent-manager/types.ts';
 import { createCommandDispatcher } from './command-dispatcher/create-command-dispatcher.ts';
@@ -460,11 +461,27 @@ async function handleImplementorCompleted(
       isEngineTransition: true,
     });
 
+    // Build enriched prompt
+    const [issueDetails, prFiles, prReviews] = await Promise.all([
+      getIssueDetails(deps.queriesConfig, issueNumber),
+      getPRFiles(deps.queriesConfig, prDetails.number),
+      getPRReviews(deps.queriesConfig, prDetails.number),
+    ]);
+
+    const prompt = buildReviewerTriggerPrompt({
+      issueDetails,
+      prNumber: prDetails.number,
+      prTitle: prDetails.title,
+      prFiles,
+      prReviews,
+    });
+
     // Dispatch the Reviewer
     await deps.agentManager.dispatchReviewer({
       issueNumber,
       branchName: prDetails.headRefName,
       fetchRemote: true,
+      prompt,
     });
   } catch (error) {
     deps.logger.error('Completion-dispatch failed', {
@@ -577,10 +594,25 @@ async function handleDispatchReviewer(params: HandleDispatchReviewerParams): Pro
       return;
     }
 
+    const [issueDetails, prFiles, prReviews] = await Promise.all([
+      getIssueDetails(params.queriesConfig, params.issueNumber),
+      getPRFiles(params.queriesConfig, prDetails.number),
+      getPRReviews(params.queriesConfig, prDetails.number),
+    ]);
+
+    const prompt = buildReviewerTriggerPrompt({
+      issueDetails,
+      prNumber: prDetails.number,
+      prTitle: prDetails.title,
+      prFiles,
+      prReviews,
+    });
+
     await params.agentManager.dispatchReviewer({
       issueNumber: params.issueNumber,
       branchName: prDetails.headRefName,
       fetchRemote: true,
+      prompt,
     });
   } catch (error) {
     params.logger.error('Failed to dispatch reviewer', {

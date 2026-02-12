@@ -196,6 +196,15 @@ function setupMockGitHubClient(
   vi.mocked(octokit.repos.getContent).mockResolvedValue({
     data: { content: '' },
   });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({
+    data: [],
+  });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({
+    data: [],
+  });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({
+    data: [],
+  });
 }
 
 function createMockWorktreeManager(): WorktreeManager {
@@ -917,6 +926,18 @@ test('it cancels a running agent when its issue is removed from the poller snaps
     data: { total_count: 0, check_runs: [] },
   });
   vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.issues.get).mockResolvedValue({
+    data: buildMockIssueData(42, 'review'),
+  });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({
+    data: [],
+  });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({
+    data: [],
+  });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({
+    data: [],
+  });
 
   const queryFactory: QueryFactory = async () => {
     const q = createMockQuery();

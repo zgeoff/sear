@@ -455,13 +455,17 @@ test('it emits agentFailed with branch name when an implementor session fails', 
 test('it creates a worktree and sets the working directory for reviewers', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-branch',
+    prompt: 'enriched prompt',
+  });
 
   expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
     branchName: 'issue-10-branch',
   });
   expect(ctx.queryParams[0]).toMatchObject({
-    prompt: '10',
+    prompt: 'enriched prompt',
     agent: 'reviewer',
     cwd: '/repo/.worktrees/issue-10-branch',
   });
@@ -480,7 +484,11 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-branch',
+    prompt: 'enriched prompt',
+  });
 
   expect(ctx.mockQueries).toHaveLength(1);
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
@@ -491,10 +499,14 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
   });
 });
 
-test('it passes the issue number as the initial prompt for reviewers', async () => {
+test('it passes the enriched prompt as the initial prompt for reviewers', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 7, branchName: 'issue-7-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 7,
+    branchName: 'issue-7-branch',
+    prompt: '7',
+  });
 
   expect(ctx.queryParams[0]).toMatchObject({
     prompt: '7',
@@ -504,7 +516,11 @@ test('it passes the issue number as the initial prompt for reviewers', async () 
 test('it emits agentCompleted and removes worktree for reviewer sessions', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-branch',
+    prompt: 'enriched prompt',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -536,6 +552,7 @@ test('it passes fetchRemote to the worktree manager when dispatching a reviewer 
     issueNumber: 10,
     branchName: 'issue-10-pr-branch',
     fetchRemote: true,
+    prompt: 'enriched prompt',
   });
 
   expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
@@ -554,6 +571,7 @@ test('it does not pass fetchRemote to the worktree manager when fetchRemote is f
     issueNumber: 10,
     branchName: 'issue-10-pr-branch',
     fetchRemote: false,
+    prompt: 'enriched prompt',
   });
 
   expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
@@ -567,6 +585,7 @@ test('it does not pass fetchRemote to the worktree manager when fetchRemote is n
   await ctx.manager.dispatchReviewer({
     issueNumber: 10,
     branchName: 'issue-10-pr-branch',
+    prompt: 'enriched prompt',
   });
 
   expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
@@ -581,6 +600,7 @@ test('it removes the reviewer worktree on failure', async () => {
     issueNumber: 10,
     branchName: 'issue-10-pr-branch',
     fetchRemote: true,
+    prompt: 'enriched prompt',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
@@ -949,7 +969,11 @@ test('it returns all running session IDs', async () => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 2, branchName: 'issue-2-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 2,
+    branchName: 'issue-2-branch',
+    prompt: 'enriched prompt',
+  });
   ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-rev'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(2);
@@ -985,7 +1009,11 @@ test('it cancels all running sessions when cancelAll is called', async () => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 2, branchName: 'issue-2-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 2,
+    branchName: 'issue-2-branch',
+    prompt: 'enriched prompt',
+  });
   ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-2'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(2);
@@ -1042,7 +1070,11 @@ test('it includes the session ID in the agentFailed event for implementor failur
 test('it includes branchName in agentFailed events for reviewers', async () => {
   const ctx = setupTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 10, branchName: 'issue-10-pr-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+    prompt: 'enriched prompt',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
@@ -1099,7 +1131,11 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 5, branchName: 'issue-5-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 5,
+    branchName: 'issue-5-branch',
+    prompt: 'enriched prompt',
+  });
 
   const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
   expect(skipped).toStrictEqual({
@@ -1573,7 +1609,11 @@ test('it writes to independent log files when two agents run concurrently', asyn
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(1);
   });
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 2, branchName: 'issue-2-branch' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 2,
+    branchName: 'issue-2-branch',
+    prompt: 'enriched prompt',
+  });
   ctx.mockQueries[1]?.pushMessage(buildInitMessage('session-b'));
   await vi.waitFor(() => {
     expect(ctx.events.filter((e) => e.type === 'agentStarted')).toHaveLength(2);
@@ -1687,7 +1727,11 @@ test('it includes logFilePath pointing to the partial file when a write fails mi
 test('it names reviewer log files with the issue number as context', async () => {
   const ctx = setupLoggingTest();
 
-  await ctx.manager.dispatchReviewer({ issueNumber: 7, branchName: 'issue-7-1700000000' });
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 7,
+    branchName: 'issue-7-1700000000',
+    prompt: 'enriched prompt',
+  });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
   await vi.waitFor(() => {
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
