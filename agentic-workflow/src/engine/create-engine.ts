@@ -461,7 +461,11 @@ async function handleImplementorCompleted(
     });
 
     // Dispatch the Reviewer
-    await deps.agentManager.dispatchReviewer({ issueNumber, branchName: prDetails.headRefName });
+    await deps.agentManager.dispatchReviewer({
+      issueNumber,
+      branchName: prDetails.headRefName,
+      fetchRemote: true,
+    });
   } catch (error) {
     deps.logger.error('Completion-dispatch failed', {
       issueNumber,
@@ -567,7 +571,7 @@ async function handleDispatchReviewer(params: HandleDispatchReviewerParams): Pro
     });
 
     if (!prDetails) {
-      params.logger.error('Cannot dispatch reviewer — no PR found for issue', {
+      params.logger.info('Cannot dispatch reviewer — no PR found for issue', {
         issueNumber: params.issueNumber,
       });
       return;
@@ -576,6 +580,7 @@ async function handleDispatchReviewer(params: HandleDispatchReviewerParams): Pro
     await params.agentManager.dispatchReviewer({
       issueNumber: params.issueNumber,
       branchName: prDetails.headRefName,
+      fetchRemote: true,
     });
   } catch (error) {
     params.logger.error('Failed to dispatch reviewer', {

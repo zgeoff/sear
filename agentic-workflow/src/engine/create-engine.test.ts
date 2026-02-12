@@ -598,6 +598,62 @@ test('it is a no-op when dispatching a reviewer for an issue not in snapshot', a
   });
 });
 
+test('it passes fetchRemote: true when dispatching a reviewer with a linked PR', async () => {
+  const issues = [buildMockIssueData(42, 'review')];
+  const { engine, events, octokit, worktreeManager } = setupTest({
+    issues,
+    autoComplete: false,
+  });
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 100, body: 'Closes #42', draft: false }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR for issue 42',
+      changed_files: 5,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'pr-sha-1', ref: 'issue-42-branch' },
+      draft: false,
+    },
+  });
+
+  await engine.start();
+
+  engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
+
+  expect(worktreeManager.createForBranch).toHaveBeenCalledWith({
+    branchName: 'issue-42-branch',
+    fetchRemote: true,
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it is a no-op when dispatching a reviewer for an issue with no linked PR', async () => {
+  const issues = [buildMockIssueData(42, 'review')];
+  const { engine, mockQueries, octokit } = setupTest({ issues });
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [] });
+
+  await engine.start();
+  const queriesAfterStart = mockQueries.length;
+
+  engine.send({ command: 'dispatchReviewer', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    expect(mockQueries.length).toBe(queriesAfterStart);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Dispatch events
 // ---------------------------------------------------------------------------
@@ -1633,6 +1689,65 @@ test('it dispatches the reviewer when an implementor completes with a linked non
       e.isEngineTransition === true,
   );
   expect(syntheticEvents).toHaveLength(1);
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it passes fetchRemote: true when dispatching reviewer after implementor completion', async () => {
+  const issues = [buildMockIssueData(42, 'in-progress')];
+  const { engine, events, octokit, mockQueries, worktreeManager } = setupTest({
+    issues,
+    autoComplete: false,
+  });
+
+  vi.mocked(octokit.pulls.list).mockResolvedValue({
+    data: [{ number: 100, body: 'Closes #42', draft: false }],
+  });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR for issue 42',
+      changed_files: 5,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'pr-sha-1', ref: 'issue-42-completion-branch' },
+      draft: false,
+    },
+  });
+
+  await engine.start();
+
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(1);
+  });
+
+  const implementorQuery = mockQueries.at(-1);
+  invariant(implementorQuery, 'implementor query must exist');
+
+  implementorQuery.pushMessage({ type: 'result', subtype: 'success' });
+  implementorQuery.end();
+
+  await vi.waitFor(() => {
+    const agentStarted = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+    );
+    expect(agentStarted.length).toBe(2);
+  });
+
+  const createForBranchCalls = vi.mocked(worktreeManager.createForBranch).mock.calls;
+  const reviewerCall = createForBranchCalls.filter(
+    (call) => call[0]?.branchName === 'issue-42-completion-branch',
+  );
+  expect(reviewerCall.length).toBeGreaterThan(0);
+  const lastReviewerCall = reviewerCall.at(-1);
+  expect(lastReviewerCall?.[0]).toMatchObject({
+    branchName: 'issue-42-completion-branch',
+    fetchRemote: true,
+  });
 
   engine.send({ command: 'shutdown' });
 });
