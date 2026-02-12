@@ -1,6 +1,6 @@
 ---
 title: Implementor Agent
-version: 0.9.0
+version: 0.10.0
 last_updated: 2026-02-12
 status: approved
 ---
@@ -129,11 +129,12 @@ If a review comment requests changes to out-of-scope files, the agent posts an e
 [workflow-contracts.md: Escalation Comment Format](./workflow-contracts.md#escalation-comment-format))
 explaining the scope constraint and continues with in-scope fixes.
 
-### Test Verification
+### Pre-submit Validation
 
-In all scenarios, the agent runs tests locally before completing. If tests fail due to the agent's
-changes, it fixes and re-runs. If tests fail due to something outside the agent's scope
-(pre-existing failure, broken dependency), it treats the failure as a blocker.
+In all scenarios, the agent runs CI validation checks (lint, format, typecheck, tests) locally
+before completing. If validation fails due to the agent's changes, it fixes and re-runs. If
+validation fails due to something outside the agent's scope (pre-existing failure, broken
+dependency), it treats the failure as a blocker.
 
 ## Blocker Handling
 
@@ -215,8 +216,8 @@ as its final text output to the invoking process.
       handles the condition through scope enforcement rules or blocker handling instead.
 - [ ] Given a satisfiable task, when the agent completes work, then a ready-for-review PR exists
       linked to the task issue via `Closes #<issue-number>`.
-- [ ] Given a satisfiable task, when the agent completes work, then all tests pass locally before
-      the session ends.
+- [ ] Given a satisfiable task, when the agent completes work, then all CI validation checks (lint,
+      format, typecheck, tests) pass locally before the session ends.
 - [ ] Given a spec ambiguity during implementation, when the agent stops work, then a draft PR
       preserves progress, a blocker comment is posted, and the label is `status:needs-refinement`.
 - [ ] Given a non-spec blocker during implementation, when the agent stops work, then a draft PR
