@@ -298,6 +298,9 @@ function setupTest(
     queryFactory,
     repoRoot: '/tmp/test-repo',
     worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock yarn install — always succeeds in tests
+    },
   });
 
   const events: EngineEvent[] = [];
@@ -961,6 +964,9 @@ test('it cancels a running agent when its issue is removed from the poller snaps
     queryFactory,
     repoRoot: '/tmp/test-repo',
     worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock yarn install — always succeeds in tests
+    },
   });
 
   const events: EngineEvent[] = [];
@@ -1366,6 +1372,9 @@ function setupPlannerContextTest(options: PlannerContextSetupOptions): {
     queryFactory,
     repoRoot: '/tmp/test-repo',
     worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock yarn install — always succeeds in tests
+    },
   });
 
   const events: EngineEvent[] = [];
@@ -1603,6 +1612,9 @@ test('it re-adds spec paths to the deferred buffer when spec content fetch fails
     queryFactory,
     repoRoot: '/tmp/test-repo',
     worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock yarn install — always succeeds in tests
+    },
   });
 
   const events: EngineEvent[] = [];

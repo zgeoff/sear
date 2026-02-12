@@ -1,5 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { promisify } from 'node:util';
 import invariant from 'tiny-invariant';
 import type {
   AgentStream,
@@ -56,6 +57,7 @@ interface EngineDeps {
   queryFactory?: QueryFactory;
   repoRoot?: string;
   worktreeManager?: WorktreeManager;
+  execCommand?: (cwd: string, command: string, args: string[]) => Promise<void>;
 }
 
 interface PollerTimers {
@@ -65,6 +67,12 @@ interface PollerTimers {
 
 const SECONDS_TO_MS = 1000;
 const SHUTDOWN_CHECK_INTERVAL_MS = 1000;
+
+const execFileAsync: (
+  file: string,
+  args: string[],
+  options: { cwd: string },
+) => Promise<{ stdout: string; stderr: string }> = promisify(execFile);
 
 export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   const resolved = buildResolvedConfig(config);
@@ -128,6 +136,11 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     logsDir: resolved.logging.logsDir,
     logError: (message: string, error: unknown): void =>
       logger.error(message, { error: String(error) }),
+    execCommand:
+      deps?.execCommand ??
+      (async (cwd: string, command: string, args: string[]): Promise<void> => {
+        await execFileAsync(command, args, { cwd });
+      }),
   });
 
   const dispatch = createDispatch(
