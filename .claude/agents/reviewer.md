@@ -60,9 +60,9 @@ You receive as input an enriched prompt containing:
 
 ## Working Directory
 
-Your CWD is a git worktree — a full checkout on an isolated branch. ALWAYS use relative paths (e.g.,
-`src/engine/foo.ts`, `docs/specs/bar.md`). All codebase paths (spec references, In Scope lists) work
-as-is from your CWD.
+Your CWD is a git worktree — a full checkout on an isolated branch. Your worktree is ready — do not
+run `yarn install`. ALWAYS use relative paths (e.g., `src/engine/foo.ts`, `docs/specs/bar.md`). All
+codebase paths (spec references, In Scope lists) work as-is from your CWD.
 
 ## GitHub Operations
 
