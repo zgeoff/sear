@@ -65,13 +65,8 @@ Use `scripts/workflow/gh.sh` for all GitHub CLI operations.
 
 ### Step 1: Read Task Issue
 
-Fetch the task issue:
-
-```
-scripts/workflow/gh.sh issue view <number> --json number,title,body,labels,state,assignees,comments
-```
-
-Extract from the issue body:
+Your trigger prompt contains the task issue details (number, title, body, labels). Extract from the
+issue body:
 
 - **Objective** -- what this task achieves
 - **Spec Reference** -- spec file path and section names
@@ -89,8 +84,11 @@ Determine the current status label to identify your execution scenario:
 ### Step 2: Read Spec and Codebase
 
 1. Read the spec file referenced in the task's "Spec Reference" field.
-2. Read the specific sections referenced.
-3. Read the current state of all files listed in the "In Scope" section.
+2. Read all files listed in the "In Scope" section and their co-located test files.
+
+Issue reads for independent files in parallel. Read each file at most once. Do not re-read a file
+after editing unless validation fails and requires inspection — if you must re-read, state the
+reason. Do not begin editing until you have completed all reads in this step.
 
 ### Step 3: Validate Inputs
 
@@ -124,6 +122,10 @@ Cannot proceed until this is resolved.
 
 ### Step 4: Execute
 
+Before performing any edits, determine the full change set: which files will change, which
+functions/types will be added or modified, which imports need updating, and which tests must be
+adapted. Complete this analysis before writing the first edit.
+
 #### New Task (status:pending)
 
 1. Update label from `status:pending` to `status:in-progress`:
@@ -136,7 +138,10 @@ Cannot proceed until this is resolved.
 
 Your worktree is already on the existing PR branch.
 
-1. Read the task issue comments to review the original blocker and any resolution.
+1. Fetch issue comments to review the original blocker and any resolution:
+   ```
+   scripts/workflow/gh.sh issue view <number> --json comments
+   ```
 2. Update label from `status:unblocked` to `status:in-progress`:
    ```
    scripts/workflow/gh.sh issue edit <number> --remove-label "status:unblocked" --add-label "status:in-progress"
@@ -156,13 +161,16 @@ Your worktree is already on the existing PR branch.
    ```
    scripts/workflow/gh.sh issue edit <number> --remove-label "status:needs-changes" --add-label "status:in-progress"
    ```
-4. Address each review comment within scope. If a review comment requests changes to out-of-scope
-   files, post an escalation comment (see Escalation Comment Format) explaining the scope constraint
-   and continue with in-scope fixes. Do NOT open a new PR -- push fixes to the existing one.
+4. Plan all changes before editing: determine which files, functions, and tests will change across
+   all review comments. Then address each comment within scope. If a review comment requests changes
+   to out-of-scope files, post an escalation comment (see Escalation Comment Format) explaining the
+   scope constraint and continue with in-scope fixes. Do NOT open a new PR -- push fixes to the
+   existing one.
 5. Update tests if feedback requires behavioral changes.
 6. Run validation (`yarn check:write`) to auto-fix formatting, then verify lint, typecheck, and
-   tests pass. If validation fails due to your changes, fix and re-run. If failure is outside your
-   scope, treat it as a blocker.
+   tests pass. Run validation once after completing all fixes — do not run it between partial edits.
+   If validation fails due to your changes, fix and re-run. If failure is outside your scope, treat
+   it as a blocker.
 7. Commit and push fixes to the existing PR branch.
 
 ### Complete and Submit
@@ -173,9 +181,12 @@ Shared procedure used after implementation for new tasks and resumed-from-unbloc
 the workflow — the engine cannot detect completion, the Reviewer cannot be dispatched, and the
 worktree will be destroyed. A task is not complete until a PR exists.
 
-1. **Write or update tests** that verify each acceptance criterion.
+1. **Write or update tests** that verify each acceptance criterion. Read the test file once, plan
+   all necessary changes, and apply them in as few Edit operations as possible. Prefer adapting
+   existing nearby test patterns over constructing new ones incrementally.
 2. **Run validation** (`yarn check:write`) to auto-fix formatting, then verify lint, typecheck, and
-   tests pass. If validation fails:
+   tests pass. Run validation once after completing all implementation and test changes — do not run
+   it between partial edits. If validation fails:
    - If the failure is in your code, fix and re-run.
    - If the failure is outside your scope (pre-existing failure, broken dependency), treat it as a
      blocker.
@@ -221,35 +232,19 @@ When you encounter something that prevents continued progress:
 ## Blocker: <Short Title>
 
 **Type:** spec-ambiguity | spec-contradiction | spec-gap | external-dependency |
-technical-constraint
-
-**Description:** Clear explanation of what is blocking progress.
-
-**Spec Reference:**
-
-- File: `docs/specs/<name>.md`
-- Section: <section name>
-- Quote: "<relevant text from spec>"
+technical-constraint **Description:** Clear explanation of what is blocking progress. **Spec
+Reference:** `docs/specs/<name>.md` § <section> — "<relevant quote>"
 
 **Options:**
 
-1. **<Option A>**
-   - Description: ...
-   - Trade-offs: ...
+1. <Option A> — <trade-offs>
+2. <Option B> — <trade-offs>
 
-2. **<Option B>**
-   - Description: ...
-   - Trade-offs: ...
-
-**Recommendation:** Option <X> because <reasoning>.
-
-**Impact:** What happens if this isn't resolved (other blocked tasks, timeline impact).
+**Recommendation:** Option <X> because <reasoning>. **Impact:** What happens if this isn't resolved.
 ```
 
-The "Spec Reference" section is required for spec blockers (types: `spec-ambiguity`,
-`spec-contradiction`, `spec-gap`). For non-spec blockers it may be omitted.
-
-At least two options must be provided. A recommendation is required.
+"Spec Reference" is required for spec blockers; omit for non-spec blockers. At least two options and
+a recommendation are required.
 
 ### Escalation Comment Format
 
