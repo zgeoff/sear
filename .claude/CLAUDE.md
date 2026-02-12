@@ -73,7 +73,8 @@ yarn test:sh        # Run BATS shell tests (scripts/**/*.test.sh)
 yarn lint           # Lint all packages
 yarn format         # Format code with Biome
 yarn format:check   # Check formatting without writing
-yarn check          # Run lint, typecheck, and test (CI command)
+yarn check          # Lint, format, typecheck, test, and shell tests (CI validation)
+yarn check:write    # Same as check but auto-fixes format and lint issues first
 yarn typecheck      # TypeScript type checking
 ```
 

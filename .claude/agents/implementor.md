@@ -160,8 +160,9 @@ Your worktree is already on the existing PR branch.
    files, post an escalation comment (see Escalation Comment Format) explaining the scope constraint
    and continue with in-scope fixes. Do NOT open a new PR -- push fixes to the existing one.
 5. Update tests if feedback requires behavioral changes.
-6. Verify all tests pass locally. If tests fail due to your changes, fix and re-run. If failure is
-   outside your scope, treat it as a blocker.
+6. Run validation (`yarn check:write`) to auto-fix formatting, then verify lint, typecheck, and
+   tests pass. If validation fails due to your changes, fix and re-run. If failure is outside your
+   scope, treat it as a blocker.
 7. Commit and push fixes to the existing PR branch.
 
 ### Complete and Submit
@@ -173,7 +174,8 @@ the workflow — the engine cannot detect completion, the Reviewer cannot be dis
 worktree will be destroyed. A task is not complete until a PR exists.
 
 1. **Write or update tests** that verify each acceptance criterion.
-2. **Run tests locally** and verify they pass. If tests fail:
+2. **Run validation** (`yarn check:write`) to auto-fix formatting, then verify lint, typecheck, and
+   tests pass. If validation fails:
    - If the failure is in your code, fix and re-run.
    - If the failure is outside your scope (pre-existing failure, broken dependency), treat it as a
      blocker.
