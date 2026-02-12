@@ -88,6 +88,13 @@ export function createGitHubClient(config: GitHubClientConfig): GitHubClient {
         return {
           data: response.data.map((pr) => ({
             number: pr.number,
+            title: pr.title,
+            html_url: pr.html_url,
+            user: pr.user,
+            head: {
+              sha: pr.head.sha,
+              ref: pr.head.ref,
+            },
             body: pr.body,
             draft: pr.draft ?? false,
           })),

@@ -222,8 +222,24 @@ test('it delegates pull request listing and returns the narrowed result', async 
 
   mockOctokit.pulls.list.mockResolvedValue({
     data: [
-      { number: 10, body: 'Closes #1' },
-      { number: 11, body: null },
+      {
+        number: 10,
+        title: 'Fix bug',
+        html_url: 'https://github.com/o/r/pull/10',
+        user: { login: 'author1' },
+        head: { sha: 'abc123', ref: 'fix-bug' },
+        body: 'Closes #1',
+        draft: false,
+      },
+      {
+        number: 11,
+        title: 'WIP feature',
+        html_url: 'https://github.com/o/r/pull/11',
+        user: null,
+        head: { sha: 'def456', ref: 'wip-feature' },
+        body: null,
+        draft: true,
+      },
     ],
   });
 
@@ -232,9 +248,24 @@ test('it delegates pull request listing and returns the narrowed result', async 
 
   expect(mockOctokit.pulls.list).toHaveBeenCalledWith(params);
   expect(result.data).toHaveLength(2);
-  expect(result.data[0]?.number).toBe(10);
-  expect(result.data[0]?.body).toBe('Closes #1');
-  expect(result.data[1]?.body).toBeNull();
+  expect(result.data[0]).toStrictEqual({
+    number: 10,
+    title: 'Fix bug',
+    html_url: 'https://github.com/o/r/pull/10',
+    user: { login: 'author1' },
+    head: { sha: 'abc123', ref: 'fix-bug' },
+    body: 'Closes #1',
+    draft: false,
+  });
+  expect(result.data[1]).toStrictEqual({
+    number: 11,
+    title: 'WIP feature',
+    html_url: 'https://github.com/o/r/pull/11',
+    user: null,
+    head: { sha: 'def456', ref: 'wip-feature' },
+    body: null,
+    draft: true,
+  });
 });
 
 test('it delegates pull request retrieval and returns the narrowed result', async () => {

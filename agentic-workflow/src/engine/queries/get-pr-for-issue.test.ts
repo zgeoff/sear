@@ -1,4 +1,5 @@
 import { expect, test, vi } from 'vitest';
+import { buildPullsListItem } from '../../test-utils/build-pulls-list-item.ts';
 import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.ts';
 import { buildClosingKeywordPattern, getPRForIssue } from './get-pr-for-issue.ts';
 import type { QueriesConfig } from './types.ts';
@@ -23,7 +24,7 @@ function setupLinkedPr(
   draft = false,
 ): void {
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 20, body, draft }],
+    data: [buildPullsListItem({ number: 20, body, draft })],
   });
   vi.mocked(octokit.pulls.get).mockResolvedValue({
     data: {
@@ -163,7 +164,7 @@ test('it returns PR details when a linked pull request exists', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 20, body: 'Closes #10', draft: false }],
+    data: [buildPullsListItem({ number: 20, body: 'Closes #10', draft: false })],
   });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
@@ -203,8 +204,8 @@ test('it returns null when no pull request links to the issue', async () => {
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 30, body: 'Closes #99', draft: false },
-      { number: 31, body: 'Unrelated PR', draft: false },
+      buildPullsListItem({ number: 30, body: 'Closes #99', draft: false }),
+      buildPullsListItem({ number: 31, body: 'Unrelated PR', draft: false }),
     ],
   });
 
@@ -226,8 +227,8 @@ test('it avoids false matches when the issue number is a prefix of another numbe
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 50, body: 'Closes #42', draft: false },
-      { number: 51, body: 'Closes #421', draft: false },
+      buildPullsListItem({ number: 50, body: 'Closes #42', draft: false }),
+      buildPullsListItem({ number: 51, body: 'Closes #421', draft: false }),
     ],
   });
 
@@ -285,8 +286,8 @@ test('it returns the first matching PR by number when multiple link to the same 
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 121, body: 'Also Closes #10', draft: false },
-      { number: 120, body: 'Closes #10', draft: false },
+      buildPullsListItem({ number: 121, body: 'Also Closes #10', draft: false }),
+      buildPullsListItem({ number: 120, body: 'Closes #10', draft: false }),
     ],
   });
 
@@ -322,7 +323,7 @@ test('it skips pull requests with a null body', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 110, body: null, draft: false }],
+    data: [buildPullsListItem({ number: 110, body: null, draft: false })],
   });
 
   const result = await getPRForIssue(config, 10);
@@ -505,7 +506,7 @@ test('it defaults to pending when the CI status API call fails', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 100, body: 'Closes #10', draft: false }],
+    data: [buildPullsListItem({ number: 100, body: 'Closes #10', draft: false })],
   });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
@@ -541,7 +542,7 @@ test('it excludes draft PRs by default when includeDrafts is not specified', asy
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 30, body: 'Closes #10', draft: true }],
+    data: [buildPullsListItem({ number: 30, body: 'Closes #10', draft: true })],
   });
 
   const result = await getPRForIssue(config, 10);
@@ -552,7 +553,7 @@ test('it excludes draft PRs when includeDrafts is false', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 30, body: 'Closes #10', draft: true }],
+    data: [buildPullsListItem({ number: 30, body: 'Closes #10', draft: true })],
   });
 
   const result = await getPRForIssue(config, 10, { includeDrafts: false });
@@ -563,7 +564,7 @@ test('it includes draft PRs when includeDrafts is true', async () => {
   const { octokit, config } = setupTest();
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
-    data: [{ number: 30, body: 'Closes #10', draft: true }],
+    data: [buildPullsListItem({ number: 30, body: 'Closes #10', draft: true })],
   });
 
   vi.mocked(octokit.pulls.get).mockResolvedValue({
@@ -603,8 +604,8 @@ test('it returns a non-draft PR when includeDrafts is false and both draft and n
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 41, body: 'Closes #10', draft: true },
-      { number: 40, body: 'Closes #10', draft: false },
+      buildPullsListItem({ number: 41, body: 'Closes #10', draft: true }),
+      buildPullsListItem({ number: 40, body: 'Closes #10', draft: false }),
     ],
   });
 
@@ -637,8 +638,8 @@ test('it returns the first matching PR when includeDrafts is true and both draft
 
   vi.mocked(octokit.pulls.list).mockResolvedValue({
     data: [
-      { number: 51, body: 'Closes #10', draft: false },
-      { number: 50, body: 'Closes #10', draft: true },
+      buildPullsListItem({ number: 51, body: 'Closes #10', draft: false }),
+      buildPullsListItem({ number: 50, body: 'Closes #10', draft: true }),
     ],
   });
 
