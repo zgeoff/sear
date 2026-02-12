@@ -67,6 +67,7 @@ export interface DispatchImplementorParams {
   branchName: string;
   branchBase?: string; // present for fresh-branch strategy (new branch from base); absent for PR-branch strategy (existing branch)
   modelOverride?: 'sonnet' | 'opus';
+  prompt: string; // enriched prompt built by Engine Core via buildImplementorTriggerPrompt
 }
 
 export interface DispatchReviewerParams {

@@ -309,6 +309,7 @@ test('it creates a worktree and agent session when dispatching an implementor', 
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
 
   expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
@@ -317,7 +318,7 @@ test('it creates a worktree and agent session when dispatching an implementor', 
   });
   expect(ctx.mockQueries).toHaveLength(1);
   expect(ctx.queryParams[0]).toMatchObject({
-    prompt: '42',
+    prompt: 'enriched implementor prompt for #42',
     agent: 'implementor',
     cwd: '/repo/.worktrees/issue-42-1700000000',
   });
@@ -330,6 +331,7 @@ test('it emits agentSkipped when dispatching an implementor for an issue with a 
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -340,6 +342,7 @@ test('it emits agentSkipped when dispatching an implementor for an issue with a 
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
 
   expect(ctx.mockQueries).toHaveLength(1);
@@ -358,6 +361,7 @@ test('it emits agentStarted with session ID when the init message is received', 
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('abc-123'));
   await vi.waitFor(() => {
@@ -378,6 +382,7 @@ test('it sets the working directory to the worktree path for implementors', asyn
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
 
   expect(ctx.queryParams[0]).toMatchObject({
@@ -392,6 +397,7 @@ test('it emits agentCompleted and removes worktree when an implementor session s
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -423,6 +429,7 @@ test('it emits agentFailed with branch name when an implementor session fails', 
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -478,6 +485,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
     issueNumber: 10,
     branchName: 'issue-10-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #10',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -710,6 +718,7 @@ test('it cancels a running agent session and emits agentFailed', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -779,6 +788,7 @@ test('it completes the async iterable when an agent session is cancelled', async
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Hello'));
@@ -824,6 +834,7 @@ test('it yields plain text output chunks from the agent stream', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Hello world'));
@@ -844,6 +855,7 @@ test('it yields buffered and live chunks through the async iterable', async () =
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Chunk 1'));
@@ -883,6 +895,7 @@ test('it cancels a session that exceeds the max duration', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
 
@@ -919,6 +932,7 @@ test('it tracks whether an agent is running for a given issue', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
 
   expect(ctx.manager.isRunning(42)).toBe(true);
@@ -963,6 +977,7 @@ test('it returns all running session IDs', async () => {
     issueNumber: 1,
     branchName: 'issue-1-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #1',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-impl'));
   await vi.waitFor(() => {
@@ -1003,6 +1018,7 @@ test('it cancels all running sessions when cancelAll is called', async () => {
     issueNumber: 1,
     branchName: 'issue-1-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #1',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1047,6 +1063,7 @@ test('it includes the session ID in the agentFailed event for implementor failur
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('my-session-id'));
   await vi.waitFor(() => {
@@ -1125,6 +1142,7 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
     issueNumber: 5,
     branchName: 'issue-5-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #5',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-impl'));
   await vi.waitFor(() => {
@@ -1157,6 +1175,7 @@ test('it only yields text content from assistant messages and filters out tool u
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   // Message with mixed content including tool_use blocks
@@ -1207,6 +1226,7 @@ test('it allows dispatching a new implementor after the previous one completes',
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1224,6 +1244,7 @@ test('it allows dispatching a new implementor after the previous one completes',
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   expect(ctx.manager.isRunning(42)).toBe(true);
   expect(ctx.mockQueries).toHaveLength(2);
@@ -1269,6 +1290,7 @@ test('it creates a log file with session header when logging is enabled and an i
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await vi.waitFor(() => {
@@ -1315,6 +1337,7 @@ test('it does not create a log file when logging is disabled', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await vi.waitFor(() => {
@@ -1333,6 +1356,7 @@ test('it creates the logs directory automatically when it does not exist', async
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
   await vi.waitFor(() => {
@@ -1354,6 +1378,7 @@ test('it appends formatted assistant text messages to the log file', async () =>
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1376,6 +1401,7 @@ test('it logs tool use blocks with only the tool name', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1413,6 +1439,7 @@ test('it logs unknown message types with raw JSON', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1445,6 +1472,7 @@ test('it writes a completed footer and includes logFilePath in the completed eve
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1479,6 +1507,7 @@ test('it writes a failed footer and includes logFilePath in the failed event', a
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1511,6 +1540,7 @@ test('it writes a cancelled footer when an agent session is cancelled', async ()
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1543,6 +1573,7 @@ test('it does not include logFilePath in events when logging is disabled', async
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1570,6 +1601,7 @@ test('it logs result message metadata in the log file', async () => {
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1603,6 +1635,7 @@ test('it writes to independent log files when two agents run concurrently', asyn
     issueNumber: 1,
     branchName: 'issue-1-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #1',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-a'));
   await vi.waitFor(() => {
@@ -1662,6 +1695,7 @@ test('it continues the agent session when the log file cannot be created', async
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1687,6 +1721,7 @@ test('it includes logFilePath pointing to the partial file when a write fails mi
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1758,6 +1793,7 @@ test('it logs model, working directory, and tools from the init message', async 
     issueNumber: 42,
     branchName: 'issue-42-1700000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
   ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-1'));
   await vi.waitFor(() => {
@@ -1782,6 +1818,7 @@ test('it uses a fresh branch from main when branchBase is provided', async () =>
     issueNumber: 42,
     branchName: 'issue-42-1739000000',
     branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
   });
 
   expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
@@ -1803,6 +1840,7 @@ test('it uses the PR branch when no branchBase is provided', async () => {
   await ctx.manager.dispatchImplementor({
     issueNumber: 42,
     branchName: 'issue-42-1738000000',
+    prompt: 'enriched implementor prompt for #42',
   });
 
   expect(ctx.worktreeManager.createForBranch).toHaveBeenCalledWith({
