@@ -12,6 +12,7 @@ test('it applies all default values when optional fields are omitted', () => {
   expect(resolved.specPoller.pollInterval).toBe(60);
   expect(resolved.specPoller.specsDir).toBe('docs/specs/');
   expect(resolved.specPoller.defaultBranch).toBe('main');
+  expect(resolved.prPoller.pollInterval).toBe(30);
   expect(resolved.agents.agentPlanner).toBe('planner');
   expect(resolved.agents.agentImplementor).toBe('implementor');
   expect(resolved.agents.agentReviewer).toBe('reviewer');
@@ -40,6 +41,7 @@ test('it uses provided optional values instead of defaults', () => {
       specsDir: 'custom/specs/',
       defaultBranch: 'develop',
     },
+    prPoller: { pollInterval: 45 },
     agents: {
       agentPlanner: 'custom-planner',
       agentImplementor: 'custom-implementor',
@@ -59,6 +61,7 @@ test('it uses provided optional values instead of defaults', () => {
   expect(resolved.specPoller.pollInterval).toBe(120);
   expect(resolved.specPoller.specsDir).toBe('custom/specs/');
   expect(resolved.specPoller.defaultBranch).toBe('develop');
+  expect(resolved.prPoller.pollInterval).toBe(45);
   expect(resolved.agents.agentPlanner).toBe('custom-planner');
   expect(resolved.agents.agentImplementor).toBe('custom-implementor');
   expect(resolved.agents.agentReviewer).toBe('custom-reviewer');
@@ -76,6 +79,20 @@ test('it fills in missing defaults for partially provided nested objects', () =>
   expect(resolved.specPoller.pollInterval).toBe(120);
   expect(resolved.specPoller.specsDir).toBe('docs/specs/');
   expect(resolved.specPoller.defaultBranch).toBe('main');
+});
+
+test('it uses the default poll interval for the PR Poller when no config is provided', () => {
+  const config = buildValidConfig();
+  const resolved = buildResolvedConfig(config);
+
+  expect(resolved.prPoller.pollInterval).toBe(30);
+});
+
+test('it uses the provided poll interval for the PR Poller when config is provided', () => {
+  const config = buildValidConfig({ prPoller: { pollInterval: 60 } });
+  const resolved = buildResolvedConfig(config);
+
+  expect(resolved.prPoller.pollInterval).toBe(60);
 });
 
 test('it fills in missing logging defaults when only some logging fields are provided', () => {

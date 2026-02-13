@@ -20,6 +20,10 @@ export interface ResolvedLoggingConfig {
   logsDir: string;
 }
 
+export interface ResolvedPRPollerConfig {
+  pollInterval: number;
+}
+
 export interface ResolvedEngineConfig {
   repository: string;
   githubAppID: number;
@@ -29,6 +33,7 @@ export interface ResolvedEngineConfig {
   shutdownTimeout: number;
   issuePoller: ResolvedIssuePollerConfig;
   specPoller: ResolvedSpecPollerConfig;
+  prPoller: ResolvedPRPollerConfig;
   agents: ResolvedAgentsConfig;
   logging: ResolvedLoggingConfig;
 }

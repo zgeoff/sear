@@ -41,12 +41,13 @@ import type { GitHubClient } from './github-client/types.ts';
 import { createPlannerCache } from './planner-cache/create-planner-cache.ts';
 import type { PlannerCache } from './planner-cache/types.ts';
 import { createIssuePoller } from './pollers/create-issue-poller.ts';
+import { createPRPoller } from './pollers/create-pr-poller.ts';
 import { createSpecPoller } from './pollers/create-spec-poller.ts';
-import type { IssuePoller, SpecPollerSnapshot } from './pollers/types.ts';
+import type { IssuePoller, PRCIStatus, PRPoller, SpecPollerSnapshot } from './pollers/types.ts';
 import { getCIStatus } from './queries/get-ci-status.ts';
 import { getIssueDetails } from './queries/get-issue-details.ts';
 import { getPRFiles } from './queries/get-pr-files.ts';
-import { getPRForIssue } from './queries/get-pr-for-issue.ts';
+import { buildClosingKeywordPattern, getPRForIssue } from './queries/get-pr-for-issue.ts';
 import { getPRReviews } from './queries/get-pr-reviews.ts';
 import type { QueriesConfig } from './queries/types.ts';
 import { createRecovery } from './recovery/create-recovery.ts';
@@ -65,6 +66,7 @@ interface EngineDeps {
 interface PollerTimers {
   issueTimer: ReturnType<typeof setInterval> | null;
   specTimer: ReturnType<typeof setInterval> | null;
+  prPollerTimer: ReturnType<typeof setInterval> | null;
 }
 
 const SECONDS_TO_MS = 1000;
@@ -102,6 +104,15 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   // valid cache exists, the specPoller is re-created with the cached snapshot.
   let specPoller = buildSpecPoller(resolved, octokit, logger);
 
+  // Tracks issue numbers for which a ciCheckFailed event was previously emitted.
+  // Used to determine when to emit ciCheckRecovered.
+  const ciFailedIssues = new Set<number>();
+
+  // Maps PR numbers to their linked issue numbers. Populated during onCIStatusChanged
+  // so that onPRRemoved can resolve the linked issue even after the PR is removed
+  // from the PR Poller snapshot.
+  const prToIssueMap = new Map<number, number>();
+
   // Holds the SpecPoller snapshot and commitSHA captured at Planner dispatch time.
   // Written to the cache file when the Planner completes successfully.
   let pendingCacheSnapshot: SpecPollerSnapshot | null = null;
@@ -118,6 +129,48 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   // Tracks the change type (added/modified) for each spec path from the latest SpecPoller result.
   // Used to determine whether to compute diffs for each spec at planner dispatch time.
   const latestSpecChangeTypes = new Map<string, 'added' | 'modified'>();
+
+  const prPoller = createPRPoller({
+    gitHubClient: octokit,
+    owner,
+    repo,
+    pollInterval: resolved.prPoller.pollInterval,
+    onCIStatusChanged(
+      prNumber: number,
+      oldCIStatus: PRCIStatus | null,
+      newCIStatus: PRCIStatus,
+    ): void {
+      try {
+        handleCIStatusChanged({
+          prNumber,
+          oldCIStatus,
+          newCIStatus,
+          prPoller,
+          issuePoller,
+          emitter,
+          agentManager,
+          ciFailedIssues,
+          prToIssueMap,
+          logger,
+        });
+      } catch (error) {
+        logger.error('onCIStatusChanged callback failed', { prNumber, error: String(error) });
+      }
+    },
+    onPRRemoved(prNumber: number): void {
+      try {
+        handlePRRemoved({
+          prNumber,
+          emitter,
+          ciFailedIssues,
+          prToIssueMap,
+          logger,
+        });
+      } catch (error) {
+        logger.error('onPRRemoved callback failed', { prNumber, error: String(error) });
+      }
+    },
+  });
 
   const agentManager = createAgentManager({
     emitter,
@@ -181,6 +234,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   const pollerTimers: PollerTimers = {
     issueTimer: null,
     specTimer: null,
+    prPollerTimer: null,
   };
 
   const commandDispatcher = createCommandDispatcher({
@@ -220,17 +274,25 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       }
     },
     shutdown(_command: ShutdownCommand): void {
-      initiateShutdown(resolved, logger, agentManager, pollerTimers);
+      initiateShutdown({
+        config: resolved,
+        logger,
+        agentManager,
+        pollerTimers,
+        prPoller,
+      });
     },
   });
 
   return {
+    // Resolves after planner cache load, startup recovery, and first IssuePoller, SpecPoller, and PR Poller cycles complete
     async start(): Promise<StartupResult> {
       logger.info('Engine starting', {
         repository: resolved.repository,
         logLevel: resolved.logLevel,
         issuePollInterval: resolved.issuePoller.pollInterval,
         specPollInterval: resolved.specPoller.pollInterval,
+        prPollInterval: resolved.prPoller.pollInterval,
       });
 
       // Step 1: Wire event handler before any events are emitted
@@ -275,7 +337,10 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       trackSpecChangeTypes(specResult.changes, latestSpecChangeTypes);
       await dispatch.handleSpecPollerResult(specResult);
 
-      // Step 6: Start recurring poll timers
+      // Step 6: First PR Poller cycle (direct invocation, awaited before start() resolves)
+      await prPoller.poll();
+
+      // Step 7: Start recurring poll timers
       pollerTimers.issueTimer = setInterval(async () => {
         logger.debug('IssuePoller cycle starting');
         await issuePoller.poll();
@@ -288,6 +353,11 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
         trackSpecChangeTypes(result.changes, latestSpecChangeTypes);
         await dispatch.handleSpecPollerResult(result);
       }, resolved.specPoller.pollInterval * SECONDS_TO_MS);
+
+      pollerTimers.prPollerTimer = setInterval(async () => {
+        logger.debug('PRPoller cycle starting');
+        await prPoller.poll();
+      }, resolved.prPoller.pollInterval * SECONDS_TO_MS);
 
       const issueCount = issuePoller.getSnapshot().size;
 
@@ -706,46 +776,56 @@ function buildBranchStrategy(issueNumber: number, prDetails: PRDetailsResult): B
 // Shutdown
 // ---------------------------------------------------------------------------
 
-function initiateShutdown(
-  config: ResolvedEngineConfig,
-  logger: Logger,
-  agentManager: AgentManager,
-  pollerTimers: PollerTimers,
-): void {
-  logger.info('Shutdown initiated');
+interface InitiateShutdownParams {
+  config: ResolvedEngineConfig;
+  logger: Logger;
+  agentManager: AgentManager;
+  pollerTimers: PollerTimers;
+  prPoller: PRPoller;
+}
 
-  if (pollerTimers.issueTimer) {
-    clearInterval(pollerTimers.issueTimer);
-    pollerTimers.issueTimer = null;
-  }
-  if (pollerTimers.specTimer) {
-    clearInterval(pollerTimers.specTimer);
-    pollerTimers.specTimer = null;
-  }
+function initiateShutdown(params: InitiateShutdownParams): void {
+  params.logger.info('Shutdown initiated');
 
-  const runningCount = agentManager.getRunningSessionIDs().length;
+  if (params.pollerTimers.issueTimer) {
+    clearInterval(params.pollerTimers.issueTimer);
+    params.pollerTimers.issueTimer = null;
+  }
+  if (params.pollerTimers.specTimer) {
+    clearInterval(params.pollerTimers.specTimer);
+    params.pollerTimers.specTimer = null;
+  }
+  if (params.pollerTimers.prPollerTimer) {
+    clearInterval(params.pollerTimers.prPollerTimer);
+    params.pollerTimers.prPollerTimer = null;
+  }
+  params.prPoller.stop();
+
+  const runningCount = params.agentManager.getRunningSessionIDs().length;
 
   if (runningCount === 0) {
-    logger.info('Shutdown complete', { agentsTerminated: 0 });
+    params.logger.info('Shutdown complete', { agentsTerminated: 0 });
     return;
   }
 
   const shutdownTimer = setTimeout(async () => {
     clearInterval(checkInterval);
     try {
-      await agentManager.cancelAll();
+      await params.agentManager.cancelAll();
     } catch (error) {
-      logger.error('Failed to cancel all agents during shutdown', { error: String(error) });
+      params.logger.error('Failed to cancel all agents during shutdown', {
+        error: String(error),
+      });
     }
-    logger.info('Shutdown complete', { agentsTerminated: runningCount });
-  }, config.shutdownTimeout * SECONDS_TO_MS);
+    params.logger.info('Shutdown complete', { agentsTerminated: runningCount });
+  }, params.config.shutdownTimeout * SECONDS_TO_MS);
 
   const checkInterval = setInterval(() => {
-    const remaining = agentManager.getRunningSessionIDs().length;
+    const remaining = params.agentManager.getRunningSessionIDs().length;
     if (remaining === 0) {
       clearInterval(checkInterval);
       clearTimeout(shutdownTimer);
-      logger.info('Shutdown complete', { agentsTerminated: 0 });
+      params.logger.info('Shutdown complete', { agentsTerminated: 0 });
     }
   }, SHUTDOWN_CHECK_INTERVAL_MS);
 }
@@ -958,4 +1038,188 @@ function extractLabelNames(labels: (string | { name?: string })[]): string[] {
     }
   }
   return names;
+}
+
+// ---------------------------------------------------------------------------
+// PR Poller callback handlers
+// ---------------------------------------------------------------------------
+
+interface HandleCIStatusChangedParams {
+  prNumber: number;
+  oldCIStatus: PRCIStatus | null;
+  newCIStatus: PRCIStatus;
+  prPoller: PRPoller;
+  issuePoller: IssuePoller;
+  emitter: EventEmitter;
+  agentManager: AgentManager;
+  ciFailedIssues: Set<number>;
+  prToIssueMap: Map<number, number>;
+  logger: Logger;
+}
+
+/**
+ * Statuses where a CI failure notification is actionable (user can dispatch Implementor).
+ */
+const CI_FAILURE_ACTIONABLE_STATUSES: Set<string> = new Set([
+  'pending',
+  'unblocked',
+  'needs-changes',
+]);
+
+function handleCIStatusChanged(params: HandleCIStatusChangedParams): void {
+  const issueNumber = resolveIssueForPR(params.prNumber, params.prPoller, params.issuePoller);
+
+  // Maintain PR→issue mapping for use in onPRRemoved
+  if (issueNumber !== undefined) {
+    params.prToIssueMap.set(params.prNumber, issueNumber);
+  }
+
+  // Emit ciStatusChanged for every transition, regardless of issue linkage
+  params.emitter.emit({
+    type: 'ciStatusChanged',
+    prNumber: params.prNumber,
+    ...(issueNumber !== undefined && { issueNumber }),
+    oldCIStatus: params.oldCIStatus,
+    newCIStatus: params.newCIStatus,
+  });
+
+  if (issueNumber === undefined) {
+    return;
+  }
+
+  params.logger.info('CI status changed', {
+    prNumber: params.prNumber,
+    oldCIStatus: params.oldCIStatus,
+    newCIStatus: params.newCIStatus,
+    issueNumber,
+  });
+
+  if (params.newCIStatus === 'failure') {
+    emitCICheckFailedIfApplicable(params, issueNumber);
+  }
+
+  if (params.newCIStatus === 'success' && params.ciFailedIssues.has(issueNumber)) {
+    params.ciFailedIssues.delete(issueNumber);
+    params.emitter.emit({
+      type: 'ciCheckRecovered',
+      issueNumber,
+    });
+  }
+}
+
+function emitCICheckFailedIfApplicable(
+  params: HandleCIStatusChangedParams,
+  issueNumber: number,
+): void {
+  // If an agent is running for this issue, no notification
+  if (params.agentManager.isRunning(issueNumber)) {
+    return;
+  }
+
+  const issueEntry = params.issuePoller.getSnapshot().get(issueNumber);
+  if (!issueEntry) {
+    return;
+  }
+
+  // review status: no notification
+  if (issueEntry.statusLabel === 'review') {
+    return;
+  }
+
+  const prSnapshot = params.prPoller.getSnapshot().get(params.prNumber);
+  const prURL = prSnapshot?.url ?? '';
+
+  if (CI_FAILURE_ACTIONABLE_STATUSES.has(issueEntry.statusLabel)) {
+    params.ciFailedIssues.add(issueNumber);
+    params.emitter.emit({
+      type: 'ciCheckFailed',
+      issueNumber,
+      prNumber: params.prNumber,
+      contextURL: prURL,
+    });
+    params.logger.info('CI failure notification emitted', {
+      issueNumber,
+      prNumber: params.prNumber,
+      issueStatus: issueEntry.statusLabel,
+    });
+    return;
+  }
+
+  if (issueEntry.statusLabel === 'approved') {
+    params.ciFailedIssues.add(issueNumber);
+    params.emitter.emit({
+      type: 'ciCheckFailed',
+      issueNumber,
+      prNumber: params.prNumber,
+      contextURL: prURL,
+      resolutionGuidance:
+        'CI failed. Change the label to `status:needs-changes` to re-dispatch an Implementor for CI fixes.',
+    });
+    params.logger.info('CI failure notification emitted', {
+      issueNumber,
+      prNumber: params.prNumber,
+      issueStatus: issueEntry.statusLabel,
+    });
+  }
+}
+
+interface HandlePRRemovedParams {
+  prNumber: number;
+  emitter: EventEmitter;
+  ciFailedIssues: Set<number>;
+  prToIssueMap: Map<number, number>;
+  logger: Logger;
+}
+
+function handlePRRemoved(params: HandlePRRemovedParams): void {
+  const issueNumber = params.prToIssueMap.get(params.prNumber);
+
+  params.logger.info('PR removed', { prNumber: params.prNumber, issueNumber });
+
+  // Clean up the PR→issue mapping
+  params.prToIssueMap.delete(params.prNumber);
+
+  if (issueNumber === undefined) {
+    return;
+  }
+
+  // If a ciCheckFailed was previously emitted for this issue, emit ciCheckRecovered
+  if (params.ciFailedIssues.has(issueNumber)) {
+    params.ciFailedIssues.delete(issueNumber);
+    params.emitter.emit({
+      type: 'ciCheckRecovered',
+      issueNumber,
+    });
+  }
+}
+
+/**
+ * Resolves a PR number to a tracked issue number using closing-keyword matching
+ * on the PR body from the PR Poller snapshot.
+ */
+function resolveIssueForPR(
+  prNumber: number,
+  prPoller: PRPoller,
+  issuePoller: IssuePoller,
+): number | undefined {
+  const prEntry = prPoller.getSnapshot().get(prNumber);
+  if (!prEntry) {
+    return;
+  }
+
+  const prBody = prEntry.body;
+  if (!prBody) {
+    return;
+  }
+
+  const issueSnapshot = issuePoller.getSnapshot();
+
+  for (const [issueNumber] of issueSnapshot) {
+    const pattern = buildClosingKeywordPattern(issueNumber);
+    if (pattern.test(prBody)) {
+      return issueNumber;
+    }
+  }
+
+  return;
 }

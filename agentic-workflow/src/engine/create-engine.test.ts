@@ -9,6 +9,9 @@ import { createMockGitHubClient } from '../test-utils/create-mock-github-client.
 import type {
   AgentCompletedEvent,
   AgentFailedEvent,
+  CICheckFailedEvent,
+  CICheckRecoveredEvent,
+  CIStatusChangedEvent,
   EngineEvent,
   IssueStatusChangedEvent,
 } from '../types.ts';
@@ -1196,20 +1199,21 @@ test('it writes the cache file when the planner completes successfully', async (
 
   await engine.start();
 
-  await vi.waitFor(() => {
+  await vi.waitFor(async () => {
     // Verify the planner completed
     const completed = events.filter(
       (e): e is AgentCompletedEvent => e.type === 'agentCompleted' && e.agentType === 'planner',
     );
     expect(completed.length).toBe(1);
-  });
 
-  // Verify cache file was written with PlannerCacheEntry format
-  const raw = await readFile('/tmp/test-repo/.agentic-workflow-cache.json', 'utf-8');
-  const cached: unknown = JSON.parse(raw);
-  expect(cached).toMatchObject({
-    snapshot: { specsDirTreeSHA: 'tree-sha-new' },
-    commitSHA: 'commit-sha-1',
+    // Verify cache file was written with PlannerCacheEntry format
+    // (cache write is async and may not be flushed yet when the event appears)
+    const raw = await readFile('/tmp/test-repo/.agentic-workflow-cache.json', 'utf-8');
+    const cached: unknown = JSON.parse(raw);
+    expect(cached).toMatchObject({
+      snapshot: { specsDirTreeSHA: 'tree-sha-new' },
+      commitSHA: 'commit-sha-1',
+    });
   });
 });
 
@@ -3073,6 +3077,726 @@ test('it does not emit any legacy notification event types', async () => {
   expect(events.some((e) => e.type === 'issueUnblocked')).toBe(true);
   expect(events.some((e) => e.type === 'issueRefined')).toBe(true);
   expect(events.some((e) => e.type === 'prUnapproved')).toBe(true);
+
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// PR Poller integration: startup
+// ---------------------------------------------------------------------------
+
+test('it runs the first PR Poller cycle during startup', async () => {
+  const { engine, octokit } = setupTest();
+
+  // PR Poller calls pulls.list during its poll cycle
+  vi.mocked(octokit.pulls.list).mockClear();
+
+  await engine.start();
+
+  // pulls.list is called by both PR Poller and query methods, so verify at least one call
+  expect(octokit.pulls.list).toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// PR Poller integration: shutdown
+// ---------------------------------------------------------------------------
+
+test('it clears the PR Poller timer during shutdown', async () => {
+  const { engine } = setupTest();
+
+  await engine.start();
+
+  // Shutdown should not throw (timer is cleared and stop() is called)
+  engine.send({ command: 'shutdown' });
+});
+
+// ---------------------------------------------------------------------------
+// PR Poller integration: onCIStatusChanged callback
+// ---------------------------------------------------------------------------
+
+test('it emits a CI status changed event with a linked issue number when CI status changes', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit } = setupTest(issues);
+
+  // Set up PRs: one PR linked to issue #42 with CI failure
+  const prItem = buildPullsListItem({ number: 100, body: 'Closes #42', draft: false });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+
+  // First poll: CI status is null → pending (first detection)
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  await engine.start();
+
+  const ciEvents = events.filter((e): e is CIStatusChangedEvent => e.type === 'ciStatusChanged');
+
+  // The first poll triggers onCIStatusChanged with oldCIStatus: null → newCIStatus: 'pending'
+  expect(ciEvents.length).toBeGreaterThanOrEqual(1);
+  expect(ciEvents[0]).toMatchObject({
+    type: 'ciStatusChanged',
+    prNumber: 100,
+    issueNumber: 42,
+    oldCIStatus: null,
+    newCIStatus: 'pending',
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits a CI status changed event with no issue number for unlinked PRs', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit } = setupTest(issues);
+
+  // PR body does NOT contain closing keyword for any tracked issue
+  const prItem = buildPullsListItem({ number: 200, body: 'Some unrelated PR', draft: false });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  await engine.start();
+
+  const ciEvents = events.filter(
+    (e): e is CIStatusChangedEvent => e.type === 'ciStatusChanged' && e.prNumber === 200,
+  );
+
+  expect(ciEvents.length).toBeGreaterThanOrEqual(1);
+
+  const firstEvent = ciEvents[0];
+  invariant(firstEvent, 'ciStatusChanged event must exist');
+  expect(firstEvent.issueNumber).toBeUndefined();
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits a CI check failed event when CI fails for a tracked issue in pending status', async () => {
+  vi.useFakeTimers();
+
+  const issues = [buildMockIssueData(42, 'pending')];
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    return { data: issues };
+  });
+  vi.mocked(octokit.issues.get).mockResolvedValue({ data: buildMockIssueData(42, 'pending') });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+
+  // PR linked to issue #42
+  const prItem = buildPullsListItem({
+    number: 100,
+    body: 'Closes #42',
+    draft: false,
+    html_url: 'https://github.com/owner/repo/pull/100',
+  });
+
+  // First PR Poller cycle: CI is pending
+  vi.mocked(octokit.pulls.list).mockImplementation(async () => ({ data: [prItem] }));
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR',
+      changed_files: 0,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'sha-1', ref: 'branch' },
+      draft: false,
+    },
+  });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({ data: [] });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ prPoller: { pollInterval: 1 } });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock exec — always succeeds
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // After first cycle: CI is pending — no ciCheckFailed should be emitted yet
+  const failedAfterFirst = events.filter(
+    (e): e is CICheckFailedEvent => e.type === 'ciCheckFailed',
+  );
+  expect(failedAfterFirst).toHaveLength(0);
+
+  // Now change CI to failure for the second poll cycle
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'failure', total_count: 1 },
+  });
+
+  // Advance past PR Poller interval
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const ciCheckFailed = events.filter((e): e is CICheckFailedEvent => e.type === 'ciCheckFailed');
+  expect(ciCheckFailed.length).toBeGreaterThanOrEqual(1);
+  expect(ciCheckFailed[0]).toMatchObject({
+    type: 'ciCheckFailed',
+    issueNumber: 42,
+    prNumber: 100,
+    contextURL: expect.stringContaining('pull/100'),
+  });
+
+  // ciCheckFailed for pending status should NOT have resolutionGuidance
+  expect(ciCheckFailed[0]?.resolutionGuidance).toBeUndefined();
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits a CI check failed event with resolution guidance when CI fails for an approved issue', async () => {
+  vi.useFakeTimers();
+
+  const issues = [buildMockIssueData(42, 'approved')];
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    return { data: issues };
+  });
+  vi.mocked(octokit.issues.get).mockResolvedValue({ data: buildMockIssueData(42, 'approved') });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+
+  const prItem = buildPullsListItem({
+    number: 100,
+    body: 'Closes #42',
+    draft: false,
+    html_url: 'https://github.com/owner/repo/pull/100',
+  });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR',
+      changed_files: 0,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'sha-1', ref: 'branch' },
+      draft: false,
+    },
+  });
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({ data: [] });
+
+  // First cycle: CI pending
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ prPoller: { pollInterval: 1 } });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock exec — always succeeds
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // Change CI to failure for next cycle
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'failure', total_count: 1 },
+  });
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const ciCheckFailed = events.filter((e): e is CICheckFailedEvent => e.type === 'ciCheckFailed');
+  expect(ciCheckFailed.length).toBeGreaterThanOrEqual(1);
+  expect(ciCheckFailed[0]?.resolutionGuidance).toBe(
+    'CI failed. Change the label to `status:needs-changes` to re-dispatch an Implementor for CI fixes.',
+  );
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it does not emit a CI check failed event when CI fails for a review-status issue', async () => {
+  vi.useFakeTimers();
+
+  const issues = [buildMockIssueData(42, 'review')];
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    return { data: issues };
+  });
+  vi.mocked(octokit.issues.get).mockResolvedValue({ data: buildMockIssueData(42, 'review') });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+
+  const prItem = buildPullsListItem({
+    number: 100,
+    body: 'Closes #42',
+    draft: false,
+    html_url: 'https://github.com/owner/repo/pull/100',
+  });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR',
+      changed_files: 0,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'sha-1', ref: 'branch' },
+      draft: false,
+    },
+  });
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({ data: [] });
+
+  // First cycle: CI pending
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ prPoller: { pollInterval: 1 } });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock exec — always succeeds
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // Change CI to failure for next cycle
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'failure', total_count: 1 },
+  });
+
+  await vi.advanceTimersByTimeAsync(1500);
+
+  // ciStatusChanged should be emitted (always emitted)
+  const ciStatusChanged = events.filter(
+    (e): e is CIStatusChangedEvent => e.type === 'ciStatusChanged' && e.prNumber === 100,
+  );
+  expect(ciStatusChanged.length).toBeGreaterThanOrEqual(1);
+
+  // ciCheckFailed should NOT be emitted for review status
+  const ciCheckFailed = events.filter((e): e is CICheckFailedEvent => e.type === 'ciCheckFailed');
+  expect(ciCheckFailed).toHaveLength(0);
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits a CI check recovered event when CI recovers to success', async () => {
+  vi.useFakeTimers();
+
+  const issues = [buildMockIssueData(42, 'pending')];
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    return { data: issues };
+  });
+  vi.mocked(octokit.issues.get).mockResolvedValue({ data: buildMockIssueData(42, 'pending') });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+
+  const prItem = buildPullsListItem({
+    number: 100,
+    body: 'Closes #42',
+    draft: false,
+    html_url: 'https://github.com/owner/repo/pull/100',
+  });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR',
+      changed_files: 0,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'sha-1', ref: 'branch' },
+      draft: false,
+    },
+  });
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({ data: [] });
+
+  // First cycle: CI pending
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ prPoller: { pollInterval: 1 } });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock exec — always succeeds
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // Second cycle: CI failure — triggers ciCheckFailed
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'failure', total_count: 1 },
+  });
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const failedEvents = events.filter((e): e is CICheckFailedEvent => e.type === 'ciCheckFailed');
+  expect(failedEvents.length).toBeGreaterThanOrEqual(1);
+
+  // Third cycle: CI success — triggers ciCheckRecovered
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'success', total_count: 1 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: {
+      total_count: 1,
+      check_runs: [{ name: 'ci', status: 'completed', conclusion: 'success', details_url: '' }],
+    },
+  });
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const recoveredEvents = events.filter(
+    (e): e is CICheckRecoveredEvent => e.type === 'ciCheckRecovered',
+  );
+  expect(recoveredEvents.length).toBeGreaterThanOrEqual(1);
+  expect(recoveredEvents[0]).toMatchObject({
+    type: 'ciCheckRecovered',
+    issueNumber: 42,
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits a CI check recovered event when a PR is removed for an issue with prior CI failure', async () => {
+  vi.useFakeTimers();
+
+  const issues = [buildMockIssueData(42, 'pending')];
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    return { data: issues };
+  });
+  vi.mocked(octokit.issues.get).mockResolvedValue({ data: buildMockIssueData(42, 'pending') });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+
+  const prItem = buildPullsListItem({
+    number: 100,
+    body: 'Closes #42',
+    draft: false,
+    html_url: 'https://github.com/owner/repo/pull/100',
+  });
+
+  // First cycle: PR exists with CI failure
+  let prPollCycle = 0;
+  vi.mocked(octokit.pulls.list).mockImplementation(async () => {
+    prPollCycle += 1;
+    if (prPollCycle <= 2) {
+      return { data: [prItem] };
+    }
+    // Third cycle: PR removed (closed/merged)
+    return { data: [] };
+  });
+
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR',
+      changed_files: 0,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'sha-1', ref: 'branch' },
+      draft: false,
+    },
+  });
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({ data: [] });
+
+  // First PR poll: CI pending
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({ type: 'system', subtype: 'init', session_id: 'session-1' });
+    q.pushMessage({ type: 'result', subtype: 'success' });
+    q.end();
+    return q;
+  };
+
+  const config = buildValidConfig({ prPoller: { pollInterval: 1 } });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock exec — always succeeds
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // Second cycle: CI failure
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'failure', total_count: 1 },
+  });
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const failedEvents = events.filter((e): e is CICheckFailedEvent => e.type === 'ciCheckFailed');
+  expect(failedEvents.length).toBeGreaterThanOrEqual(1);
+
+  // Third cycle: PR removed — should emit ciCheckRecovered
+  await vi.advanceTimersByTimeAsync(1500);
+
+  const recoveredEvents = events.filter(
+    (e): e is CICheckRecoveredEvent => e.type === 'ciCheckRecovered',
+  );
+  expect(recoveredEvents.length).toBeGreaterThanOrEqual(1);
+  expect(recoveredEvents[0]).toMatchObject({
+    type: 'ciCheckRecovered',
+    issueNumber: 42,
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it does not emit a CI check failed event when an agent is running for the issue', async () => {
+  vi.useFakeTimers();
+
+  const issues = [buildMockIssueData(42, 'in-progress')];
+  const octokit = createMockGitHubClient();
+  const worktreeManager = createMockWorktreeManager();
+
+  vi.mocked(octokit.issues.listForRepo).mockImplementation(async (params: { labels: string }) => {
+    if (params.labels.includes('status:in-progress')) {
+      return { data: [] };
+    }
+    return { data: issues };
+  });
+  vi.mocked(octokit.issues.get).mockResolvedValue({ data: buildMockIssueData(42, 'in-progress') });
+  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: {} });
+  vi.mocked(octokit.git.getTree).mockResolvedValue({ data: { sha: 'tree-sha-1', tree: [] } });
+  vi.mocked(octokit.git.getRef).mockResolvedValue({ data: { object: { sha: 'commit-sha-1' } } });
+
+  const prItem = buildPullsListItem({
+    number: 100,
+    body: 'Closes #42',
+    draft: false,
+    html_url: 'https://github.com/owner/repo/pull/100',
+  });
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+  vi.mocked(octokit.pulls.get).mockResolvedValue({
+    data: {
+      number: 100,
+      title: 'PR',
+      changed_files: 0,
+      html_url: 'https://github.com/owner/repo/pull/100',
+      head: { sha: 'sha-1', ref: 'branch' },
+      draft: false,
+    },
+  });
+  vi.mocked(octokit.repos.getContent).mockResolvedValue({ data: { content: '' } });
+  vi.mocked(octokit.pulls.listFiles).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviews).mockResolvedValue({ data: [] });
+  vi.mocked(octokit.pulls.listReviewComments).mockResolvedValue({ data: [] });
+
+  // First cycle: CI pending
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  const mockQueries: MockQuery[] = [];
+  const queryFactory: QueryFactory = async () => {
+    const q = createMockQuery();
+    q.pushMessage({
+      type: 'system',
+      subtype: 'init',
+      session_id: `session-${mockQueries.length + 1}`,
+    });
+    // Don't auto-complete — agent stays running
+    mockQueries.push(q);
+    return q;
+  };
+
+  const config = buildValidConfig({ prPoller: { pollInterval: 1 } });
+
+  const engine = createEngine(config, {
+    octokit,
+    queryFactory,
+    repoRoot: '/tmp/test-repo',
+    worktreeManager,
+    execCommand: async (): Promise<void> => {
+      // Mock exec — always succeeds
+    },
+  });
+
+  const events: EngineEvent[] = [];
+  engine.on((event) => {
+    events.push(event);
+  });
+
+  await engine.start();
+
+  // Dispatch implementor — agent stays running
+  engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
+  await vi.advanceTimersByTimeAsync(50);
+
+  const agentStarted = events.filter(
+    (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
+  );
+  expect(agentStarted.length).toBe(1);
+
+  // Next PR Poller cycle: CI failure
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'failure', total_count: 1 },
+  });
+  await vi.advanceTimersByTimeAsync(1500);
+
+  // ciStatusChanged should be emitted
+  const ciStatusChanged = events.filter(
+    (e): e is CIStatusChangedEvent => e.type === 'ciStatusChanged',
+  );
+  expect(ciStatusChanged.length).toBeGreaterThanOrEqual(1);
+
+  // ciCheckFailed should NOT be emitted (agent is running)
+  const ciCheckFailed = events.filter((e): e is CICheckFailedEvent => e.type === 'ciCheckFailed');
+  expect(ciCheckFailed).toHaveLength(0);
 
   engine.send({ command: 'shutdown' });
 });
