@@ -3,13 +3,15 @@ import process from 'node:process';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { ReactNode } from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { match } from 'ts-pattern';
 import { useStore } from 'zustand';
 import type { Engine } from '../types.ts';
 import { ConfirmationPrompt } from './components/confirmation-prompt.tsx';
 import { DetailPane } from './components/detail-pane.tsx';
-import { IssueList } from './components/issue-list.tsx';
+import { computeSectionCapacities, getVisibleTasks, IssueList } from './components/issue-list.tsx';
 import { useEngine } from './hooks.ts';
-import { selectRunningAgentCount } from './store.ts';
+import { selectRunningAgentCount, selectSortedTasks } from './store.ts';
+import type { Task, TaskStatus } from './types.ts';
 
 export interface AppProps {
   engine: Engine;
@@ -18,30 +20,57 @@ export interface AppProps {
 
 type FocusedPane = 'taskList' | 'detailPane';
 
-type PromptState = { type: 'none' } | { type: 'quit'; previousPane: FocusedPane };
+type PromptState =
+  | { type: 'none' }
+  | { type: 'quit' }
+  | { type: 'dispatch'; issueNumber: number }
+  | { type: 'retry'; issueNumber: number; agentType: 'implementor' | 'reviewer' };
 
 const DEFAULT_TERMINAL_WIDTH = 80;
 const DEFAULT_TERMINAL_HEIGHT = 24;
-const PANE_COUNT = 2;
-const BORDER_COLUMNS = 3;
-const BORDER_ROWS = 2;
+const LEFT_PANE_RATIO = 0.4;
+const LEFT_PANE_MIN_COLS = 30;
+const BORDER_COLUMNS = 1;
+const HEADER_ROWS = 1;
+const FOOTER_ROWS = 1;
+const SPINNER_FRAMES: readonly string[] = [
+  '\u280B',
+  '\u2819',
+  '\u2839',
+  '\u2838',
+  '\u283C',
+  '\u2834',
+  '\u2826',
+  '\u2827',
+  '\u2807',
+  '\u280F',
+];
+const SPINNER_INTERVAL_MS = 80;
 
-const PANE_LABELS: readonly string[] = ['TASKS', 'DETAILS'];
+const DISPATCHABLE_STATUSES: ReadonlySet<TaskStatus> = new Set([
+  'ready-to-implement',
+  'agent-crashed',
+]);
 
 export function App(props: AppProps): ReactNode {
   const engineStore = useEngine({ engine: props.engine });
   const [started, setStarted] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
-  const [issueListPromptMessage, setIssueListPromptMessage] = useState<string | null>(null);
-  const [issueListViewportOffset, setIssueListViewportOffset] = useState(0);
-  const [issueListMouseScrolled, setIssueListMouseScrolled] = useState(false);
+  const [spinnerFrame, setSpinnerFrame] = useState(0);
 
   const focusedPane = useStore(engineStore, (s) => s.focusedPane);
   const shuttingDown = useStore(engineStore, (s) => s.shuttingDown);
   const runningAgentCount = useStore(engineStore, selectRunningAgentCount);
+  const plannerStatus = useStore(engineStore, (s) => s.plannerStatus);
   const cycleFocus = useStore(engineStore, (s) => s.cycleFocus);
   const shutdown = useStore(engineStore, (s) => s.shutdown);
+  const tasks = useStore(engineStore, (s) => s.tasks);
+  const selectedIssue = useStore(engineStore, (s) => s.selectedIssue);
+  const pinnedTask = useStore(engineStore, (s) => s.pinnedTask);
+  const selectIssue = useStore(engineStore, (s) => s.selectIssue);
+  const pinTask = useStore(engineStore, (s) => s.pinTask);
+  const dispatchAction = useStore(engineStore, (s) => s.dispatch);
 
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -49,24 +78,36 @@ export function App(props: AppProps): ReactNode {
   const terminalWidth = stdout?.columns ?? DEFAULT_TERMINAL_WIDTH;
   const terminalHeight = stdout?.rows ?? DEFAULT_TERMINAL_HEIGHT;
   const paneWidths = computePaneWidths(terminalWidth);
-  const contentHeight = terminalHeight - BORDER_ROWS;
+  const contentHeight = terminalHeight - HEADER_ROWS - FOOTER_ROWS;
 
-  const anyPromptActive = prompt.type !== 'none' || issueListPromptMessage !== null;
-  const activePromptMessage =
-    prompt.type === 'quit' ? buildQuitMessage(runningAgentCount) : issueListPromptMessage;
+  const sortedTasks = selectSortedTasks(tasks);
+  const { actionCapacity, agentsCapacity } = computeSectionCapacities(contentHeight);
+  const visibleTasks = getVisibleTasks(sortedTasks, actionCapacity, agentsCapacity);
+
+  const selectedTask = selectedIssue !== null ? (tasks.get(selectedIssue) ?? null) : null;
+  const pinnedTaskObj = pinnedTask !== null ? (tasks.get(pinnedTask) ?? null) : null;
 
   const promptRef = useRef(prompt);
   promptRef.current = prompt;
 
-  const issueListPromptMessageRef = useRef(issueListPromptMessage);
-  issueListPromptMessageRef.current = issueListPromptMessage;
-
   const focusedPaneRef = useRef(focusedPane);
   focusedPaneRef.current = focusedPane;
 
-  const handleIssueListPromptChange = useCallback((message: string | null) => {
-    setIssueListPromptMessage(message);
-  }, []);
+  const startupErrorRef = useRef(startupError);
+  startupErrorRef.current = startupError;
+
+  // Planner spinner animation
+  useEffect(() => {
+    if (plannerStatus !== 'running') {
+      return;
+    }
+    const timer = setInterval(() => {
+      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, SPINNER_INTERVAL_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [plannerStatus]);
 
   useEffect(() => {
     props.engine
@@ -88,8 +129,44 @@ export function App(props: AppProps): ReactNode {
     }
   }, [shuttingDown, runningAgentCount, exit]);
 
-  const startupErrorRef = useRef(startupError);
-  startupErrorRef.current = startupError;
+  const handleOpenURL = useCallback(
+    (task: Task | null) => {
+      if (!task) {
+        return;
+      }
+      const url = resolveTaskURL(task, props.repository);
+      if (url) {
+        openUrl(url);
+      }
+    },
+    [props.repository],
+  );
+
+  const handleCopyURL = useCallback(
+    (task: Task | null) => {
+      if (!task) {
+        return;
+      }
+      const url = resolveTaskURL(task, props.repository);
+      if (url) {
+        copyToClipboard(url);
+      }
+    },
+    [props.repository],
+  );
+
+  // Refs for values used in useInput callback
+  const visibleTasksRef = useRef(visibleTasks);
+  visibleTasksRef.current = visibleTasks;
+
+  const selectedIssueRef = useRef(selectedIssue);
+  selectedIssueRef.current = selectedIssue;
+
+  const selectedTaskRef = useRef(selectedTask);
+  selectedTaskRef.current = selectedTask;
+
+  const pinnedTaskObjRef = useRef(pinnedTaskObj);
+  pinnedTaskObjRef.current = pinnedTaskObj;
 
   useInput((input, key) => {
     if (startupErrorRef.current) {
@@ -99,10 +176,11 @@ export function App(props: AppProps): ReactNode {
 
     const currentPrompt = promptRef.current;
 
-    if (currentPrompt.type === 'quit') {
+    // Confirmation prompt active — only y/n/Escape
+    if (currentPrompt.type !== 'none') {
       if (input === 'y') {
+        confirmPrompt(currentPrompt);
         setPrompt({ type: 'none' });
-        shutdown();
         return;
       }
       if (input === 'n' || key.escape) {
@@ -112,19 +190,157 @@ export function App(props: AppProps): ReactNode {
       return;
     }
 
-    if (issueListPromptMessageRef.current !== null) {
-      return;
-    }
-
+    // Global keys
     if (key.tab) {
       cycleFocus();
       return;
     }
     if (input === 'q') {
-      setPrompt({ type: 'quit', previousPane: focusedPaneRef.current });
+      setPrompt({ type: 'quit' });
       return;
     }
+    if (input === 'o') {
+      const target = resolveTargetTask();
+      handleOpenURL(target);
+      return;
+    }
+    if (input === 'c') {
+      const target = resolveTargetTask();
+      handleCopyURL(target);
+      return;
+    }
+
+    // Task list keys
+    if (focusedPaneRef.current === 'taskList') {
+      handleTaskListInput(input, key);
+    }
   });
+
+  function resolveTargetTask(): Task | null {
+    if (focusedPaneRef.current === 'detailPane') {
+      return pinnedTaskObjRef.current;
+    }
+    return selectedTaskRef.current;
+  }
+
+  function handleTaskListInput(
+    input: string,
+    key: { upArrow: boolean; downArrow: boolean; return: boolean },
+  ): void {
+    if (input === 'j' || key.downArrow) {
+      navigateDown();
+      return;
+    }
+    if (input === 'k' || key.upArrow) {
+      navigateUp();
+      return;
+    }
+    if (key.return) {
+      const current = selectedIssueRef.current;
+      if (current !== null) {
+        pinTask(current);
+      }
+      return;
+    }
+    if (input === 'd') {
+      handleDispatchKey();
+    }
+  }
+
+  function navigateDown(): void {
+    const currentVisibleTasks = visibleTasksRef.current;
+    const currentSelected = selectedIssueRef.current;
+    if (currentVisibleTasks.length === 0) {
+      return;
+    }
+    if (currentSelected === null) {
+      const first = currentVisibleTasks[0];
+      if (first) {
+        selectIssue(first.task.issueNumber);
+      }
+      return;
+    }
+    const currentIndex = currentVisibleTasks.findIndex(
+      (st) => st.task.issueNumber === currentSelected,
+    );
+    if (currentIndex < 0) {
+      const first = currentVisibleTasks[0];
+      if (first) {
+        selectIssue(first.task.issueNumber);
+      }
+      return;
+    }
+    if (currentIndex < currentVisibleTasks.length - 1) {
+      const next = currentVisibleTasks[currentIndex + 1];
+      if (next) {
+        selectIssue(next.task.issueNumber);
+      }
+    }
+  }
+
+  function navigateUp(): void {
+    const currentVisibleTasks = visibleTasksRef.current;
+    const currentSelected = selectedIssueRef.current;
+    if (currentVisibleTasks.length === 0) {
+      return;
+    }
+    if (currentSelected === null) {
+      const first = currentVisibleTasks[0];
+      if (first) {
+        selectIssue(first.task.issueNumber);
+      }
+      return;
+    }
+    const currentIndex = currentVisibleTasks.findIndex(
+      (st) => st.task.issueNumber === currentSelected,
+    );
+    if (currentIndex < 0) {
+      const first = currentVisibleTasks[0];
+      if (first) {
+        selectIssue(first.task.issueNumber);
+      }
+      return;
+    }
+    if (currentIndex > 0) {
+      const prev = currentVisibleTasks[currentIndex - 1];
+      if (prev) {
+        selectIssue(prev.task.issueNumber);
+      }
+    }
+  }
+
+  function handleDispatchKey(): void {
+    const currentTask = selectedTaskRef.current;
+    if (!currentTask) {
+      return;
+    }
+    if (!DISPATCHABLE_STATUSES.has(currentTask.status)) {
+      return;
+    }
+    if (currentTask.status === 'agent-crashed' && currentTask.agent) {
+      const agentType = currentTask.agent.type;
+      setPrompt({ type: 'retry', issueNumber: currentTask.issueNumber, agentType });
+      return;
+    }
+    setPrompt({ type: 'dispatch', issueNumber: currentTask.issueNumber });
+  }
+
+  function confirmPrompt(currentPrompt: PromptState): void {
+    match(currentPrompt)
+      .with({ type: 'dispatch' }, (p) => {
+        dispatchAction(p.issueNumber);
+      })
+      .with({ type: 'retry' }, (p) => {
+        dispatchAction(p.issueNumber);
+      })
+      .with({ type: 'quit' }, () => {
+        shutdown();
+      })
+      .with({ type: 'none' }, () => {
+        /* no-op */
+      })
+      .exhaustive();
+  }
 
   if (startupError) {
     return (
@@ -149,7 +365,11 @@ export function App(props: AppProps): ReactNode {
         alignItems="center"
         justifyContent="center"
       >
-        <Text>Shutting down... waiting for {runningAgentCount} agent(s)</Text>
+        <Text>
+          {runningAgentCount > 0
+            ? `Shutting down... waiting for ${runningAgentCount} agent(s)`
+            : 'Shutting down...'}
+        </Text>
       </Box>
     );
   }
@@ -167,43 +387,29 @@ export function App(props: AppProps): ReactNode {
     );
   }
 
-  const panesFocused = getPaneFocusStates(focusedPane);
+  const promptMessage = buildPromptMessage(prompt, runningAgentCount);
+  const dispatchDimmed = !(selectedTask && DISPATCHABLE_STATUSES.has(selectedTask.status));
 
   return (
     <Box width={terminalWidth} height={terminalHeight} flexDirection="column">
-      <Box>
-        <TopBorder paneWidths={paneWidths} panesFocused={panesFocused} />
-      </Box>
+      <HeaderBar
+        plannerStatus={plannerStatus}
+        spinnerFrame={spinnerFrame}
+        terminalWidth={terminalWidth}
+      />
       <Box flexDirection="row" height={contentHeight}>
-        <Text dimColor={!panesFocused[0]}>│</Text>
         <Box width={paneWidths[0]} height={contentHeight} flexDirection="column">
-          <IssueList
-            store={engineStore}
-            focused={focusedPane === 'taskList'}
-            onOpenURL={openUrl}
-            repository={props.repository}
-            paneWidth={paneWidths[0]}
-            paneHeight={contentHeight}
-            viewportOffset={issueListViewportOffset}
-            onViewportOffsetChange={setIssueListViewportOffset}
-            mouseScrolled={issueListMouseScrolled}
-            onMouseScrolledChange={setIssueListMouseScrolled}
-            promptActive={prompt.type !== 'none'}
-            onPromptChange={handleIssueListPromptChange}
-          />
+          <IssueList store={engineStore} paneWidth={paneWidths[0]} paneHeight={contentHeight} />
         </Box>
-        <Text dimColor={!(panesFocused[0] || panesFocused[1])}>│</Text>
+        <Text>│</Text>
         <Box width={paneWidths[1]} height={contentHeight} flexDirection="column">
           <DetailPane store={engineStore} paneWidth={paneWidths[1]} paneHeight={contentHeight} />
         </Box>
-        <Text dimColor={!panesFocused[1]}>│</Text>
       </Box>
-      <Box>
-        <BottomBorder paneWidths={paneWidths} panesFocused={panesFocused} />
-      </Box>
-      {anyPromptActive && activePromptMessage !== null ? (
+      <FooterBar focusedPane={focusedPane} dispatchDimmed={dispatchDimmed} />
+      {promptMessage !== null ? (
         <ConfirmationPrompt
-          message={activePromptMessage}
+          message={promptMessage}
           terminalWidth={terminalWidth}
           terminalHeight={terminalHeight}
         />
@@ -214,68 +420,109 @@ export function App(props: AppProps): ReactNode {
 
 export function computePaneWidths(terminalWidth: number): readonly [number, number] {
   const contentWidth = terminalWidth - BORDER_COLUMNS;
-  const baseWidth = Math.floor(contentWidth / PANE_COUNT);
-  const remainder = contentWidth - baseWidth * PANE_COUNT;
-  return [baseWidth, baseWidth + remainder];
+  const leftWidth = Math.max(LEFT_PANE_MIN_COLS, Math.floor(contentWidth * LEFT_PANE_RATIO));
+  const rightWidth = Math.max(0, contentWidth - leftWidth);
+  return [leftWidth, rightWidth];
 }
 
-interface TopBorderProps {
-  paneWidths: readonly [number, number];
-  panesFocused: readonly [boolean, boolean];
+// ---------------------------------------------------------------------------
+// Header Bar
+// ---------------------------------------------------------------------------
+
+interface HeaderBarProps {
+  plannerStatus: 'idle' | 'running';
+  spinnerFrame: number;
+  terminalWidth: number;
 }
 
-function TopBorder(props: TopBorderProps): ReactNode {
+function HeaderBar(props: HeaderBarProps): ReactNode {
+  // biome-ignore lint/security/noSecrets: emoji character, not a secret
+  const IDLE_EMOJI = '\uD83D\uDCA4';
+  const indicator =
+    props.plannerStatus === 'running'
+      ? (SPINNER_FRAMES[props.spinnerFrame] ?? '\u280B')
+      : IDLE_EMOJI;
+
   return (
-    <Text>
-      <Text dimColor={!props.panesFocused[0]}>
-        {`\u250c${buildTopSegment(PANE_LABELS[0] ?? '', props.paneWidths[0])}`}
-      </Text>
-      <Text dimColor={!(props.panesFocused[0] || props.panesFocused[1])}>┬</Text>
-      <Text dimColor={!props.panesFocused[1]}>
-        {`${buildTopSegment(PANE_LABELS[1] ?? '', props.paneWidths[1])}\u2510`}
-      </Text>
-    </Text>
+    <Box width={props.terminalWidth} justifyContent="flex-end">
+      <Text>planner {indicator}</Text>
+    </Box>
   );
 }
 
-interface BottomBorderProps {
-  paneWidths: readonly [number, number];
-  panesFocused: readonly [boolean, boolean];
+// ---------------------------------------------------------------------------
+// Footer Bar
+// ---------------------------------------------------------------------------
+
+interface FooterBarProps {
+  focusedPane: FocusedPane;
+  dispatchDimmed: boolean;
 }
 
-function BottomBorder(props: BottomBorderProps): ReactNode {
+function FooterBar(props: FooterBarProps): ReactNode {
+  if (props.focusedPane === 'taskList') {
+    return (
+      <Box>
+        <Text>
+          {'↑↓jk select    <enter> pin    '}
+          <Text dimColor={props.dispatchDimmed}>[d]ispatch</Text>
+          {'    '}[o]pen [c]opy [q]uit
+        </Text>
+      </Box>
+    );
+  }
+
   return (
-    <Text>
-      <Text dimColor={!props.panesFocused[0]}>
-        {`\u2514${'\u2500'.repeat(props.paneWidths[0])}`}
-      </Text>
-      <Text dimColor={!(props.panesFocused[0] || props.panesFocused[1])}>┴</Text>
-      <Text dimColor={!props.panesFocused[1]}>
-        {`${'\u2500'.repeat(props.paneWidths[1])}\u2518`}
-      </Text>
-    </Text>
+    <Box>
+      <Text>↑↓jk scroll {'<tab>'} back [o]pen [c]opy [q]uit</Text>
+    </Box>
   );
 }
 
-function buildTopSegment(label: string, width: number): string {
-  const prefix = ` ${label} `;
-  const fillLength = width - prefix.length;
-  if (fillLength <= 0) {
-    return prefix.slice(0, width);
-  }
-  return prefix + '\u2500'.repeat(fillLength);
+// ---------------------------------------------------------------------------
+// URL Resolution
+// ---------------------------------------------------------------------------
+
+export function resolveTaskURL(task: Task, repository: string): string | null {
+  const issueURL = `https://github.com/${repository}/issues/${task.issueNumber}`;
+  const firstPR = task.prs[0];
+  const firstPRURL = firstPR?.url || null;
+
+  return match(task.status)
+    .with('ready-to-implement', () => issueURL)
+    .with('needs-refinement', () => issueURL)
+    .with('blocked', () => issueURL)
+    .with('agent-crashed', () => issueURL)
+    .with('agent-implementing', () => firstPRURL ?? issueURL)
+    .with('agent-reviewing', () => firstPRURL ?? issueURL)
+    .with('ready-to-merge', () => firstPRURL ?? issueURL)
+    .exhaustive();
 }
 
-function getPaneFocusStates(focusedPane: FocusedPane): readonly [boolean, boolean] {
-  return [focusedPane === 'taskList', focusedPane === 'detailPane'];
+// ---------------------------------------------------------------------------
+// Prompt Messages
+// ---------------------------------------------------------------------------
+
+function buildPromptMessage(prompt: PromptState, runningAgentCount: number): string | null {
+  return match(prompt)
+    .with({ type: 'dispatch' }, (p) => `Dispatch Implementor for #${p.issueNumber}?`)
+    .with({ type: 'retry' }, (p) => {
+      const label = p.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
+      return `Retry ${label} for #${p.issueNumber}?`;
+    })
+    .with({ type: 'quit' }, () => {
+      if (runningAgentCount > 0) {
+        return `Quit? ${runningAgentCount} agent(s) running.`;
+      }
+      return 'Quit?';
+    })
+    .with({ type: 'none' }, () => null)
+    .exhaustive();
 }
 
-function buildQuitMessage(runningAgentCount: number): string {
-  if (runningAgentCount > 0) {
-    return `Quit? ${runningAgentCount} agent(s) running.`;
-  }
-  return 'Quit?';
-}
+// ---------------------------------------------------------------------------
+// System Interaction
+// ---------------------------------------------------------------------------
 
 function openUrl(url: string): void {
   const platform = process.platform;
@@ -288,4 +535,25 @@ function openUrl(url: string): void {
     return;
   }
   spawn('xdg-open', [url], { stdio: 'ignore' });
+}
+
+function copyToClipboard(text: string): void {
+  const platform = process.platform;
+  if (platform === 'darwin') {
+    const child = spawn('pbcopy', [], { stdio: ['pipe', 'ignore', 'ignore'] });
+    child.stdin.write(text);
+    child.stdin.end();
+    return;
+  }
+  if (platform === 'win32') {
+    const child = spawn('clip', [], { stdio: ['pipe', 'ignore', 'ignore'] });
+    child.stdin.write(text);
+    child.stdin.end();
+    return;
+  }
+  const child = spawn('xclip', ['-selection', 'clipboard'], {
+    stdio: ['pipe', 'ignore', 'ignore'],
+  });
+  child.stdin.write(text);
+  child.stdin.end();
 }

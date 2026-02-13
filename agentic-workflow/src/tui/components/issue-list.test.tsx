@@ -1,99 +1,44 @@
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
-import type { EngineCommand, EngineEvent } from '../../types.ts';
+import type { EngineEvent } from '../../types.ts';
 import { createTUIStore } from '../store.ts';
 import { createMockEngine } from '../test-utils/create-mock-engine.ts';
-import { IssueList } from './issue-list.tsx';
+import {
+  computeSectionCapacities,
+  getCIStatusColor,
+  getIssuePriorityColor,
+  getVisibleTasks,
+  getWorstCIStatus,
+  IssueList,
+} from './issue-list.tsx';
 
-const READY_MARKER = '\u25CF';
-const STALE_MARKER = '\u25CB';
-const REVIEW_MARKER = '\u25B6';
-const BLOCKED_MARKER = '\u26A0';
-const DONE_MARKER = '\u2713';
-const ERROR_MARKER = '\u2717';
-const CI_MARKER = '\u274C';
-
-const SPINNER_FRAMES: readonly string[] = [
-  '\u280B',
-  '\u2819',
-  '\u2839',
-  '\u2838',
-  '\u283C',
-  '\u2834',
-  '\u2826',
-  '\u2827',
-  '\u2807',
-  '\u280F',
-];
-
-interface SetupTestConfig {
-  focused?: boolean;
-  paneHeight?: number;
-  paneWidth?: number;
-}
-
-function setupTest(config?: SetupTestConfig): ReturnType<typeof render> & {
+function setupTest(config?: { paneHeight?: number; paneWidth?: number }): ReturnType<
+  typeof render
+> & {
   store: ReturnType<typeof createTUIStore>;
   emit: (event: EngineEvent) => void;
-  sentCommands: EngineCommand[];
-  onOpenURL: ReturnType<typeof vi.fn>;
-  engine: ReturnType<typeof createMockEngine>['engine'];
-  onPromptChange: ReturnType<typeof vi.fn>;
-  onViewportOffsetChange: ReturnType<typeof vi.fn>;
-  onMouseScrolledChange: ReturnType<typeof vi.fn>;
 } {
-  const { engine, emit, sentCommands } = createMockEngine();
+  const { engine, emit } = createMockEngine();
   const store = createTUIStore({ engine });
-  const onOpenUrl = vi.fn();
-  const focused = config?.focused ?? true;
   const paneHeight = config?.paneHeight ?? 20;
-  const paneWidth = config?.paneWidth ?? 40;
-
-  const onPromptChange = vi.fn();
-  const onViewportOffsetChange = vi.fn();
-  const onMouseScrolledChange = vi.fn();
+  const paneWidth = config?.paneWidth ?? 60;
 
   const instance = render(
-    <IssueList
-      store={store}
-      focused={focused}
-      onOpenURL={onOpenUrl}
-      repository="owner/repo"
-      paneWidth={paneWidth}
-      paneHeight={paneHeight}
-      viewportOffset={0}
-      onViewportOffsetChange={onViewportOffsetChange}
-      mouseScrolled={false}
-      onMouseScrolledChange={onMouseScrolledChange}
-      promptActive={false}
-      onPromptChange={onPromptChange}
-    />,
+    <IssueList store={store} paneWidth={paneWidth} paneHeight={paneHeight} />,
   );
 
-  return {
-    ...instance,
-    store,
-    emit,
-    sentCommands,
-    onOpenURL: onOpenUrl,
-    engine,
-    onPromptChange,
-    onViewportOffsetChange,
-    onMouseScrolledChange,
-  };
-}
-
-interface AddIssueOverrides {
-  title?: string;
-  status?: string;
-  priority?: string;
-  createdAt?: string;
+  return { ...instance, store, emit };
 }
 
 function addIssue(
   emit: (event: EngineEvent) => void,
   issueNumber: number,
-  overrides?: AddIssueOverrides,
+  overrides?: {
+    title?: string;
+    status?: string;
+    priority?: string;
+    createdAt?: string;
+  },
 ): void {
   emit({
     type: 'issueStatusChanged',
@@ -107,73 +52,32 @@ function addIssue(
 }
 
 // ---------------------------------------------------------------------------
-// Empty state
+// Section Headers
 // ---------------------------------------------------------------------------
 
-test('it displays an empty state message when no issues are tracked', () => {
+test('it renders ACTION and AGENTS section headers even when empty', () => {
   const { lastFrame } = setupTest();
 
-  expect(lastFrame()).toContain('No issues tracked');
+  const frame = lastFrame() ?? '';
+  expect(frame).toContain('ACTION (0)');
+  expect(frame).toContain('AGENTS (0)');
 });
 
-// ---------------------------------------------------------------------------
-// Rendering issues
-// ---------------------------------------------------------------------------
+test('it shows the correct count in section headers', async () => {
+  const { lastFrame, emit } = setupTest();
 
-test('it displays each issue with priority, number, title, and state indicator', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 5, { title: 'My feature', status: 'pending', priority: 'priority:high' });
-  store.getState().selectIssue(5);
+  addIssue(emit, 1, { status: 'pending' });
+  addIssue(emit, 2, { status: 'blocked' });
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    expect(frame).toContain('!!!');
-    expect(frame).toContain('#5');
-    expect(frame).toContain('My feature');
-    expect(frame).toContain(READY_MARKER);
+    expect(frame).toContain('ACTION (2)');
+    expect(frame).toContain('AGENTS (0)');
   });
 });
 
-// ---------------------------------------------------------------------------
-// State indicators
-// ---------------------------------------------------------------------------
-
-test('it shows a ready marker for pending issues', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 1, { status: 'pending' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain(READY_MARKER);
-  });
-});
-
-test('it shows a ready marker for unblocked issues', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 1, { status: 'unblocked' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain(READY_MARKER);
-  });
-});
-
-test('it shows a ready marker for needs-changes issues', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 1, { status: 'needs-changes' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain(READY_MARKER);
-  });
-});
-
-test('it shows a spinner indicator for issues with a running agent', async () => {
-  const { lastFrame, emit, store } = setupTest();
+test('it shows AGENTS count when agent tasks exist', async () => {
+  const { lastFrame, emit } = setupTest();
 
   addIssue(emit, 1, { status: 'in-progress' });
   emit({
@@ -182,72 +86,53 @@ test('it shows a spinner indicator for issues with a running agent', async () =>
     issueNumber: 1,
     sessionID: 'sess-1',
   });
-  store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    const hasSpinner = SPINNER_FRAMES.some((f) => frame.includes(f));
-    expect(hasSpinner).toBe(true);
+    expect(frame).toContain('ACTION (0)');
+    expect(frame).toContain('AGENTS (1)');
   });
 });
 
-test('it shows a stale marker for in-progress issues without a running agent', async () => {
-  const { lastFrame, emit, store } = setupTest();
+// ---------------------------------------------------------------------------
+// Row Format
+// ---------------------------------------------------------------------------
 
-  addIssue(emit, 1, { status: 'in-progress' });
-  store.getState().selectIssue(1);
+test('it renders the issue number in the row', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 42, { title: 'My feature' });
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain(STALE_MARKER);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('#42');
   });
 });
 
-test('it shows a review marker for review issues without a running agent', async () => {
-  const { lastFrame, emit, store } = setupTest();
+test('it renders the status label in the row', async () => {
+  const { lastFrame, emit } = setupTest();
 
-  addIssue(emit, 1, { status: 'review' });
-  store.getState().selectIssue(1);
+  addIssue(emit, 1, { status: 'pending' });
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain(REVIEW_MARKER);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('DISPATCH');
   });
 });
 
-test('it shows a blocked marker for needs-refinement issues', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 1, { status: 'needs-refinement' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain(BLOCKED_MARKER);
-  });
-});
-
-test('it shows a blocked marker for blocked issues', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 1, { status: 'blocked' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain(BLOCKED_MARKER);
-  });
-});
-
-test('it shows a done marker for approved issues', async () => {
-  const { lastFrame, emit, store } = setupTest();
+test('it renders APPROVED status for approved tasks', async () => {
+  const { lastFrame, emit } = setupTest();
 
   addIssue(emit, 1, { status: 'approved' });
-  store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain(DONE_MARKER);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('APPROVED');
   });
 });
 
-test('it shows an error marker when an issue has a failure regardless of status', async () => {
-  const { lastFrame, emit, store } = setupTest();
+test('it renders FAILED status for crashed tasks', async () => {
+  const { lastFrame, emit } = setupTest();
 
   addIssue(emit, 1, { status: 'in-progress' });
   emit({
@@ -260,810 +145,321 @@ test('it shows an error marker when an issue has a failure regardless of status'
     type: 'agentFailed',
     agentType: 'implementor',
     issueNumber: 1,
-    error: 'crash',
+    error: 'boom',
     sessionID: 'sess-1',
   });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain(ERROR_MARKER);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Ordering
-// ---------------------------------------------------------------------------
-
-test('it groups action items before running agent items', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 1, { title: 'Alpha', status: 'pending', priority: 'priority:high' });
-  addIssue(emit, 2, { title: 'Beta', status: 'in-progress', priority: 'priority:low' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'implementor',
-    issueNumber: 2,
-    sessionID: 'sess-1',
-  });
-  store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    const betaIndex = frame.indexOf('Beta');
-    const alphaIndex = frame.indexOf('Alpha');
-    expect(betaIndex).toBeGreaterThan(-1);
-    expect(alphaIndex).toBeGreaterThan(-1);
-    expect(alphaIndex).toBeLessThan(betaIndex);
+    expect(frame).toContain('FAILED');
   });
 });
 
-test('it orders issues by priority within the same running state', async () => {
-  const { lastFrame, emit, store } = setupTest();
+test('it renders WIP with agent count for implementing tasks', async () => {
+  const { lastFrame, emit } = setupTest();
 
-  addIssue(emit, 1, { title: 'Low', status: 'pending', priority: 'priority:low' });
-  addIssue(emit, 2, { title: 'High', status: 'pending', priority: 'priority:high' });
-  addIssue(emit, 3, { title: 'Med', status: 'pending', priority: 'priority:medium' });
-  store.getState().selectIssue(1);
+  addIssue(emit, 1, { status: 'in-progress' });
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  });
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    const highIndex = frame.indexOf('High');
-    const medIndex = frame.indexOf('Med');
-    const lowIndex = frame.indexOf('Low');
-    expect(highIndex).toBeLessThan(medIndex);
-    expect(medIndex).toBeLessThan(lowIndex);
+    expect(frame).toContain('WIP(1)');
   });
 });
 
-test('it orders issues by issue number within the same priority', async () => {
-  const { lastFrame, emit, store } = setupTest();
+test('it renders the title in the row', async () => {
+  const { lastFrame, emit } = setupTest();
 
-  addIssue(emit, 1, {
-    title: 'Older',
-    status: 'pending',
-    priority: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-  addIssue(emit, 2, {
-    title: 'Newer',
-    status: 'pending',
-    priority: 'priority:medium',
-    createdAt: '2026-02-01T00:00:00Z',
-  });
-  store.getState().selectIssue(1);
+  addIssue(emit, 1, { title: 'Feature X' });
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    const olderIndex = frame.indexOf('Older');
-    const newerIndex = frame.indexOf('Newer');
-    expect(olderIndex).toBeLessThan(newerIndex);
+    expect(frame).toContain('Feature X');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Navigation — j/k and arrow keys
+// PR Column
 // ---------------------------------------------------------------------------
 
-test('it moves the selection down when j is pressed', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+test('it shows a dash when no PRs are linked', async () => {
+  const { lastFrame, emit } = setupTest();
 
-  addIssue(emit, 1, { title: 'First' });
-  addIssue(emit, 2, { title: 'Second', createdAt: '2026-01-02T00:00:00Z' });
-  store.getState().selectIssue(1);
+  addIssue(emit, 1);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#1');
-  });
-
-  stdin.write('j');
-
-  await vi.waitFor(() => {
-    expect(store.getState().selectedIssue).toBe(2);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('\u2014');
   });
 });
 
-test('it moves the selection up when k is pressed', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
+test('it shows PR number when one PR is linked', async () => {
+  const { lastFrame, emit } = setupTest();
 
-  addIssue(emit, 1, { title: 'First' });
-  addIssue(emit, 2, { title: 'Second', createdAt: '2026-01-02T00:00:00Z' });
-  store.getState().selectIssue(2);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#2');
-  });
-
-  stdin.write('k');
-
-  await vi.waitFor(() => {
-    expect(store.getState().selectedIssue).toBe(1);
-  });
-});
-
-test('it moves the selection down when the down arrow is pressed', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
-
-  addIssue(emit, 1, { title: 'First' });
-  addIssue(emit, 2, { title: 'Second', createdAt: '2026-01-02T00:00:00Z' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#1');
-  });
-
-  stdin.write('\x1b[B');
-
-  await vi.waitFor(() => {
-    expect(store.getState().selectedIssue).toBe(2);
-  });
-});
-
-test('it moves the selection up when the up arrow is pressed', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
-
-  addIssue(emit, 1, { title: 'First' });
-  addIssue(emit, 2, { title: 'Second', createdAt: '2026-01-02T00:00:00Z' });
-  store.getState().selectIssue(2);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#2');
-  });
-
-  stdin.write('\x1b[A');
-
-  await vi.waitFor(() => {
-    expect(store.getState().selectedIssue).toBe(1);
-  });
-});
-
-test('it does not move past the end of the list when pressing down', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
-
-  addIssue(emit, 1, { title: 'Only' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#1');
-  });
-
-  stdin.write('j');
-
-  // Wait a tick and ensure selection didn't change
-  await new Promise((r) => setTimeout(r, 50));
-
-  expect(store.getState().selectedIssue).toBe(1);
-});
-
-test('it does not move past the beginning of the list when pressing up', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest();
-
-  addIssue(emit, 1, { title: 'Only' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#1');
-  });
-
-  stdin.write('k');
-
-  // Wait a tick and ensure selection didn't change
-  await new Promise((r) => setTimeout(r, 50));
-
-  expect(store.getState().selectedIssue).toBe(1);
-});
-
-// ---------------------------------------------------------------------------
-// Enter — dispatch confirmation for dispatchable issues
-// ---------------------------------------------------------------------------
-
-test('it shows a dispatch confirmation when Enter is pressed on a pending issue', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 5, { status: 'pending' });
-  store.getState().selectIssue(5);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#5');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
-  });
-});
-
-test('it dispatches an implementor when the dispatch confirmation is accepted', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
-
-  addIssue(emit, 5, { status: 'pending' });
-  store.getState().selectIssue(5);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#5');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
-  });
-
-  stdin.write('y');
-
-  await vi.waitFor(() => {
-    expect(sentCommands).toContainEqual({ command: 'dispatchImplementor', issueNumber: 5 });
-  });
-});
-
-test('it dismisses the dispatch confirmation when the user presses n', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
-
-  addIssue(emit, 5, { status: 'pending' });
-  store.getState().selectIssue(5);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#5');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
-  });
-
-  onPromptChange.mockClear();
-  stdin.write('n');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith(null);
-  });
-  expect(sentCommands).not.toContainEqual({ command: 'dispatchImplementor', issueNumber: 5 });
-});
-
-test('it dismisses the dispatch confirmation when the user presses Escape', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
-
-  addIssue(emit, 5, { status: 'pending' });
-  store.getState().selectIssue(5);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#5');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
-  });
-
-  onPromptChange.mockClear();
-  stdin.write('\x1b');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith(null);
-  });
-  expect(sentCommands).not.toContainEqual({ command: 'dispatchImplementor', issueNumber: 5 });
-});
-
-// ---------------------------------------------------------------------------
-// Enter — cancel confirmation for running agents
-// ---------------------------------------------------------------------------
-
-test('it shows a cancel confirmation when Enter is pressed on an issue with a running agent', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 3, { status: 'in-progress' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'implementor',
-    issueNumber: 3,
-    sessionID: 'sess-1',
-  });
-  store.getState().selectIssue(3);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#3');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Cancel agent for #3?');
-  });
-});
-
-test('it sends a cancel command when the cancel confirmation is accepted', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
-
-  addIssue(emit, 3, { status: 'in-progress' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'implementor',
-    issueNumber: 3,
-    sessionID: 'sess-1',
-  });
-  store.getState().selectIssue(3);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#3');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Cancel agent for #3?');
-  });
-
-  stdin.write('y');
-
-  await vi.waitFor(() => {
-    expect(sentCommands).toContainEqual({ command: 'cancelAgent', issueNumber: 3 });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Enter — retry confirmation for failed issues
-// ---------------------------------------------------------------------------
-
-test('it shows a retry confirmation when Enter is pressed on a failed issue', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 7, { status: 'in-progress' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'implementor',
-    issueNumber: 7,
-    sessionID: 'sess-1',
-  });
-  emit({
-    type: 'agentFailed',
-    agentType: 'implementor',
-    issueNumber: 7,
-    error: 'crash',
-    sessionID: 'sess-1',
-  });
-  store.getState().selectIssue(7);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#7');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Retry Implementor for #7?');
-  });
-});
-
-test('it dispatches the appropriate agent and clears the failure when retry is confirmed', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
-
-  addIssue(emit, 7, { status: 'in-progress' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'implementor',
-    issueNumber: 7,
-    sessionID: 'sess-1',
-  });
-  emit({
-    type: 'agentFailed',
-    agentType: 'implementor',
-    issueNumber: 7,
-    error: 'crash',
-    sessionID: 'sess-1',
-  });
-  store.getState().selectIssue(7);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#7');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Retry Implementor for #7?');
-  });
-
-  stdin.write('y');
-
-  await vi.waitFor(() => {
-    expect(sentCommands).toContainEqual({ command: 'dispatchImplementor', issueNumber: 7 });
-  });
-});
-
-test('it shows the correct agent type in the retry prompt for reviewer failures', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 7, { status: 'review' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'reviewer',
-    issueNumber: 7,
-    sessionID: 'sess-r-1',
-  });
-  emit({
-    type: 'agentFailed',
-    agentType: 'reviewer',
-    issueNumber: 7,
-    error: 'review crash',
-    sessionID: 'sess-r-1',
-  });
-  store.getState().selectIssue(7);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#7');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Retry Reviewer for #7?');
-  });
-});
-
-test('it dispatches a reviewer when retrying a failed reviewer', async () => {
-  const { lastFrame, emit, store, stdin, sentCommands, onPromptChange } = setupTest();
-
-  addIssue(emit, 7, { status: 'review' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'reviewer',
-    issueNumber: 7,
-    sessionID: 'sess-r-1',
-  });
-  emit({
-    type: 'agentFailed',
-    agentType: 'reviewer',
-    issueNumber: 7,
-    error: 'review crash',
-    sessionID: 'sess-r-1',
-  });
-  store.getState().selectIssue(7);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#7');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Retry Reviewer for #7?');
-  });
-
-  stdin.write('y');
-
-  await vi.waitFor(() => {
-    expect(sentCommands).toContainEqual({ command: 'dispatchReviewer', issueNumber: 7 });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Enter — open in browser actions
-// ---------------------------------------------------------------------------
-
-test('it opens the PR in the browser when Enter is pressed on a review issue without a running agent', async () => {
-  const { lastFrame, emit, store, stdin, onOpenURL } = setupTest();
-
-  addIssue(emit, 4, { status: 'review' });
+  addIssue(emit, 1);
   emit({
     type: 'prLinked',
-    issueNumber: 4,
-    prNumber: 20,
-    url: 'https://github.com/owner/repo/pull/20',
+    issueNumber: 1,
+    prNumber: 482,
+    url: 'https://github.com/owner/repo/pull/482',
     ciStatus: null,
   });
-  store.getState().selectIssue(4);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#4');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onOpenURL).toHaveBeenCalledWith('https://github.com/owner/repo/pull/20');
-  });
-});
-
-test('it opens the issue in the browser when Enter is pressed on a needs-refinement issue', async () => {
-  const { lastFrame, emit, store, stdin, onOpenURL } = setupTest();
-
-  addIssue(emit, 6, { status: 'needs-refinement' });
-  store.getState().selectIssue(6);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#6');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onOpenURL).toHaveBeenCalledWith('https://github.com/owner/repo/issues/6');
-  });
-});
-
-test('it opens the issue in the browser when Enter is pressed on a blocked issue', async () => {
-  const { lastFrame, emit, store, stdin, onOpenURL } = setupTest();
-
-  addIssue(emit, 8, { status: 'blocked' });
-  store.getState().selectIssue(8);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#8');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onOpenURL).toHaveBeenCalledWith('https://github.com/owner/repo/issues/8');
-  });
-});
-
-test('it opens the PR in the browser when Enter is pressed on an approved issue', async () => {
-  const { lastFrame, emit, store, stdin, onOpenURL } = setupTest();
-
-  addIssue(emit, 9, { status: 'approved' });
-  emit({
-    type: 'prLinked',
-    issueNumber: 9,
-    prNumber: 30,
-    url: 'https://github.com/owner/repo/pull/30',
-    ciStatus: null,
-  });
-  store.getState().selectIssue(9);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#9');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onOpenURL).toHaveBeenCalledWith('https://github.com/owner/repo/pull/30');
-  });
-});
-
-test('it falls back to the issue URL when no PR is found for a review issue', async () => {
-  const { lastFrame, emit, store, stdin, onOpenURL, engine } = setupTest();
-
-  vi.mocked(engine.getPRForIssue).mockResolvedValue(null);
-
-  addIssue(emit, 4, { status: 'review' });
-  store.getState().selectIssue(4);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#4');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onOpenURL).toHaveBeenCalledWith('https://github.com/owner/repo/issues/4');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Scrolling / visible window
-// ---------------------------------------------------------------------------
-
-test('it scrolls to keep the selected item visible when navigating past the visible area', async () => {
-  const { lastFrame, emit, store, stdin } = setupTest({ paneHeight: 3 });
-
-  for (let i = 1; i <= 5; i += 1) {
-    addIssue(emit, i, {
-      title: `Issue${i}`,
-      createdAt: `2026-01-0${i}T00:00:00Z`,
-    });
-  }
-
-  // Start at issue 3 (the last visible item in a 3-row viewport)
-  store.getState().selectIssue(3);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('Issue3');
-  });
-
-  // Navigate past the visible area
-  stdin.write('j');
-  await vi.waitFor(() => {
-    expect(store.getState().selectedIssue).toBe(4);
     const frame = lastFrame() ?? '';
-    // Issue 4 should be visible after scrolling
-    expect(frame).toContain('Issue4');
+    expect(frame).toContain('PR#482');
   });
 });
 
-// ---------------------------------------------------------------------------
-// Prompt exclusivity — navigation ignored during prompt
-// ---------------------------------------------------------------------------
+test('it shows PR count when multiple PRs are linked', async () => {
+  const { lastFrame, emit } = setupTest();
 
-test('it ignores navigation keys while a confirmation prompt is active', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 1, { title: 'First' });
-  addIssue(emit, 2, { title: 'Second', createdAt: '2026-01-02T00:00:00Z' });
-  store.getState().selectIssue(1);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#1');
-  });
-
-  // Trigger dispatch prompt
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #1?');
-  });
-
-  // Try to navigate — should be ignored
-  stdin.write('j');
-
-  // Wait a tick
-  await new Promise((r) => setTimeout(r, 50));
-
-  // Dismiss and check selection didn't change
-  stdin.write('n');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith(null);
-  });
-
-  expect(store.getState().selectedIssue).toBe(1);
-});
-
-// ---------------------------------------------------------------------------
-// Focus — ignores input when not focused
-// ---------------------------------------------------------------------------
-
-test('it ignores input when the pane is not focused', async () => {
-  const { emit, store, stdin } = setupTest({ focused: false });
-
-  addIssue(emit, 1, { title: 'First' });
-  addIssue(emit, 2, { title: 'Second', createdAt: '2026-01-02T00:00:00Z' });
-  store.getState().selectIssue(1);
-
-  stdin.write('j');
-
-  // Give time for potential state change
-  await new Promise((r) => setTimeout(r, 50));
-
-  // Selection should not have changed
-  expect(store.getState().selectedIssue).toBe(1);
-});
-
-// ---------------------------------------------------------------------------
-// Cancel confirmation for reviewer running
-// ---------------------------------------------------------------------------
-
-test('it shows a cancel confirmation when Enter is pressed on a review issue with a running reviewer', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 4, { status: 'review' });
-  emit({
-    type: 'agentStarted',
-    agentType: 'reviewer',
-    issueNumber: 4,
-    sessionID: 'sess-r-1',
-  });
-  store.getState().selectIssue(4);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#4');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Cancel agent for #4?');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// CI failure marker
-// ---------------------------------------------------------------------------
-
-test('it displays the CI marker alongside the state indicator when an issue has CI failure', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 1, { status: 'pending' });
+  addIssue(emit, 1);
   emit({
     type: 'prLinked',
     issueNumber: 1,
     prNumber: 10,
     url: 'https://github.com/owner/repo/pull/10',
-    ciStatus: 'failure',
+    ciStatus: null,
+  });
+  emit({
+    type: 'prLinked',
+    issueNumber: 1,
+    prNumber: 11,
+    url: 'https://github.com/owner/repo/pull/11',
+    ciStatus: null,
   });
 
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('PRx2');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section Assignment
+// ---------------------------------------------------------------------------
+
+test('it places ready-to-implement tasks in the ACTION section', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'pending', title: 'Ready' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('ACTION (1)');
+    expect(frame).toContain('AGENTS (0)');
+  });
+});
+
+test('it places blocked tasks in the ACTION section', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'blocked' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('ACTION (1)');
+  });
+});
+
+test('it places needs-refinement tasks in the ACTION section', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'needs-refinement' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('ACTION (1)');
+  });
+});
+
+test('it places approved tasks in the ACTION section', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'approved' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('ACTION (1)');
+  });
+});
+
+test('it places agent-implementing tasks in the AGENTS section', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'in-progress' });
+  emit({
+    type: 'agentStarted',
+    agentType: 'implementor',
+    issueNumber: 1,
+    sessionID: 'sess-1',
+  });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('AGENTS (1)');
+  });
+});
+
+test('it places agent-reviewing tasks in the AGENTS section', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'review' });
+  emit({
+    type: 'agentStarted',
+    agentType: 'reviewer',
+    issueNumber: 1,
+    sessionID: 'sess-r-1',
+  });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('AGENTS (1)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Overflow Indicator
+// ---------------------------------------------------------------------------
+
+test('it shows overflow indicator when items exceed capacity', async () => {
+  const { lastFrame, emit } = setupTest({ paneHeight: 4 });
+  // With paneHeight 4: ACTION gets ceil(4/2)=2 rows, 1 header = 1 capacity
+  // AGENTS gets floor(4/2)=2 rows, 1 header = 1 capacity
+
+  addIssue(emit, 1, { status: 'pending', title: 'First', priority: 'priority:high' });
+  addIssue(emit, 2, { status: 'pending', title: 'Second', priority: 'priority:medium' });
+  addIssue(emit, 3, { status: 'pending', title: 'Third', priority: 'priority:low' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    // ACTION should show (1/3) overflow
+    expect(frame).toContain('ACTION (1/3)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sorting
+// ---------------------------------------------------------------------------
+
+test('it sorts tasks by status weight within a section', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'pending', title: 'Ready', priority: 'priority:medium' });
+  addIssue(emit, 2, { status: 'approved', title: 'Approved', priority: 'priority:medium' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    const approvedPos = frame.indexOf('Approved');
+    const readyPos = frame.indexOf('Ready');
+    expect(approvedPos).toBeLessThan(readyPos);
+  });
+});
+
+test('it sorts tasks by priority within the same status weight', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 1, { status: 'pending', title: 'Low', priority: 'priority:low' });
+  addIssue(emit, 2, { status: 'pending', title: 'High', priority: 'priority:high' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    const highPos = frame.indexOf('High');
+    const lowPos = frame.indexOf('Low');
+    expect(highPos).toBeLessThan(lowPos);
+  });
+});
+
+test('it sorts tasks by issue number within the same priority', async () => {
+  const { lastFrame, emit } = setupTest();
+
+  addIssue(emit, 10, { status: 'pending', title: 'Higher', priority: 'priority:medium' });
+  addIssue(emit, 5, { status: 'pending', title: 'Lower', priority: 'priority:medium' });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame() ?? '';
+    const lowerPos = frame.indexOf('Lower');
+    const higherPos = frame.indexOf('Higher');
+    expect(lowerPos).toBeLessThan(higherPos);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Exported helpers
+// ---------------------------------------------------------------------------
+
+test('it returns the worst CI status from a set of PRs', () => {
+  expect(getWorstCIStatus([{ ciStatus: 'success' }, { ciStatus: 'failure' }])).toBe('failure');
+  expect(getWorstCIStatus([{ ciStatus: 'success' }, { ciStatus: 'pending' }])).toBe('pending');
+  expect(getWorstCIStatus([{ ciStatus: 'success' }])).toBe('success');
+  expect(getWorstCIStatus([{ ciStatus: null }])).toBe(null);
+});
+
+test('it returns the correct CI status color', () => {
+  expect(getCIStatusColor('failure')).toBe('red');
+  expect(getCIStatusColor('pending')).toBe('dim');
+  expect(getCIStatusColor('success')).toBe('green');
+  expect(getCIStatusColor(null)).toBe('dim');
+});
+
+test('it returns the correct priority color', () => {
+  expect(getIssuePriorityColor('high')).toBe('red');
+  expect(getIssuePriorityColor('medium')).toBe('yellow');
+  expect(getIssuePriorityColor('low')).toBe('dim');
+  expect(getIssuePriorityColor(null)).toBeUndefined();
+});
+
+test('it computes section capacities correctly for even pane height', () => {
+  const result = computeSectionCapacities(20);
+  // ceil(20/2) = 10, floor(20/2) = 10
+  // Each minus 1 for header
+  expect(result.actionCapacity).toBe(9);
+  expect(result.agentsCapacity).toBe(9);
+});
+
+test('it gives the extra row to ACTION when pane height is odd', () => {
+  const result = computeSectionCapacities(21);
+  // ceil(21/2) = 11 - 1 = 10
+  // floor(21/2) = 10 - 1 = 9
+  expect(result.actionCapacity).toBe(10);
+  expect(result.agentsCapacity).toBe(9);
+});
+
+test('it computes visible tasks respecting section capacities', () => {
+  const sortedTasks = [
+    { task: { issueNumber: 1 }, section: 'action' as const },
+    { task: { issueNumber: 2 }, section: 'action' as const },
+    { task: { issueNumber: 3 }, section: 'action' as const },
+    { task: { issueNumber: 4 }, section: 'agents' as const },
+    { task: { issueNumber: 5 }, section: 'agents' as const },
+  ];
+
+  // biome-ignore lint/suspicious/noExplicitAny: test utility with partial task objects
+  const result = getVisibleTasks(sortedTasks as any, 2, 1);
+  expect(result).toHaveLength(3);
+  expect(result[0]?.task.issueNumber).toBe(1);
+  expect(result[1]?.task.issueNumber).toBe(2);
+  expect(result[2]?.task.issueNumber).toBe(4);
+});
+
+// ---------------------------------------------------------------------------
+// Selection highlight
+// ---------------------------------------------------------------------------
+
+test('it highlights the selected task row', async () => {
+  const { lastFrame, emit, store } = setupTest();
+
+  addIssue(emit, 1, { title: 'Selected task' });
   store.getState().selectIssue(1);
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    expect(frame).toContain(READY_MARKER);
-    expect(frame).toContain(CI_MARKER);
-  });
-});
-
-test('it appends CI failed text to dispatch prompt when issue has CI failure', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 5, { status: 'pending' });
-  emit({
-    type: 'prLinked',
-    issueNumber: 5,
-    prNumber: 10,
-    url: 'https://github.com/owner/repo/pull/10',
-    ciStatus: 'failure',
-  });
-
-  store.getState().selectIssue(5);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#5');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5? (CI failed)');
-  });
-});
-
-test('it does not append CI failed text to dispatch prompt when issue has no CI failure', async () => {
-  const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
-
-  addIssue(emit, 5, { status: 'pending' });
-  store.getState().selectIssue(5);
-
-  await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#5');
-  });
-
-  stdin.write('\r');
-
-  await vi.waitFor(() => {
-    expect(onPromptChange).toHaveBeenCalledWith('Dispatch Implementor for #5?');
-  });
-});
-
-test('it displays the CI marker for unblocked issues with CI failure', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 2, { status: 'unblocked' });
-  emit({
-    type: 'prLinked',
-    issueNumber: 2,
-    prNumber: 10,
-    url: 'https://github.com/owner/repo/pull/10',
-    ciStatus: 'failure',
-  });
-
-  store.getState().selectIssue(2);
-
-  await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain(READY_MARKER);
-    expect(frame).toContain(CI_MARKER);
-  });
-});
-
-test('it displays the CI marker for needs-changes issues with CI failure', async () => {
-  const { lastFrame, emit, store } = setupTest();
-
-  addIssue(emit, 3, { status: 'needs-changes' });
-  emit({
-    type: 'prLinked',
-    issueNumber: 3,
-    prNumber: 10,
-    url: 'https://github.com/owner/repo/pull/10',
-    ciStatus: 'failure',
-  });
-
-  store.getState().selectIssue(3);
-
-  await vi.waitFor(() => {
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain(READY_MARKER);
-    expect(frame).toContain(CI_MARKER);
+    expect(frame).toContain('Selected task');
   });
 });
