@@ -28,13 +28,13 @@ function setupTest(options?: SetupTestOptions): ReturnType<typeof render> & {
 }
 
 // ---------------------------------------------------------------------------
-// No issue selected
+// No task selected
 // ---------------------------------------------------------------------------
 
-test('it shows a placeholder when no issue is selected', () => {
+test('it shows a placeholder when no task is pinned', () => {
   const { lastFrame } = setupTest();
 
-  expect(lastFrame()).toContain('No issue selected');
+  expect(lastFrame()).toContain('No task selected');
 });
 
 // ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ test('it displays issue details when a dispatchable issue is selected', async ()
     labels: ['task:implement', 'priority:medium'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -84,7 +84,7 @@ test('it shows a loading indicator when selected issue has no cached data', asyn
     createdAt: '2026-01-01T00:00:00Z',
   });
 
-  store.setState({ selectedIssue: 1 });
+  store.setState({ pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -112,7 +112,7 @@ test('it shows stale data immediately without a loading spinner flash', async ()
     labels: ['task:implement'],
     stale: true,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -148,7 +148,7 @@ test('it streams live implementor output when an agent is running', async () => 
   const agentStreams = new Map(store.getState().agentStreams);
   agentStreams.set('sess-1', ['Building project...', 'Running tests...', 'All tests passed.']);
 
-  store.setState({ tasks, agentStreams, selectedIssue: 1 });
+  store.setState({ tasks, agentStreams, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -181,7 +181,7 @@ test('it streams live reviewer output when a reviewer is running', async () => {
   const agentStreams = new Map(store.getState().agentStreams);
   agentStreams.set('sess-1', ['Reviewing changes...', 'Code looks good.']);
 
-  store.setState({ tasks, agentStreams, selectedIssue: 1 });
+  store.setState({ tasks, agentStreams, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -212,7 +212,7 @@ test('it auto-scrolls to the latest output when new chunks arrive', async () => 
 
   const agentStreams = new Map(store.getState().agentStreams);
   agentStreams.set('sess-1', ['Line 1']);
-  store.setState({ tasks, agentStreams, selectedIssue: 1 });
+  store.setState({ tasks, agentStreams, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('Line 1');
@@ -259,7 +259,7 @@ test('it displays a PR summary when a review issue has no running agent', async 
     changedFilesCount: 5,
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, selectedIssue: 1 });
+  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -292,7 +292,7 @@ test('it displays issue details with a status marker for a blocked issue', async
     labels: ['task:implement', 'status:blocked'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -320,7 +320,7 @@ test('it displays issue details with a refinement marker for a needs-refinement 
     labels: ['task:implement', 'status:needs-refinement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -361,7 +361,7 @@ test('it displays the PR summary with a ready-to-merge indicator for approved is
     changedFilesCount: 2,
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, selectedIssue: 1 });
+  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -402,7 +402,7 @@ test('it shows error details when an issue has a failure from an implementor', a
       },
     });
   }
-  store.setState({ tasks, selectedIssue: 1 });
+  store.setState({ tasks, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -441,7 +441,7 @@ test('it shows error details with branch name when a reviewer fails', async () =
       },
     });
   }
-  store.setState({ tasks, selectedIssue: 1 });
+  store.setState({ tasks, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -481,7 +481,7 @@ test('it shows the log file path when a failure includes session log information
       },
     });
   }
-  store.setState({ tasks, selectedIssue: 1 });
+  store.setState({ tasks, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -517,7 +517,7 @@ test('it renders the log file path as a clickable terminal hyperlink', async () 
       },
     });
   }
-  store.setState({ tasks, selectedIssue: 1 });
+  store.setState({ tasks, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -552,7 +552,7 @@ test('it does not show a log file path when a failure has no session log informa
       },
     });
   }
-  store.setState({ tasks, selectedIssue: 1 });
+  store.setState({ tasks, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -588,12 +588,12 @@ test('it shows the failure overlay regardless of the issue status label', async 
       },
     });
   }
-  store.setState({ tasks, selectedIssue: 1 });
+  store.setState({ tasks, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
     expect(frame).toContain('Agent Failure');
-    expect(frame).not.toContain('No issue selected');
+    expect(frame).not.toContain('No task selected');
     expect(frame).not.toContain('Loading...');
   });
 });
@@ -623,7 +623,7 @@ test('it scrolls issue details when the detail pane is focused and the user pres
   });
   store.setState({
     issueDetailCache,
-    selectedIssue: 1,
+    pinnedTask: 1,
     focusedPane: 'detailPane',
   });
 
@@ -660,7 +660,7 @@ test('it does not scroll when the detail pane is not focused', async () => {
   });
   store.setState({
     issueDetailCache,
-    selectedIssue: 1,
+    pinnedTask: 1,
     focusedPane: 'taskList',
   });
 
@@ -698,7 +698,7 @@ test('it displays issue details for an unblocked issue', async () => {
     labels: ['task:implement', 'status:unblocked'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -726,7 +726,7 @@ test('it displays issue details for a needs-changes issue', async () => {
     labels: ['task:implement', 'status:needs-changes'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -760,7 +760,7 @@ test('it only renders the visible window of lines when content exceeds the pane 
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -794,7 +794,7 @@ test('it renders content beyond the window after scrolling down', async () => {
   });
   store.setState({
     issueDetailCache,
-    selectedIssue: 1,
+    pinnedTask: 1,
     focusedPane: 'detailPane',
   });
 
@@ -836,7 +836,7 @@ test('it applies scroll windowing to streaming output', async () => {
   // 5 chunks + 1 header = 6 total lines, paneHeight=3
   const agentStreams = new Map(store.getState().agentStreams);
   agentStreams.set('sess-1', ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4', 'Chunk 5']);
-  store.setState({ tasks, agentStreams, selectedIssue: 1 });
+  store.setState({ tasks, agentStreams, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -877,7 +877,7 @@ test('it applies scroll windowing to the failure overlay', async () => {
       },
     });
   }
-  store.setState({ tasks, selectedIssue: 1 });
+  store.setState({ tasks, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -918,7 +918,7 @@ test('it applies scroll windowing to the PR summary', async () => {
     changedFilesCount: 5,
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, selectedIssue: 1 });
+  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -954,7 +954,7 @@ test('it truncates lines that exceed the pane width with an ellipsis', async () 
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -984,7 +984,7 @@ test('it does not truncate lines that fit within the pane width', async () => {
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1 });
+  store.setState({ issueDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -1021,7 +1021,7 @@ test('it resumes auto-scroll when the user scrolls back to the bottom of the str
   // 4 chunks + 1 header = 5 total lines
   const agentStreams = new Map(store.getState().agentStreams);
   agentStreams.set('sess-1', ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4']);
-  store.setState({ tasks, agentStreams, selectedIssue: 1, focusedPane: 'detailPane' });
+  store.setState({ tasks, agentStreams, pinnedTask: 1, focusedPane: 'detailPane' });
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('Chunk 4');
@@ -1083,7 +1083,7 @@ test('it does not scroll above the first line', async () => {
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1, focusedPane: 'detailPane' });
+  store.setState({ issueDetailCache, pinnedTask: 1, focusedPane: 'detailPane' });
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('#1 Issue');
@@ -1119,7 +1119,7 @@ test('it does not scroll below the last line', async () => {
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, selectedIssue: 1, focusedPane: 'detailPane' });
+  store.setState({ issueDetailCache, pinnedTask: 1, focusedPane: 'detailPane' });
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('#1 Issue');
@@ -1157,7 +1157,7 @@ test('it shows a no-PR message when a review issue has no linked PR', async () =
     createdAt: '2026-01-01T00:00:00Z',
   });
 
-  store.setState({ selectedIssue: 1 });
+  store.setState({ pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -1179,7 +1179,7 @@ test('it shows a no-PR message when an approved issue has no linked PR', async (
     createdAt: '2026-01-01T00:00:00Z',
   });
 
-  store.setState({ selectedIssue: 1 });
+  store.setState({ pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -1221,7 +1221,7 @@ test('it displays CI failure details when a review issue has ciStatus failure an
     failedCheckNames: ['lint', 'typecheck', 'test'],
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, selectedIssue: 1 });
+  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -1261,7 +1261,7 @@ test('it displays CI failure with resolution guidance when an approved issue has
     failedCheckNames: ['lint'],
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, selectedIssue: 1 });
+  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -1298,7 +1298,7 @@ test('it does not show CI failure details when ciStatus is failure but failedChe
     changedFilesCount: 5,
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, selectedIssue: 1 });
+  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
 
   await vi.waitFor(() => {
     const frame = lastFrame();
