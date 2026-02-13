@@ -4,7 +4,6 @@ import { match, P } from 'ts-pattern';
 import type {
   AgentCompletedEvent,
   AgentFailedEvent,
-  AgentSkippedEvent,
   AgentStartedEvent,
   AgentStream,
   AgentType,
@@ -39,10 +38,12 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     loggingEnabled,
     logsDir,
     logError,
+    logInfo,
     execCommand,
   } = deps;
 
   const issueAgents = new Map<number, AgentSessionTracker>();
+  const sessionTrackers = new Map<string, AgentSessionTracker>();
   let plannerSession: AgentSessionTracker | null = null;
 
   // Per-session logging state, keyed by tracker reference identity
@@ -53,7 +54,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       const { issueNumber, branchName } = params;
 
       if (issueAgents.has(issueNumber)) {
-        emitter.emit(buildSkippedEvent('implementor', { issueNumber }));
+        logInfo(`Skipping implementor dispatch for issue #${issueNumber}: agent already running`);
         return;
       }
 
@@ -101,7 +102,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       const { issueNumber, branchName, prompt } = params;
 
       if (issueAgents.has(issueNumber)) {
-        emitter.emit(buildSkippedEvent('reviewer', { issueNumber }));
+        logInfo(`Skipping reviewer dispatch for issue #${issueNumber}: agent already running`);
         return;
       }
 
@@ -148,7 +149,7 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       const { specPaths } = params;
 
       if (plannerSession) {
-        emitter.emit(buildSkippedEvent('planner', { specPaths }));
+        logInfo('Skipping planner dispatch: planner already running');
         return;
       }
 
@@ -184,8 +185,8 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
       await cancelSession(plannerSession, 'Cancelled by user');
     },
 
-    getAgentStream(issueNumber: number): AgentStream {
-      const tracker = issueAgents.get(issueNumber);
+    getAgentStream(sessionID: string): AgentStream {
+      const tracker = sessionTrackers.get(sessionID);
       if (!tracker) {
         return null;
       }
@@ -295,12 +296,16 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     await match(message)
       .with({ type: 'system', subtype: 'init', session_id: P.string }, async (msg) => {
         tracker.sessionID = msg.session_id;
+        sessionTrackers.set(msg.session_id, tracker);
 
         if (loggingEnabled) {
           await initializeLogFile(tracker, msg);
         }
 
-        emitter.emit(buildStartedEvent(tracker));
+        const logger = sessionLoggers.get(tracker);
+        const logFilePath = logger ? logger.logFilePath : undefined;
+
+        emitter.emit(buildStartedEvent(tracker, logFilePath));
       })
       .with({ type: 'assistant', message: { content: P.any } }, async (msg) => {
         const text = extractTextFromAssistantMessage(msg.message);
@@ -347,6 +352,9 @@ export function createAgentManager(deps: AgentManagerDeps): AgentManager {
     tracker.done = true;
 
     clearTimeout(tracker.timer);
+    if (tracker.sessionID) {
+      sessionTrackers.delete(tracker.sessionID);
+    }
     onCleanup();
 
     // Notify stream listeners that the stream is done
@@ -713,13 +721,19 @@ function extractTextFromAssistantMessage(message: { content: unknown }): string 
   return textParts.join('');
 }
 
-function buildStartedEvent(tracker: AgentSessionTracker): AgentStartedEvent {
+function buildStartedEvent(
+  tracker: AgentSessionTracker,
+  logFilePath: string | undefined,
+): AgentStartedEvent {
   return {
     type: 'agentStarted',
     agentType: tracker.agentType,
     sessionID: tracker.sessionID,
     ...(tracker.issueNumber !== undefined && { issueNumber: tracker.issueNumber }),
     ...(tracker.specPaths && { specPaths: tracker.specPaths }),
+    ...((tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
+      tracker.branchName && { branchName: tracker.branchName }),
+    ...(logFilePath !== undefined && { logFilePath }),
   };
 }
 
@@ -752,18 +766,6 @@ function buildFailedEvent(
     ...((tracker.agentType === 'implementor' || tracker.agentType === 'reviewer') &&
       tracker.branchName && { branchName: tracker.branchName }),
     ...(logFilePath !== undefined && { logFilePath }),
-  };
-}
-
-function buildSkippedEvent(
-  agentType: AgentType,
-  context: { issueNumber?: number; specPaths?: string[] },
-): AgentSkippedEvent {
-  return {
-    type: 'agentSkipped',
-    agentType,
-    ...(context.issueNumber !== undefined && { issueNumber: context.issueNumber }),
-    ...(context.specPaths && { specPaths: context.specPaths }),
   };
 }
 

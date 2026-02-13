@@ -49,6 +49,8 @@ export interface QueryFactoryParams {
 
 export type LogError = (message: string, error: unknown) => void;
 
+export type LogInfo = (message: string) => void;
+
 export type ExecCommand = (cwd: string, command: string, args: string[]) => Promise<void>;
 
 export interface AgentManagerDeps {
@@ -63,6 +65,7 @@ export interface AgentManagerDeps {
   loggingEnabled: boolean;
   logsDir: string;
   logError: LogError;
+  logInfo: LogInfo;
   execCommand: ExecCommand;
 }
 
@@ -92,7 +95,7 @@ export interface AgentManager {
   dispatchPlanner: (params: DispatchPlannerParams) => Promise<void>;
   cancelAgent: (issueNumber: number) => Promise<void>;
   cancelPlanner: () => Promise<void>;
-  getAgentStream: (issueNumber: number) => AgentStream;
+  getAgentStream: (sessionID: string) => AgentStream;
   isRunning: (issueNumber: number) => boolean;
   isPlannerRunning: () => boolean;
   getRunningSessionIDs: () => string[];

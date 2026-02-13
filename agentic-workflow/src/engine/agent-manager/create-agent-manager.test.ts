@@ -120,6 +120,7 @@ interface SetupContext {
   mockQueries: MockQuery[];
   queryParams: QueryFactoryParams[];
   execCommandCalls: Array<{ cwd: string; command: string; args: string[] }>;
+  logInfoCalls: string[];
 }
 
 interface SetupOverrides {
@@ -136,6 +137,7 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
   const mockQueries: MockQuery[] = [];
   const queryParams: QueryFactoryParams[] = [];
   const execCommandCalls: Array<{ cwd: string; command: string; args: string[] }> = [];
+  const logInfoCalls: string[] = [];
 
   emitter.on((event) => {
     events.push(event);
@@ -171,10 +173,22 @@ function setupTest(overrides?: SetupOverrides): SetupContext {
     logError: () => {
       // Intentionally empty — suppress error logging in tests
     },
+    logInfo: (message: string) => {
+      logInfoCalls.push(message);
+    },
     execCommand,
   });
 
-  return { manager, emitter, worktreeManager, events, mockQueries, queryParams, execCommandCalls };
+  return {
+    manager,
+    emitter,
+    worktreeManager,
+    events,
+    mockQueries,
+    queryParams,
+    execCommandCalls,
+    logInfoCalls,
+  };
 }
 
 function buildInitMessage(sessionId: string): {
@@ -335,7 +349,7 @@ test('it creates a worktree and agent session when dispatching an implementor', 
   });
 });
 
-test('it emits agentSkipped when dispatching an implementor for an issue with a running agent', async () => {
+test('it logs at info level and skips dispatch when an implementor is already running for the issue', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({
@@ -357,15 +371,11 @@ test('it emits agentSkipped when dispatching an implementor for an issue with a 
   });
 
   expect(ctx.mockQueries).toHaveLength(1);
-  const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toStrictEqual({
-    type: 'agentSkipped',
-    agentType: 'implementor',
-    issueNumber: 42,
-  });
+  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
+  expect(ctx.logInfoCalls.some((m) => m.includes('implementor') && m.includes('#42'))).toBe(true);
 });
 
-test('it emits agentStarted with session ID when the init message is received', async () => {
+test('it emits agentStarted with session ID and branch name when the init message is received', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({
@@ -382,6 +392,7 @@ test('it emits agentStarted with session ID when the init message is received', 
       agentType: 'implementor',
       issueNumber: 42,
       sessionID: 'abc-123',
+      branchName: 'issue-42-1700000000',
     });
   });
 });
@@ -553,7 +564,7 @@ test('it creates a worktree and sets the working directory for reviewers', async
   });
 });
 
-test('it emits agentSkipped when dispatching a reviewer for an issue with a running agent', async () => {
+test('it logs at info level and skips dispatch when a reviewer is dispatched for an issue with a running agent', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({
@@ -574,12 +585,8 @@ test('it emits agentSkipped when dispatching a reviewer for an issue with a runn
   });
 
   expect(ctx.mockQueries).toHaveLength(1);
-  const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toStrictEqual({
-    type: 'agentSkipped',
-    agentType: 'reviewer',
-    issueNumber: 10,
-  });
+  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
+  expect(ctx.logInfoCalls.some((m) => m.includes('reviewer') && m.includes('#10'))).toBe(true);
 });
 
 test('it passes the enriched prompt as the initial prompt for reviewers', async () => {
@@ -622,6 +629,27 @@ test('it emits agentCompleted and removes worktree for reviewer sessions', async
   });
 
   expect(ctx.worktreeManager.removeByPath).toHaveBeenCalledWith('/repo/.worktrees/issue-10-branch');
+});
+
+test('it emits agentStarted with branch name for reviewer sessions', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchReviewer({
+    issueNumber: 10,
+    branchName: 'issue-10-pr-branch',
+    prompt: 'enriched prompt',
+  });
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-r'));
+  await vi.waitFor(() => {
+    const started = ctx.events.find((e) => e.type === 'agentStarted');
+    expect(started).toStrictEqual({
+      type: 'agentStarted',
+      agentType: 'reviewer',
+      issueNumber: 10,
+      sessionID: 'session-r',
+      branchName: 'issue-10-pr-branch',
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -781,7 +809,7 @@ test('it passes spec paths space-separated as the initial prompt for planners', 
   });
 });
 
-test('it emits agentSkipped with deferred paths when a planner is already running', async () => {
+test('it logs at info level and skips dispatch when a planner is already running', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
@@ -793,12 +821,8 @@ test('it emits agentSkipped with deferred paths when a planner is already runnin
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/b.md'] });
 
   expect(ctx.mockQueries).toHaveLength(1);
-  const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toStrictEqual({
-    type: 'agentSkipped',
-    agentType: 'planner',
-    specPaths: ['docs/specs/b.md'],
-  });
+  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
+  expect(ctx.logInfoCalls.some((m) => m.includes('planner'))).toBe(true);
 });
 
 test('it emits agentCompleted for planner sessions', async () => {
@@ -825,16 +849,49 @@ test('it emits agentCompleted for planner sessions', async () => {
   expect(ctx.manager.isPlannerRunning()).toBe(false);
 });
 
-// ---------------------------------------------------------------------------
-// Planner streams are not exposed
-// ---------------------------------------------------------------------------
-
-test('it returns null from getAgentStream for planner sessions since they have no issue number', async () => {
+test('it does not include branchName in agentStarted events for planner sessions', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-p'));
+  await vi.waitFor(() => {
+    expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
+  });
 
-  expect(ctx.manager.getAgentStream(0)).toBeNull();
+  const started = ctx.events.find((e) => e.type === 'agentStarted');
+  expect(started).not.toHaveProperty('branchName');
+});
+
+// ---------------------------------------------------------------------------
+// Planner streams are accessible by session ID
+// ---------------------------------------------------------------------------
+
+test('it returns an async iterable from getAgentStream for a running planner session', async () => {
+  const ctx = setupTest();
+
+  await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/a.md'] });
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('planner-session-1'));
+  ctx.mockQueries[0]?.pushMessage(buildAssistantMessage('Planning output'));
+  await vi.waitFor(() => {
+    expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
+  });
+
+  const stream = ctx.manager.getAgentStream('planner-session-1');
+  expect(stream).not.toBeNull();
+
+  const chunks: string[] = [];
+  invariant(stream, 'stream must exist for a running planner');
+  const readPromise = (async () => {
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+    }
+  })();
+
+  ctx.mockQueries[0]?.pushMessage(buildSuccessResult());
+  ctx.mockQueries[0]?.end();
+  await readPromise;
+
+  expect(chunks).toStrictEqual(['Planning output']);
 });
 
 // ---------------------------------------------------------------------------
@@ -926,7 +983,7 @@ test('it completes the async iterable when an agent session is cancelled', async
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  const stream = ctx.manager.getAgentStream(42);
+  const stream = ctx.manager.getAgentStream('session-1');
   expect(stream).not.toBeNull();
 
   const chunks: string[] = [];
@@ -951,13 +1008,13 @@ test('it completes the async iterable when an agent session is cancelled', async
 // Stream accessor
 // ---------------------------------------------------------------------------
 
-test('it returns null from getAgentStream when no agent is running for the issue', () => {
+test('it returns null from getAgentStream when no agent session exists for the given session ID', () => {
   const ctx = setupTest();
 
-  expect(ctx.manager.getAgentStream(99)).toBeNull();
+  expect(ctx.manager.getAgentStream('nonexistent-session')).toBeNull();
 });
 
-test('it yields plain text output chunks from the agent stream', async () => {
+test('it returns null from getAgentStream after the agent session completes', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({
@@ -973,7 +1030,7 @@ test('it yields plain text output chunks from the agent stream', async () => {
   ctx.mockQueries[0]?.end();
   await vi.waitFor(() => {
     // After completion, stream returns null since agent is no longer running
-    const stream = ctx.manager.getAgentStream(42);
+    const stream = ctx.manager.getAgentStream('session-1');
     expect(stream).toBeNull();
   });
 });
@@ -993,7 +1050,7 @@ test('it yields buffered and live chunks through the async iterable', async () =
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  const stream = ctx.manager.getAgentStream(42);
+  const stream = ctx.manager.getAgentStream('session-1');
   expect(stream).not.toBeNull();
 
   const chunks: string[] = [];
@@ -1265,7 +1322,7 @@ test('it does not include branchName in agentFailed events for planners', async 
 // Guard: only one agent per issue across types
 // ---------------------------------------------------------------------------
 
-test('it emits agentSkipped when dispatching a reviewer for an issue already running an implementor', async () => {
+test('it logs at info level and skips dispatch when a reviewer is dispatched for an issue already running an implementor', async () => {
   const ctx = setupTest();
 
   await ctx.manager.dispatchImplementor({
@@ -1285,12 +1342,8 @@ test('it emits agentSkipped when dispatching a reviewer for an issue already run
     prompt: 'enriched prompt',
   });
 
-  const skipped = ctx.events.find((e) => e.type === 'agentSkipped');
-  expect(skipped).toStrictEqual({
-    type: 'agentSkipped',
-    agentType: 'reviewer',
-    issueNumber: 5,
-  });
+  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
+  expect(ctx.logInfoCalls.some((m) => m.includes('reviewer') && m.includes('#5'))).toBe(true);
   expect(ctx.mockQueries).toHaveLength(1);
 });
 
@@ -1326,7 +1379,7 @@ test('it only yields text content from assistant messages and filters out tool u
     expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
   });
 
-  const stream = ctx.manager.getAgentStream(42);
+  const stream = ctx.manager.getAgentStream('session-1');
   expect(stream).not.toBeNull();
 
   const chunks: string[] = [];
@@ -1439,6 +1492,46 @@ test('it creates a log file with session header when logging is enabled and an i
   expect(content).toContain('Issue:      #42');
   expect(content).toContain('=== Messages ===');
   expect(content).toContain('SYSTEM init');
+});
+
+test('it includes logFilePath in agentStarted when logging is enabled', async () => {
+  const ctx = setupLoggingTest();
+
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
+  });
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
+  await vi.waitFor(() => {
+    expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
+  });
+
+  const started = ctx.events.find((e) => e.type === 'agentStarted');
+  expect(started).toHaveProperty('logFilePath');
+  expect(started).toMatchObject({
+    logFilePath: expect.stringContaining('/test-logs/'),
+  });
+});
+
+test('it does not include logFilePath in agentStarted when logging is disabled', async () => {
+  vol.reset();
+  const ctx = setupTest({ loggingEnabled: false });
+
+  await ctx.manager.dispatchImplementor({
+    issueNumber: 42,
+    branchName: 'issue-42-1700000000',
+    branchBase: 'main',
+    prompt: 'enriched implementor prompt for #42',
+  });
+  ctx.mockQueries[0]?.pushMessage(buildInitMessage('session-abc'));
+  await vi.waitFor(() => {
+    expect(ctx.events.some((e) => e.type === 'agentStarted')).toBe(true);
+  });
+
+  const started = ctx.events.find((e) => e.type === 'agentStarted');
+  expect(started).not.toHaveProperty('logFilePath');
 });
 
 test('it names planner log files without a context suffix', async () => {
