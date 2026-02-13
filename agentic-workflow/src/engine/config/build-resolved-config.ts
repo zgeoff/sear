@@ -12,6 +12,9 @@ const DEFAULTS = {
     specsDir: 'docs/specs/',
     defaultBranch: 'main',
   },
+  prPoller: {
+    pollInterval: 30,
+  },
   agents: {
     agentPlanner: 'planner',
     agentImplementor: 'implementor',
@@ -39,6 +42,9 @@ export function buildResolvedConfig(config: EngineConfig): ResolvedEngineConfig 
       pollInterval: config.specPoller?.pollInterval ?? DEFAULTS.specPoller.pollInterval,
       specsDir: config.specPoller?.specsDir ?? DEFAULTS.specPoller.specsDir,
       defaultBranch: config.specPoller?.defaultBranch ?? DEFAULTS.specPoller.defaultBranch,
+    },
+    prPoller: {
+      pollInterval: config.prPoller?.pollInterval ?? DEFAULTS.prPoller.pollInterval,
     },
     agents: {
       agentPlanner: config.agents?.agentPlanner ?? DEFAULTS.agents.agentPlanner,
