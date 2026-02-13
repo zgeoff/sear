@@ -1,84 +1,125 @@
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { createStore } from 'zustand/vanilla';
-import type { AgentType, EngineEvent, StartupResult } from '../types.ts';
+import type { EngineEvent } from '../types.ts';
 import type {
-  AgentCompletedNotification,
-  AgentFailedNotification,
-  AgentSkippedNotification,
-  AgentStartedNotification,
-  BaseNotification,
-  CachedPRDetails,
-  CICheckFailedNotification,
-  CICheckRecoveredNotification,
-  CreateEngineStoreConfig,
-  DispatchReadyNotification,
-  EngineStore,
-  EngineStoreState,
-  FocusedPane,
-  IssueBlockedNotification,
-  IssueNeedsRefinementNotification,
-  IssueRefinedNotification,
-  IssueRemovedNotification,
-  IssueStatusChangedNotification,
-  IssueUnblockedNotification,
-  LastFailure,
-  PRApprovedNotification,
-  PRUnapprovedNotification,
-  RecoveryPerformedNotification,
-  Repository,
-  SpecChangedNotification,
-  StartupNotification,
-  TaskAgentType,
-  TrackedIssue,
+  AgentType,
+  CreateTUIStoreConfig,
+  Priority,
+  Section,
+  SortedTask,
+  Task,
+  TaskAgent,
+  TaskStatus,
+  TUIState,
+  TUIStore,
 } from './types.ts';
 
 const STREAM_BUFFER_LIMIT = 10_000;
 
-const PANE_ORDER: FocusedPane[] = ['issueList', 'detailPane', 'notifications'];
+const STATUS_LABEL_MAP: Record<string, TaskStatus> = {
+  pending: 'ready-to-implement',
+  unblocked: 'ready-to-implement',
+  'needs-changes': 'ready-to-implement',
+  'in-progress': 'agent-implementing',
+  review: 'agent-reviewing',
+  'needs-refinement': 'needs-refinement',
+  blocked: 'blocked',
+  approved: 'ready-to-merge',
+};
 
-export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<EngineStore> {
+const STATUS_WEIGHT: Record<TaskStatus, number> = {
+  'ready-to-merge': 100,
+  'agent-crashed': 90,
+  blocked: 80,
+  'needs-refinement': 70,
+  'ready-to-implement': 50,
+  'agent-implementing': 50,
+  'agent-reviewing': 50,
+};
+
+const PRIORITY_WEIGHT: Record<Priority, number> = {
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
+const ACTION_STATUSES: Set<TaskStatus> = new Set([
+  'ready-to-merge',
+  'agent-crashed',
+  'blocked',
+  'needs-refinement',
+  'ready-to-implement',
+]);
+
+export function deriveStatus(task: Pick<Task, 'agent' | 'statusLabel'>): TaskStatus | null {
+  // Step 1 — Crash override
+  if (task.agent !== null && task.agent.crash !== undefined) {
+    return 'agent-crashed';
+  }
+
+  // Step 2 — Running agent override
+  if (task.agent?.running) {
+    return match(task.agent.type)
+      .with('implementor', () => 'agent-implementing' as const)
+      .with('reviewer', () => 'agent-reviewing' as const)
+      .exhaustive();
+  }
+
+  // Step 3 — Status label mapping
+  const mapped = STATUS_LABEL_MAP[task.statusLabel];
+  return mapped ?? null;
+}
+
+export function parsePriority(priorityLabel: string): Priority | null {
+  const PRIORITY_MAP: Record<string, Priority> = {
+    'priority:high': 'high',
+    'priority:medium': 'medium',
+    'priority:low': 'low',
+  };
+  return PRIORITY_MAP[priorityLabel] ?? null;
+}
+
+export function createTUIStore(config: CreateTUIStoreConfig): StoreApi<TUIStore> {
   const { engine } = config;
-  const repository = parseRepository(config.repository);
 
-  let notificationCounter = 0;
-
-  const store = createStore<EngineStore>((set, get) => ({
-    repository,
-    issues: new Map(),
-    notifications: [],
-    agentStreams: new Map(),
-    streamViewportOffsets: new Map(),
-    plannerRunning: false,
-    issueDetails: new Map(),
-    prDetails: new Map(),
-    prNotFound: new Set(),
-    focusedPane: 'issueList',
+  const store = createStore<TUIStore>((set, get) => ({
+    tasks: new Map(),
+    plannerStatus: 'idle',
     selectedIssue: null,
+    pinnedTask: null,
+    focusedPane: 'taskList',
     shuttingDown: false,
+    agentStreams: new Map(),
+    issueDetailCache: new Map(),
+    prDetailCache: new Map(),
 
-    dispatchImplementor(issueNumber: number): void {
-      engine.send({ command: 'dispatchImplementor', issueNumber });
-      const issues = new Map(get().issues);
-      const issue = issues.get(issueNumber);
-      if (issue) {
-        issues.set(issueNumber, clearLastFailure(issue));
-        set({ issues });
+    dispatch(issueNumber: number): void {
+      const task = get().tasks.get(issueNumber);
+      if (!task) {
+        return;
       }
-    },
 
-    dispatchReviewer(issueNumber: number): void {
-      engine.send({ command: 'dispatchReviewer', issueNumber });
-      const issues = new Map(get().issues);
-      const issue = issues.get(issueNumber);
-      if (issue) {
-        issues.set(issueNumber, clearLastFailure(issue));
-        set({ issues });
-      }
-    },
-
-    cancelAgent(issueNumber: number): void {
-      engine.send({ command: 'cancelAgent', issueNumber });
+      match(task.status)
+        .with('ready-to-implement', () => {
+          engine.send({ command: 'dispatchImplementor', issueNumber });
+        })
+        .with('agent-crashed', () => {
+          if (!task.agent) {
+            return;
+          }
+          match(task.agent.type)
+            .with('implementor', () => {
+              engine.send({ command: 'dispatchImplementor', issueNumber });
+            })
+            .with('reviewer', () => {
+              engine.send({ command: 'dispatchReviewer', issueNumber });
+            })
+            .exhaustive();
+        })
+        .otherwise(() => {
+          // No-op for other statuses
+        });
     },
 
     shutdown(): void {
@@ -86,637 +127,315 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       engine.send({ command: 'shutdown' });
     },
 
-    cycleFocus(direction: 'forward' | 'backward'): void {
+    selectIssue(issueNumber: number): void {
+      set({ selectedIssue: issueNumber });
+    },
+
+    pinTask(issueNumber: number): void {
+      set({ pinnedTask: issueNumber });
+      // Trigger on-demand fetch if not cached — fire-and-forget
+      fetchIssueDetailIfNeeded(issueNumber).catch(() => {
+        // Fetch failure is non-fatal
+      });
+      fetchPRDetailsIfNeeded(issueNumber).catch(() => {
+        // Fetch failure is non-fatal
+      });
+    },
+
+    cycleFocus(): void {
       const current = get().focusedPane;
-      const currentIndex = PANE_ORDER.indexOf(current);
-      const offset = direction === 'forward' ? 1 : -1;
-      const nextIndex = (currentIndex + offset + PANE_ORDER.length) % PANE_ORDER.length;
-      const nextPane = PANE_ORDER[nextIndex];
-      if (nextPane) {
-        set({ focusedPane: nextPane });
-      }
-    },
-
-    async selectIssue(issueNumber: number): Promise<void> {
-      const current = get();
-      const updates: Partial<EngineStoreState> = { selectedIssue: issueNumber };
-      if (current.prNotFound.has(issueNumber)) {
-        const prNotFound = new Set(current.prNotFound);
-        prNotFound.delete(issueNumber);
-        updates.prNotFound = prNotFound;
-      }
-      set(updates);
-      await Promise.all([
-        fetchIssueDetailsIfNeeded(issueNumber),
-        fetchPrDetailsIfNeeded(issueNumber),
-      ]);
-    },
-
-    handleStartup(result: StartupResult): void {
-      const state = get();
-      const notification: StartupNotification = {
-        ...buildBaseNotification(),
-        eventType: 'startup',
-        issueCount: result.issueCount,
-        recoveriesPerformed: result.recoveriesPerformed,
-        summary: buildStartupSummary(result),
-      };
-      set({ notifications: [notification, ...state.notifications] });
+      set({ focusedPane: current === 'taskList' ? 'detailPane' : 'taskList' });
     },
   }));
 
-  engine.on(async (event) => {
-    await handleEngineEvent(event);
+  engine.on((event) => {
+    handleEngineEvent(event);
   });
 
-  async function handleEngineEvent(event: EngineEvent): Promise<void> {
-    await match(event)
+  function handleEngineEvent(event: EngineEvent): void {
+    match(event)
       .with({ type: 'issueStatusChanged' }, (e) => {
-        const state = store.getState();
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-
-        const shouldClearOverlays = !(e.isRecovery || e.isEngineTransition);
-
-        const updated = buildTrackedIssue({
-          number: e.issueNumber,
-          title: e.title,
-          statusLabel: e.newStatus,
-          priorityLabel: e.priorityLabel,
-          createdAt: e.createdAt,
-          agentRunning: existing?.agentRunning ?? false,
-          agentType: existing?.agentType,
-          lastFailure:
-            shouldClearOverlays && existing?.lastFailure !== undefined
-              ? undefined
-              : existing?.lastFailure,
-          ciStatus: existing?.ciStatus,
-          resolutionGuidance:
-            shouldClearOverlays && existing?.resolutionGuidance !== undefined
-              ? undefined
-              : existing?.resolutionGuidance,
-        });
-
-        issues.set(e.issueNumber, updated);
-
-        const issueDetails = markCacheStale(state.issueDetails, e.issueNumber);
-        const prDetails = markCacheStale(state.prDetails, e.issueNumber);
-
-        const oldStatusText = e.oldStatus ?? 'none';
-        const notification: IssueStatusChangedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'issueStatusChanged',
-          issueNumber: e.issueNumber,
-          oldStatus: e.oldStatus,
-          newStatus: e.newStatus,
-          summary: `#${e.issueNumber}: ${oldStatusText} → ${e.newStatus}`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-
-        store.setState({
-          issues,
-          issueDetails,
-          prDetails,
-          notifications: [notification, ...state.notifications],
-        });
+        handleIssueStatusChanged(e);
       })
-      .with({ type: 'agentStarted' }, async (e) => {
-        const state = store.getState();
-
-        if (e.agentType === 'planner') {
-          const specCount = e.specPaths?.length ?? 0;
-          const notification: AgentStartedNotification = {
-            ...buildBaseNotification(),
-            eventType: 'agentStarted',
-            agentType: 'planner',
-            specCount,
-            summary: `Planner started for ${specCount} specs`,
-          };
-          store.setState({
-            plannerRunning: true,
-            notifications: [notification, ...state.notifications],
-          });
-          return;
-        }
-
-        if (e.issueNumber === undefined) {
-          return;
-        }
-        const issueNumber = e.issueNumber;
-        const issues = new Map(state.issues);
-        const existing = issues.get(issueNumber);
-        if (existing) {
-          issues.set(issueNumber, {
-            ...existing,
-            agentRunning: true,
-            agentType: e.agentType,
-          });
-        }
-
-        const agentStreams = new Map(state.agentStreams);
-        agentStreams.set(issueNumber, []);
-
-        const streamViewportOffsets = new Map(state.streamViewportOffsets);
-        streamViewportOffsets.delete(issueNumber);
-
-        const agentTypeLabel = formatAgentType(e.agentType);
-        const notification: AgentStartedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'agentStarted',
-          agentType: e.agentType,
-          issueNumber,
-          summary: `${agentTypeLabel} started for #${issueNumber}`,
-          contextURL: buildIssueUrl(repository, issueNumber),
-        };
-
-        store.setState({
-          issues,
-          agentStreams,
-          streamViewportOffsets,
-          notifications: [notification, ...state.notifications],
-        });
-
-        await subscribeToAgentStream(issueNumber);
+      .with({ type: 'prLinked' }, (e) => {
+        handlePRLinked(e);
       })
-      .with({ type: 'agentCompleted' }, async (e) => {
-        const state = store.getState();
-
-        if (e.agentType === 'planner') {
-          const specCount = e.specPaths?.length ?? 0;
-          const notification: AgentCompletedNotification = {
-            ...buildBaseNotification(),
-            eventType: 'agentCompleted',
-            agentType: 'planner',
-            specCount,
-            summary: `Planner completed for ${specCount} specs`,
-          };
-          if (e.logFilePath !== undefined) {
-            notification.logFilePath = e.logFilePath;
-          }
-          store.setState({
-            plannerRunning: false,
-            notifications: [notification, ...state.notifications],
-          });
-          return;
-        }
-
-        if (e.issueNumber === undefined) {
-          return;
-        }
-        const issueNumber = e.issueNumber;
-        const issues = new Map(state.issues);
-        const existing = issues.get(issueNumber);
-        if (existing) {
-          issues.set(issueNumber, {
-            ...existing,
-            agentRunning: false,
-          });
-        }
-
-        const agentTypeLabel = formatAgentType(e.agentType);
-        const notification: AgentCompletedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'agentCompleted',
-          agentType: e.agentType,
-          issueNumber,
-          summary: `${agentTypeLabel} completed for #${issueNumber}`,
-          contextURL: buildIssueUrl(repository, issueNumber),
-        };
-        if (e.logFilePath !== undefined) {
-          notification.logFilePath = e.logFilePath;
-        }
-
-        const updates: Partial<EngineStoreState> = {
-          issues,
-          notifications: [notification, ...state.notifications],
-        };
-
-        if (e.agentType === 'reviewer') {
-          updates.prDetails = markCacheStale(state.prDetails, issueNumber);
-        }
-
-        store.setState(updates);
-
-        if (e.agentType === 'implementor') {
-          await updateNotificationWithPrurl(notification.id, issueNumber);
-        }
+      .with({ type: 'ciStatusChanged' }, (e) => {
+        handleCIStatusChanged(e);
+      })
+      .with({ type: 'agentStarted' }, (e) => {
+        handleAgentStarted(e);
+      })
+      .with({ type: 'agentCompleted' }, (e) => {
+        handleAgentCompleted(e);
       })
       .with({ type: 'agentFailed' }, (e) => {
-        const state = store.getState();
-
-        if (e.agentType === 'planner') {
-          const notification: AgentFailedNotification = {
-            ...buildBaseNotification(),
-            eventType: 'agentFailed',
-            agentType: 'planner',
-            error: e.error,
-            sessionID: e.sessionID,
-            summary: `Planner failed — ${e.error}`,
-          };
-          if (e.logFilePath !== undefined) {
-            notification.logFilePath = e.logFilePath;
-          }
-          store.setState({
-            plannerRunning: false,
-            notifications: [notification, ...state.notifications],
-          });
-          return;
-        }
-
-        if (e.issueNumber === undefined) {
-          return;
-        }
-        const issueNumber = e.issueNumber;
-        const issues = new Map(state.issues);
-        const existing = issues.get(issueNumber);
-        if (existing) {
-          const failure = buildLastFailure({
-            agentType: e.agentType,
-            error: e.error,
-            sessionId: e.sessionID,
-            branchName: e.branchName,
-            logFilePath: e.logFilePath,
-          });
-          issues.set(issueNumber, {
-            ...existing,
-            agentRunning: false,
-            lastFailure: failure,
-          });
-        }
-
-        const agentTypeLabel = formatAgentType(e.agentType);
-        const notification: AgentFailedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'agentFailed',
-          agentType: e.agentType,
-          issueNumber,
-          error: e.error,
-          sessionID: e.sessionID,
-          summary: `${agentTypeLabel} failed for #${issueNumber} — ${e.error}`,
-          contextURL: buildIssueUrl(repository, issueNumber),
-        };
-        if (e.logFilePath !== undefined) {
-          notification.logFilePath = e.logFilePath;
-        }
-
-        store.setState({
-          issues,
-          notifications: [notification, ...state.notifications],
-        });
+        handleAgentFailed(e);
       })
-      .with({ type: 'agentSkipped' }, (e) => {
-        const state = store.getState();
-
-        let summary: string;
-        if (e.agentType === 'planner') {
-          summary = 'Planner skipped — paths deferred';
-        } else {
-          const agentTypeLabel = formatAgentType(e.agentType);
-          summary = `${agentTypeLabel} skipped for #${e.issueNumber}`;
-        }
-
-        const notification: AgentSkippedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'agentSkipped',
-          agentType: e.agentType,
-          summary,
-        };
-        if (e.issueNumber !== undefined) {
-          notification.issueNumber = e.issueNumber;
-          notification.contextURL = buildIssueUrl(repository, e.issueNumber);
-        }
-        store.setState({
-          notifications: [notification, ...state.notifications],
-        });
-      })
-      .with({ type: 'dispatchReady' }, (e) => {
-        const state = store.getState();
-        const notification: DispatchReadyNotification = {
-          ...buildBaseNotification(),
-          eventType: 'dispatchReady',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} ready for dispatch`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-        store.setState({
-          notifications: [notification, ...state.notifications],
-        });
-      })
-      .with({ type: 'issueNeedsRefinement' }, (e) => {
-        const state = store.getState();
-        const notification: IssueNeedsRefinementNotification = {
-          ...buildBaseNotification(),
-          eventType: 'issueNeedsRefinement',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} needs refinement — ${e.resolutionGuidance}`,
-          contextURL: e.contextURL,
-          clipboardCommand: e.clipboardCommand,
-          resolutionGuidance: e.resolutionGuidance,
-        };
-
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-        const updates: Partial<EngineStoreState> = {
-          notifications: [notification, ...state.notifications],
-        };
-        if (existing) {
-          issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
-          updates.issues = issues;
-        }
-
-        store.setState(updates);
-      })
-      .with({ type: 'issueBlocked' }, (e) => {
-        const state = store.getState();
-        const notification: IssueBlockedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'issueBlocked',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} blocked — ${e.resolutionGuidance}`,
-          contextURL: e.contextURL,
-          resolutionGuidance: e.resolutionGuidance,
-        };
-
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-        const updates: Partial<EngineStoreState> = {
-          notifications: [notification, ...state.notifications],
-        };
-        if (existing) {
-          issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
-          updates.issues = issues;
-        }
-
-        store.setState(updates);
-      })
-      .with({ type: 'prApproved' }, async (e) => {
-        const state = store.getState();
-        const notification: PRApprovedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'prApproved',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} approved — ready to merge`,
-          contextURL: e.contextURL,
-        };
-
-        store.setState({
-          notifications: [notification, ...state.notifications],
-        });
-
-        await updateNotificationWithPrurl(notification.id, e.issueNumber);
-      })
-      .with({ type: 'issueRefined' }, (e) => {
-        const state = store.getState();
-        const notification: IssueRefinedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'issueRefined',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} refined`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-
-        const updates: Partial<EngineStoreState> = {
-          notifications: [notification, ...state.notifications],
-        };
-
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-        if (existing) {
-          const { resolutionGuidance: _, ...rest } = existing;
-          issues.set(e.issueNumber, rest);
-          updates.issues = issues;
-        }
-
-        store.setState(updates);
-      })
-      .with({ type: 'issueUnblocked' }, (e) => {
-        const state = store.getState();
-        const notification: IssueUnblockedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'issueUnblocked',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} unblocked`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-
-        const updates: Partial<EngineStoreState> = {
-          notifications: [notification, ...state.notifications],
-        };
-
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-        if (existing) {
-          const { resolutionGuidance: _, ...rest } = existing;
-          issues.set(e.issueNumber, rest);
-          updates.issues = issues;
-        }
-
-        store.setState(updates);
-      })
-      .with({ type: 'prUnapproved' }, (e) => {
-        const state = store.getState();
-        const notification: PRUnapprovedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'prUnapproved',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} unapproved`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-
-        const updates: Partial<EngineStoreState> = {
-          notifications: [notification, ...state.notifications],
-        };
-
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-        if (existing) {
-          const { resolutionGuidance: _, ...rest } = existing;
-          issues.set(e.issueNumber, rest);
-          updates.issues = issues;
-        }
-
-        store.setState(updates);
-      })
-      .with({ type: 'ciStatusChanged' }, async (e) => {
-        if (e.issueNumber === undefined) {
-          return;
-        }
-        const state = store.getState();
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-        if (!existing) {
-          return;
-        }
-        issues.set(e.issueNumber, { ...existing, ciStatus: e.newCIStatus });
-
-        const updates: Partial<EngineStoreState> = { issues };
-
-        if (e.oldCIStatus === 'failure' && e.newCIStatus !== 'failure') {
-          const cachedPr = state.prDetails.get(e.issueNumber);
-          if (cachedPr?.failedCheckNames !== undefined) {
-            const prDetails = new Map(state.prDetails);
-            const { failedCheckNames: _, ...rest } = cachedPr;
-            prDetails.set(e.issueNumber, rest);
-            updates.prDetails = prDetails;
-          }
-        }
-
-        store.setState(updates);
-
-        if (e.newCIStatus === 'failure') {
-          const cachedPr = state.prDetails.get(e.issueNumber);
-          if (cachedPr) {
-            await fetchCIStatusIfNeeded(e.issueNumber, cachedPr);
-          }
-        }
-      })
-      .with({ type: 'ciCheckFailed' }, (e) => {
-        const state = store.getState();
-        let summary = `CI failed on PR #${e.prNumber}`;
-        if (e.resolutionGuidance !== undefined) {
-          summary += ` — ${e.resolutionGuidance}`;
-        }
-        const notification: CICheckFailedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'ciCheckFailed',
-          issueNumber: e.issueNumber,
-          prNumber: e.prNumber,
-          summary,
-          contextURL: e.contextURL,
-        };
-        if (e.resolutionGuidance !== undefined) {
-          notification.resolutionGuidance = e.resolutionGuidance;
-        }
-
-        const updates: Partial<EngineStoreState> = {
-          notifications: [notification, ...state.notifications],
-        };
-
-        if (e.resolutionGuidance !== undefined) {
-          const issues = new Map(state.issues);
-          const existing = issues.get(e.issueNumber);
-          if (existing) {
-            issues.set(e.issueNumber, { ...existing, resolutionGuidance: e.resolutionGuidance });
-            updates.issues = issues;
-          }
-        }
-
-        store.setState(updates);
-      })
-      .with({ type: 'ciCheckRecovered' }, (e) => {
-        const state = store.getState();
-        const notification: CICheckRecoveredNotification = {
-          ...buildBaseNotification(),
-          eventType: 'ciCheckRecovered',
-          issueNumber: e.issueNumber,
-          summary: `CI recovered for #${e.issueNumber}`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-
-        const updates: Partial<EngineStoreState> = {
-          notifications: [notification, ...state.notifications],
-        };
-
-        const issues = new Map(state.issues);
-        const existing = issues.get(e.issueNumber);
-        if (existing) {
-          const { ciStatus: _, resolutionGuidance: _rg, ...rest } = existing;
-          issues.set(e.issueNumber, rest);
-          updates.issues = issues;
-        }
-
-        const cachedPr = state.prDetails.get(e.issueNumber);
-        if (cachedPr?.failedCheckNames !== undefined) {
-          const prDetails = new Map(state.prDetails);
-          const { failedCheckNames: _, ...rest } = cachedPr;
-          prDetails.set(e.issueNumber, rest);
-          updates.prDetails = prDetails;
-        }
-
-        store.setState(updates);
-      })
-      .with({ type: 'issueRemoved' }, (e) => {
-        const state = store.getState();
-        const issues = new Map(state.issues);
-        issues.delete(e.issueNumber);
-
-        const agentStreams = new Map(state.agentStreams);
-        agentStreams.delete(e.issueNumber);
-
-        const streamViewportOffsets = new Map(state.streamViewportOffsets);
-        streamViewportOffsets.delete(e.issueNumber);
-
-        const issueDetails = new Map(state.issueDetails);
-        issueDetails.delete(e.issueNumber);
-
-        const prDetails = new Map(state.prDetails);
-        prDetails.delete(e.issueNumber);
-
-        const prNotFound = new Set(state.prNotFound);
-        prNotFound.delete(e.issueNumber);
-
-        const selectedIssue = state.selectedIssue === e.issueNumber ? null : state.selectedIssue;
-
-        const notification: IssueRemovedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'issueRemoved',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} removed`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-
-        store.setState({
-          issues,
-          agentStreams,
-          streamViewportOffsets,
-          issueDetails,
-          prDetails,
-          prNotFound,
-          selectedIssue,
-          notifications: [notification, ...state.notifications],
-        });
-      })
-      .with({ type: 'recoveryPerformed' }, (e) => {
-        const state = store.getState();
-        const notification: RecoveryPerformedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'recoveryPerformed',
-          issueNumber: e.issueNumber,
-          summary: `#${e.issueNumber} recovered from stale`,
-          contextURL: buildIssueUrl(repository, e.issueNumber),
-        };
-        store.setState({
-          notifications: [notification, ...state.notifications],
-        });
-      })
-      .with({ type: 'specChanged' }, (e) => {
-        const state = store.getState();
-        const specFileName = extractFileName(e.filePath);
-        const notification: SpecChangedNotification = {
-          ...buildBaseNotification(),
-          eventType: 'specChanged',
-          specFileName,
-          summary: `Spec changed: ${specFileName}`,
-          contextURL: `https://github.com/${config.repository}/commit/${e.commitSHA}`,
-        };
-        store.setState({
-          notifications: [notification, ...state.notifications],
-        });
+      .with({ type: 'specChanged' }, () => {
+        // No task or store state update
       })
       .exhaustive();
   }
 
-  function buildBaseNotification(): BaseNotification {
-    notificationCounter += 1;
-    return {
-      id: `notif-${notificationCounter}`,
-      timestamp: new Date().toISOString(),
-      summary: '',
+  function handleIssueStatusChanged(e: Extract<EngineEvent, { type: 'issueStatusChanged' }>): void {
+    const state = store.getState();
+
+    // Task removal: newStatus is null
+    if (e.newStatus === null) {
+      const existing = state.tasks.get(e.issueNumber);
+      if (!existing) {
+        return;
+      }
+
+      const tasks = new Map(state.tasks);
+      tasks.delete(e.issueNumber);
+
+      // Clear caches
+      const issueDetailCache = new Map(state.issueDetailCache);
+      issueDetailCache.delete(e.issueNumber);
+
+      const prDetailCache = new Map(state.prDetailCache);
+      for (const pr of existing.prs) {
+        prDetailCache.delete(pr.number);
+      }
+
+      // Clear agent stream
+      const agentStreams = new Map(state.agentStreams);
+      if (existing.agent) {
+        agentStreams.delete(existing.agent.sessionID);
+      }
+
+      // Handle pinnedTask
+      const pinnedTask = state.pinnedTask === e.issueNumber ? null : state.pinnedTask;
+
+      // Handle selectedIssue
+      let selectedIssue = state.selectedIssue;
+      if (selectedIssue === e.issueNumber) {
+        selectedIssue = findNextSelectedIssue(tasks);
+      }
+
+      store.setState({
+        tasks,
+        issueDetailCache,
+        prDetailCache,
+        agentStreams,
+        pinnedTask,
+        selectedIssue,
+      });
+      return;
+    }
+
+    // Task create/update
+    const tasks = new Map(state.tasks);
+    const existing = tasks.get(e.issueNumber);
+
+    const shouldPreserveAgent = e.isRecovery === true || e.isEngineTransition === true;
+    const agent = shouldPreserveAgent ? (existing?.agent ?? null) : null;
+
+    const taskData: Task = {
+      issueNumber: e.issueNumber,
+      title: e.title,
+      status: 'ready-to-implement', // placeholder, derived below
+      statusLabel: e.newStatus,
+      priority: parsePriority(e.priorityLabel),
+      agentCount: existing?.agentCount ?? 0,
+      createdAt: e.createdAt,
+      prs: existing?.prs ?? [],
+      agent,
     };
+
+    const derivedStatus = deriveStatus(taskData);
+    if (derivedStatus !== null) {
+      taskData.status = derivedStatus;
+    }
+
+    tasks.set(e.issueNumber, taskData);
+
+    // Mark issue detail cache as stale
+    const issueDetailCache = markCacheStale(state.issueDetailCache, e.issueNumber);
+
+    store.setState({ tasks, issueDetailCache });
   }
 
-  async function subscribeToAgentStream(issueNumber: number): Promise<void> {
-    const stream = engine.getAgentStream(issueNumber);
+  function handlePRLinked(e: Extract<EngineEvent, { type: 'prLinked' }>): void {
+    const state = store.getState();
+    const existing = state.tasks.get(e.issueNumber);
+    if (!existing) {
+      return;
+    }
+
+    const tasks = new Map(state.tasks);
+    const prs = [...existing.prs];
+    const prIndex = prs.findIndex((pr) => pr.number === e.prNumber);
+
+    if (prIndex >= 0) {
+      prs[prIndex] = { number: e.prNumber, url: e.url, ciStatus: e.ciStatus };
+    } else {
+      prs.push({ number: e.prNumber, url: e.url, ciStatus: e.ciStatus });
+    }
+
+    tasks.set(e.issueNumber, { ...existing, prs });
+
+    // Mark PR detail cache as stale
+    const prDetailCache = markCacheStale(state.prDetailCache, e.prNumber);
+
+    store.setState({ tasks, prDetailCache });
+  }
+
+  function handleCIStatusChanged(e: Extract<EngineEvent, { type: 'ciStatusChanged' }>): void {
+    if (e.issueNumber === undefined) {
+      return;
+    }
+
+    const state = store.getState();
+    const existing = state.tasks.get(e.issueNumber);
+    if (!existing) {
+      return;
+    }
+
+    const tasks = new Map(state.tasks);
+    const prs = [...existing.prs];
+    const prIndex = prs.findIndex((pr) => pr.number === e.prNumber);
+
+    if (prIndex >= 0) {
+      const existingPR = prs[prIndex];
+      if (existingPR) {
+        prs[prIndex] = { number: existingPR.number, url: existingPR.url, ciStatus: e.newCIStatus };
+      }
+    } else {
+      // Create partial PR entry
+      prs.push({ number: e.prNumber, url: '', ciStatus: e.newCIStatus });
+    }
+
+    tasks.set(e.issueNumber, { ...existing, prs });
+
+    // Mark PR detail cache as stale
+    const prDetailCache = markCacheStale(state.prDetailCache, e.prNumber);
+
+    store.setState({ tasks, prDetailCache });
+  }
+
+  function handleAgentStarted(e: Extract<EngineEvent, { type: 'agentStarted' }>): void {
+    // Planner events toggle plannerStatus, no task update
+    if (e.agentType === 'planner') {
+      store.setState({ plannerStatus: 'running' });
+      return;
+    }
+
+    // Implementor / Reviewer
+    if (e.issueNumber === undefined) {
+      return;
+    }
+
+    const state = store.getState();
+    const existing = state.tasks.get(e.issueNumber);
+    if (!existing) {
+      return;
+    }
+
+    const agentType = e.agentType as AgentType;
+    const tasks = new Map(state.tasks);
+
+    const updatedTask: Task = {
+      ...existing,
+      agentCount: existing.agentCount + 1,
+      agent: buildTaskAgent({
+        type: agentType,
+        running: true,
+        sessionID: e.sessionID,
+        branchName: e.branchName,
+        logFilePath: e.logFilePath,
+      }),
+      status: existing.status, // placeholder, derived below
+    };
+
+    const derivedStatus = deriveStatus(updatedTask);
+    if (derivedStatus !== null) {
+      updatedTask.status = derivedStatus;
+    }
+
+    tasks.set(e.issueNumber, updatedTask);
+
+    // Subscribe to agent stream, clear existing buffer for this session
+    const agentStreams = new Map(state.agentStreams);
+    agentStreams.set(e.sessionID, []);
+
+    store.setState({ tasks, agentStreams });
+
+    subscribeToAgentStream(e.sessionID).catch(() => {
+      // Stream subscription failure is non-fatal
+    });
+  }
+
+  function handleAgentCompleted(e: Extract<EngineEvent, { type: 'agentCompleted' }>): void {
+    if (e.agentType === 'planner') {
+      store.setState({ plannerStatus: 'idle' });
+      return;
+    }
+
+    // Find task by sessionID
+    const state = store.getState();
+    const taskEntry = findTaskBySessionID(state.tasks, e.sessionID);
+    if (!taskEntry) {
+      return;
+    }
+
+    const [issueNumber, existing] = taskEntry;
+    if (!existing.agent) {
+      return;
+    }
+
+    const tasks = new Map(state.tasks);
+    const updatedAgent = { ...existing.agent, running: false };
+    const updatedTask: Task = { ...existing, agent: updatedAgent, status: existing.status };
+
+    const derivedStatus = deriveStatus(updatedTask);
+    if (derivedStatus !== null) {
+      updatedTask.status = derivedStatus;
+    }
+
+    tasks.set(issueNumber, updatedTask);
+    store.setState({ tasks });
+  }
+
+  function handleAgentFailed(e: Extract<EngineEvent, { type: 'agentFailed' }>): void {
+    if (e.agentType === 'planner') {
+      store.setState({ plannerStatus: 'idle' });
+      return;
+    }
+
+    // Find task by sessionID
+    const state = store.getState();
+    const taskEntry = findTaskBySessionID(state.tasks, e.sessionID);
+    if (!taskEntry) {
+      return;
+    }
+
+    const [issueNumber, existing] = taskEntry;
+    if (!existing.agent) {
+      return;
+    }
+
+    const tasks = new Map(state.tasks);
+    const updatedAgent = {
+      ...existing.agent,
+      running: false,
+      crash: { error: e.error },
+    };
+    const updatedTask: Task = { ...existing, agent: updatedAgent, status: existing.status };
+
+    const derivedStatus = deriveStatus(updatedTask);
+    if (derivedStatus !== null) {
+      updatedTask.status = derivedStatus;
+    }
+
+    tasks.set(issueNumber, updatedTask);
+    store.setState({ tasks });
+  }
+
+  async function subscribeToAgentStream(sessionID: string): Promise<void> {
+    const stream = engine.getAgentStream(sessionID);
     if (!stream) {
       return;
     }
@@ -725,7 +444,7 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
       for await (const chunk of stream) {
         const lines = splitChunkIntoLines(chunk);
         if (lines.length > 0) {
-          appendStreamLines(issueNumber, lines);
+          appendStreamLines(sessionID, lines);
         }
       }
     } catch {
@@ -733,33 +452,24 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     }
   }
 
-  function appendStreamLines(issueNumber: number, lines: string[]): void {
+  function appendStreamLines(sessionID: string, lines: string[]): void {
     const state = store.getState();
     const agentStreams = new Map(state.agentStreams);
-    const buffer = [...(agentStreams.get(issueNumber) ?? []), ...lines];
+    const buffer = [...(agentStreams.get(sessionID) ?? []), ...lines];
 
     const overflow = buffer.length - STREAM_BUFFER_LIMIT;
-    const updates: Partial<EngineStoreState> = {};
 
     if (overflow > 0) {
       buffer.splice(0, overflow);
-      const currentOffset = state.streamViewportOffsets.get(issueNumber) ?? 0;
-      if (currentOffset > 0) {
-        const streamViewportOffsets = new Map(state.streamViewportOffsets);
-        const newOffset = Math.max(0, currentOffset - overflow);
-        streamViewportOffsets.set(issueNumber, newOffset);
-        updates.streamViewportOffsets = streamViewportOffsets;
-      }
     }
 
-    agentStreams.set(issueNumber, buffer);
-    updates.agentStreams = agentStreams;
-    store.setState(updates);
+    agentStreams.set(sessionID, buffer);
+    store.setState({ agentStreams });
   }
 
-  async function fetchIssueDetailsIfNeeded(issueNumber: number): Promise<void> {
+  async function fetchIssueDetailIfNeeded(issueNumber: number): Promise<void> {
     const state = store.getState();
-    const cached = state.issueDetails.get(issueNumber);
+    const cached = state.issueDetailCache.get(issueNumber);
 
     if (cached && !cached.stale) {
       return;
@@ -768,207 +478,206 @@ export function createEngineStore(config: CreateEngineStoreConfig): StoreApi<Eng
     try {
       const result = await engine.getIssueDetails(issueNumber);
       const current = store.getState();
-      const issueDetails = new Map(current.issueDetails);
-      issueDetails.set(issueNumber, {
+      const issueDetailCache = new Map(current.issueDetailCache);
+      issueDetailCache.set(issueNumber, {
         body: result.body,
         labels: result.labels,
         stale: false,
       });
-      store.setState({ issueDetails });
+      store.setState({ issueDetailCache });
     } catch {
       // Fetch failure is non-fatal; cache remains empty or stale for next retry
     }
   }
 
-  async function fetchPrDetailsIfNeeded(issueNumber: number): Promise<void> {
+  async function fetchPRDetailsIfNeeded(issueNumber: number): Promise<void> {
     const state = store.getState();
-    const cached = state.prDetails.get(issueNumber);
-
-    if (cached && !cached.stale) {
-      await fetchCIStatusIfNeeded(issueNumber, cached);
+    const task = state.tasks.get(issueNumber);
+    if (!task) {
       return;
     }
 
-    try {
-      const result = await engine.getPRForIssue(issueNumber);
-      if (!result) {
-        const current = store.getState();
-        const prNotFound = new Set(current.prNotFound);
-        prNotFound.add(issueNumber);
-        store.setState({ prNotFound });
-        return;
+    const prsToFetch = task.prs.filter((pr) => {
+      const cached = state.prDetailCache.get(pr.number);
+      return !cached || cached.stale;
+    });
+
+    const fetchPromises = prsToFetch.map(async (pr) => {
+      try {
+        const result = await engine.getPRForIssue(issueNumber);
+        if (result) {
+          const current = store.getState();
+          const prDetailCache = new Map(current.prDetailCache);
+          prDetailCache.set(pr.number, {
+            title: result.title,
+            changedFilesCount: result.changedFilesCount,
+            stale: false,
+          });
+          store.setState({ prDetailCache });
+        }
+      } catch {
+        // Fetch failure is non-fatal
       }
-      const current = store.getState();
-      const prDetails = new Map(current.prDetails);
-      prDetails.set(issueNumber, { ...result, stale: false });
-      const prNotFound = new Set(current.prNotFound);
-      prNotFound.delete(issueNumber);
-      store.setState({ prDetails, prNotFound });
+    });
 
-      const cachedPr = store.getState().prDetails.get(issueNumber);
-      if (cachedPr) {
-        await fetchCIStatusIfNeeded(issueNumber, cachedPr);
-      }
-    } catch {
-      // Fetch failure is non-fatal; cache remains empty or stale for next retry
-    }
-  }
-
-  async function fetchCIStatusIfNeeded(issueNumber: number, pr: CachedPRDetails): Promise<void> {
-    const issue = store.getState().issues.get(issueNumber);
-    if (!issue || issue.ciStatus !== 'failure') {
-      return;
-    }
-
-    if (pr.failedCheckNames !== undefined) {
-      return;
-    }
-
-    try {
-      const ciStatus = await engine.getCIStatus(pr.number);
-      const failedCheckNames = ciStatus.failedCheckRuns.map((check) => check.name);
-
-      const current = store.getState();
-      const prDetails = new Map(current.prDetails);
-      const cachedPr = prDetails.get(issueNumber);
-      if (cachedPr) {
-        prDetails.set(issueNumber, { ...cachedPr, failedCheckNames });
-        store.setState({ prDetails });
-      }
-    } catch {
-      // CI status fetch failure is non-fatal
-    }
-  }
-
-  async function updateNotificationWithPrurl(
-    notificationId: string,
-    issueNumber: number,
-  ): Promise<void> {
-    try {
-      const result = await engine.getPRForIssue(issueNumber);
-      if (!result) {
-        return;
-      }
-      const state = store.getState();
-      const index = state.notifications.findIndex((n) => n.id === notificationId);
-      if (index === -1) {
-        return;
-      }
-
-      const existing = state.notifications[index];
-      if (!existing) {
-        return;
-      }
-
-      const notifications = [...state.notifications];
-      notifications[index] = { ...existing, contextURL: result.url };
-      store.setState({ notifications });
-    } catch {
-      // PR URL enrichment failure is non-fatal
-    }
+    await Promise.all(fetchPromises);
   }
 
   return store;
 }
 
-interface BuildTrackedIssueParams {
-  number: number;
-  title: string;
-  statusLabel: string;
-  priorityLabel: string;
-  createdAt: string;
-  agentRunning: boolean;
-  agentType: TaskAgentType | undefined;
-  lastFailure: LastFailure | undefined;
-  ciStatus: TrackedIssue['ciStatus'];
-  resolutionGuidance: string | undefined;
-}
+// ---------------------------------------------------------------------------
+// Selectors
+// ---------------------------------------------------------------------------
 
-function buildTrackedIssue(params: BuildTrackedIssueParams): TrackedIssue {
-  const issue: TrackedIssue = {
-    number: params.number,
-    title: params.title,
-    statusLabel: params.statusLabel,
-    priorityLabel: params.priorityLabel,
-    createdAt: params.createdAt,
-    agentRunning: params.agentRunning,
+export function selectSortedTasks(state: TUIState): SortedTask[] {
+  const actionTasks: SortedTask[] = [];
+  const agentsTasks: SortedTask[] = [];
+
+  for (const task of state.tasks.values()) {
+    const derivedStatus = deriveStatus(task);
+    if (derivedStatus !== null) {
+      const section: Section = ACTION_STATUSES.has(derivedStatus) ? 'action' : 'agents';
+      const sortedTask: SortedTask = { task, section };
+
+      if (section === 'action') {
+        actionTasks.push(sortedTask);
+      } else {
+        agentsTasks.push(sortedTask);
+      }
+    }
+  }
+
+  const sortFn = (a: SortedTask, b: SortedTask): number => {
+    const aStatusWeight = STATUS_WEIGHT[a.task.status] ?? 0;
+    const bStatusWeight = STATUS_WEIGHT[b.task.status] ?? 0;
+
+    // Status weight descending
+    if (aStatusWeight !== bStatusWeight) {
+      return bStatusWeight - aStatusWeight;
+    }
+
+    // Priority weight descending
+    const aPriorityWeight = a.task.priority !== null ? (PRIORITY_WEIGHT[a.task.priority] ?? 0) : 0;
+    const bPriorityWeight = b.task.priority !== null ? (PRIORITY_WEIGHT[b.task.priority] ?? 0) : 0;
+    if (aPriorityWeight !== bPriorityWeight) {
+      return bPriorityWeight - aPriorityWeight;
+    }
+
+    // Issue number ascending
+    return a.task.issueNumber - b.task.issueNumber;
   };
-  if (params.agentType !== undefined) {
-    issue.agentType = params.agentType;
-  }
-  if (params.lastFailure !== undefined) {
-    issue.lastFailure = params.lastFailure;
-  }
-  if (params.ciStatus !== undefined) {
-    issue.ciStatus = params.ciStatus;
-  }
-  if (params.resolutionGuidance !== undefined) {
-    issue.resolutionGuidance = params.resolutionGuidance;
-  }
-  return issue;
+
+  actionTasks.sort(sortFn);
+  agentsTasks.sort(sortFn);
+
+  return [...actionTasks, ...agentsTasks];
 }
 
-interface BuildLastFailureParams {
-  agentType: TaskAgentType;
-  error: string;
-  sessionId: string;
-  branchName: string | undefined;
-  logFilePath: string | undefined;
+export function selectActionCount(state: TUIState): number {
+  let count = 0;
+  for (const task of state.tasks.values()) {
+    const derivedStatus = deriveStatus(task);
+    if (derivedStatus !== null && ACTION_STATUSES.has(derivedStatus)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
-function buildLastFailure(params: BuildLastFailureParams): LastFailure {
-  const failure: LastFailure = {
-    agentType: params.agentType,
-    error: params.error,
-    sessionID: params.sessionId,
-  };
-  if (params.branchName !== undefined) {
-    failure.branchName = params.branchName;
+export function selectAgentSectionCount(state: TUIState): number {
+  let count = 0;
+  for (const task of state.tasks.values()) {
+    const derivedStatus = deriveStatus(task);
+    if (derivedStatus !== null && !ACTION_STATUSES.has(derivedStatus)) {
+      count += 1;
+    }
   }
-  if (params.logFilePath !== undefined) {
-    failure.logFilePath = params.logFilePath;
-  }
-  return failure;
+  return count;
 }
 
-function clearLastFailure(issue: TrackedIssue): TrackedIssue {
-  const { lastFailure: _, ...rest } = issue;
-  return rest;
+export function selectRunningAgentCount(state: TUIState): number {
+  let count = 0;
+  for (const task of state.tasks.values()) {
+    if (task.agent?.running === true) {
+      count += 1;
+    }
+  }
+  if (state.plannerStatus === 'running') {
+    count += 1;
+  }
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function findTaskBySessionID(tasks: Map<number, Task>, sessionID: string): [number, Task] | null {
+  for (const [issueNumber, task] of tasks) {
+    if (task.agent?.sessionID === sessionID) {
+      return [issueNumber, task];
+    }
+  }
+  return null;
+}
+
+function findNextSelectedIssue(tasks: Map<number, Task>): number | null {
+  // Build sorted list to find "next" task
+  const sorted = selectSortedTasks({
+    tasks,
+    plannerStatus: 'idle',
+    selectedIssue: null,
+    pinnedTask: null,
+    focusedPane: 'taskList',
+    shuttingDown: false,
+    agentStreams: new Map(),
+    issueDetailCache: new Map(),
+    prDetailCache: new Map(),
+  });
+
+  if (sorted.length === 0) {
+    return null;
+  }
+
+  // Return the first task in sort order
+  return sorted[0]?.task.issueNumber ?? null;
 }
 
 function markCacheStale<T extends { stale: boolean }>(
   cache: Map<number, T>,
-  issueNumber: number,
+  key: number,
 ): Map<number, T> {
-  const entry = cache.get(issueNumber);
+  const entry = cache.get(key);
   if (!entry) {
     return cache;
   }
   const updated = new Map(cache);
-  updated.set(issueNumber, { ...entry, stale: true });
+  updated.set(key, { ...entry, stale: true });
   return updated;
 }
 
-function parseRepository(repositoryString: string): Repository {
-  const parts = repositoryString.split('/');
-  return { owner: parts[0] ?? '', repo: parts[1] ?? '' };
+interface BuildTaskAgentParams {
+  type: AgentType;
+  running: boolean;
+  sessionID: string;
+  branchName: string | undefined;
+  logFilePath: string | undefined;
 }
 
-function buildIssueUrl(repo: Repository, issueNumber: number): string {
-  return `https://github.com/${repo.owner}/${repo.repo}/issues/${issueNumber}`;
-}
-
-function formatAgentType(agentType: AgentType): string {
-  return match(agentType)
-    .with('implementor', () => 'Implementor')
-    .with('reviewer', () => 'Reviewer')
-    .with('planner', () => 'Planner')
-    .exhaustive();
-}
-
-function extractFileName(filePath: string): string {
-  const parts = filePath.split('/');
-  return parts.at(-1) ?? filePath;
+function buildTaskAgent(params: BuildTaskAgentParams): TaskAgent {
+  const agent: TaskAgent = {
+    type: params.type,
+    running: params.running,
+    sessionID: params.sessionID,
+  };
+  if (params.branchName !== undefined) {
+    agent.branchName = params.branchName;
+  }
+  if (params.logFilePath !== undefined) {
+    agent.logFilePath = params.logFilePath;
+  }
+  return agent;
 }
 
 function splitChunkIntoLines(chunk: string): string[] {
@@ -977,25 +686,4 @@ function splitChunkIntoLines(chunk: string): string[] {
     parts.pop();
   }
   return parts;
-}
-
-function buildStartupSummary(result: StartupResult): string {
-  const parts = [`Startup complete: ${result.issueCount} issues tracked`];
-  if (result.recoveriesPerformed > 0) {
-    parts.push(`${result.recoveriesPerformed} recoveries performed`);
-  }
-  return parts.join(', ');
-}
-
-export function selectRunningAgentCount(state: EngineStoreState): number {
-  let count = 0;
-  for (const issue of state.issues.values()) {
-    if (issue.agentRunning) {
-      count += 1;
-    }
-  }
-  if (state.plannerRunning) {
-    count += 1;
-  }
-  return count;
 }

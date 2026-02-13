@@ -1,217 +1,112 @@
-import type { Engine, StartupResult } from '../types.ts';
+import type { Engine } from '../types.ts';
 
-export type TaskAgentType = 'implementor' | 'reviewer';
+// ---------------------------------------------------------------------------
+// Task Model
+// ---------------------------------------------------------------------------
 
-export interface LastFailure {
-  agentType: TaskAgentType;
+export type TaskStatus =
+  | 'ready-to-implement'
+  | 'agent-implementing'
+  | 'agent-reviewing'
+  | 'needs-refinement'
+  | 'blocked'
+  | 'ready-to-merge'
+  | 'agent-crashed';
+
+export type Priority = 'high' | 'medium' | 'low';
+
+export type CIStatus = 'pending' | 'success' | 'failure';
+
+export type AgentType = 'implementor' | 'reviewer';
+
+export interface TaskPR {
+  number: number;
+  url: string;
+  ciStatus: CIStatus | null;
+}
+
+export interface AgentCrash {
   error: string;
+}
+
+export interface TaskAgent {
+  type: AgentType;
+  running: boolean;
   sessionID: string;
   branchName?: string;
   logFilePath?: string;
+  crash?: AgentCrash;
 }
 
-export interface TrackedIssue {
-  number: number;
+export interface Task {
+  issueNumber: number;
   title: string;
+  status: TaskStatus;
   statusLabel: string;
-  priorityLabel: string;
+  priority: Priority | null;
+  agentCount: number;
   createdAt: string;
-  agentRunning: boolean;
-  agentType?: TaskAgentType;
-  lastFailure?: LastFailure;
-  ciStatus?: 'pending' | 'success' | 'failure'; // set by ciStatusChanged event, cleared on issueRemoved or ciCheckRecovered
-  resolutionGuidance?: string; // set by issueBlocked, issueNeedsRefinement, or ciCheckFailed events; cleared by issueStatusChanged (non-recovery, non-engine-transition), issueUnblocked, issueRefined, prUnapproved, or ciCheckRecovered
+  prs: TaskPR[];
+  agent: TaskAgent | null;
 }
 
-export interface BaseNotification {
-  id: string;
-  timestamp: string;
-  summary: string;
-  contextURL?: string;
-  clipboardCommand?: string;
+// ---------------------------------------------------------------------------
+// Section & Sorting
+// ---------------------------------------------------------------------------
+
+export type Section = 'action' | 'agents';
+
+export interface SortedTask {
+  task: Task;
+  section: Section;
 }
 
-export type AgentStartedNotification = BaseNotification & {
-  eventType: 'agentStarted';
-  agentType: 'implementor' | 'reviewer' | 'planner';
-  issueNumber?: number;
-  specCount?: number;
-};
+// ---------------------------------------------------------------------------
+// Caches
+// ---------------------------------------------------------------------------
 
-export type AgentCompletedNotification = BaseNotification & {
-  eventType: 'agentCompleted';
-  agentType: 'implementor' | 'reviewer' | 'planner';
-  issueNumber?: number;
-  specCount?: number;
-  logFilePath?: string;
-};
-
-export type AgentFailedNotification = BaseNotification & {
-  eventType: 'agentFailed';
-  agentType: 'implementor' | 'reviewer' | 'planner';
-  issueNumber?: number;
-  error: string;
-  sessionID: string;
-  logFilePath?: string;
-};
-
-export type AgentSkippedNotification = BaseNotification & {
-  eventType: 'agentSkipped';
-  agentType: 'implementor' | 'reviewer' | 'planner';
-  issueNumber?: number;
-};
-
-export type IssueStatusChangedNotification = BaseNotification & {
-  eventType: 'issueStatusChanged';
-  issueNumber: number;
-  oldStatus: string | null;
-  newStatus: string;
-};
-
-export type SpecChangedNotification = BaseNotification & {
-  eventType: 'specChanged';
-  specFileName: string;
-};
-
-export type RecoveryPerformedNotification = BaseNotification & {
-  eventType: 'recoveryPerformed';
-  issueNumber: number;
-};
-
-export type DispatchReadyNotification = BaseNotification & {
-  eventType: 'dispatchReady';
-  issueNumber: number;
-};
-
-export type IssueNeedsRefinementNotification = BaseNotification & {
-  eventType: 'issueNeedsRefinement';
-  issueNumber: number;
-  resolutionGuidance: string;
-};
-
-export type IssueBlockedNotification = BaseNotification & {
-  eventType: 'issueBlocked';
-  issueNumber: number;
-  resolutionGuidance: string;
-};
-
-export type PRApprovedNotification = BaseNotification & {
-  eventType: 'prApproved';
-  issueNumber: number;
-};
-
-export type IssueRefinedNotification = BaseNotification & {
-  eventType: 'issueRefined';
-  issueNumber: number;
-};
-
-export type IssueUnblockedNotification = BaseNotification & {
-  eventType: 'issueUnblocked';
-  issueNumber: number;
-};
-
-export type PRUnapprovedNotification = BaseNotification & {
-  eventType: 'prUnapproved';
-  issueNumber: number;
-};
-
-export type CICheckFailedNotification = BaseNotification & {
-  eventType: 'ciCheckFailed';
-  issueNumber: number;
-  prNumber: number;
-  resolutionGuidance?: string; // present when issue status is 'approved'
-};
-
-export type CICheckRecoveredNotification = BaseNotification & {
-  eventType: 'ciCheckRecovered';
-  issueNumber: number;
-};
-
-export type IssueRemovedNotification = BaseNotification & {
-  eventType: 'issueRemoved';
-  issueNumber: number;
-};
-
-export type StartupNotification = BaseNotification & {
-  eventType: 'startup';
-  issueCount: number;
-  recoveriesPerformed: number;
-};
-
-export type Notification =
-  | AgentStartedNotification
-  | AgentCompletedNotification
-  | AgentFailedNotification
-  | AgentSkippedNotification
-  | IssueStatusChangedNotification
-  | SpecChangedNotification
-  | RecoveryPerformedNotification
-  | DispatchReadyNotification
-  | IssueNeedsRefinementNotification
-  | IssueBlockedNotification
-  | PRApprovedNotification
-  | IssueRefinedNotification
-  | IssueUnblockedNotification
-  | PRUnapprovedNotification
-  | CICheckFailedNotification
-  | CICheckRecoveredNotification
-  | IssueRemovedNotification
-  | StartupNotification;
-
-export type FocusedPane = 'issueList' | 'detailPane' | 'notifications';
-
-export interface CachedIssueDetails {
+export interface CachedIssueDetail {
   body: string;
   labels: string[];
   stale: boolean;
 }
 
-// CachedPRDetails captures the PRDetailsResult fields needed for TUI display
-// (see control-plane-engine.md#query-results), plus a `stale` field for cache
-// management. `isDraft` and `headRefName` are omitted — not needed for rendering.
-export interface CachedPRDetails {
-  number: number;
+export interface CachedPRDetail {
   title: string;
   changedFilesCount: number;
-  ciStatus: 'pending' | 'success' | 'failure';
-  url: string;
-  stale: boolean;
   failedCheckNames?: string[];
+  stale: boolean;
 }
 
-export interface Repository {
-  owner: string;
-  repo: string;
-}
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 
-export interface EngineStoreState {
-  repository: Repository;
-  issues: Map<number, TrackedIssue>;
-  notifications: Notification[];
-  agentStreams: Map<number, string[]>;
-  streamViewportOffsets: Map<number, number>;
-  plannerRunning: boolean;
-  issueDetails: Map<number, CachedIssueDetails>;
-  prDetails: Map<number, CachedPRDetails>;
-  prNotFound: Set<number>;
-  focusedPane: FocusedPane;
+export interface TUIState {
+  tasks: Map<number, Task>;
+  plannerStatus: 'idle' | 'running';
+
   selectedIssue: number | null;
+  pinnedTask: number | null;
+  focusedPane: 'taskList' | 'detailPane';
   shuttingDown: boolean;
+
+  agentStreams: Map<string, string[]>;
+
+  issueDetailCache: Map<number, CachedIssueDetail>;
+  prDetailCache: Map<number, CachedPRDetail>;
 }
 
-export interface EngineStoreActions {
-  dispatchImplementor: (issueNumber: number) => void;
-  dispatchReviewer: (issueNumber: number) => void;
-  cancelAgent: (issueNumber: number) => void;
+export interface TUIActions {
+  dispatch: (issueNumber: number) => void;
   shutdown: () => void;
-  cycleFocus: (direction: 'forward' | 'backward') => void;
-  selectIssue: (issueNumber: number) => Promise<void>;
-  handleStartup: (result: StartupResult) => void;
+  selectIssue: (issueNumber: number) => void;
+  pinTask: (issueNumber: number) => void;
+  cycleFocus: () => void;
 }
 
-export type EngineStore = EngineStoreState & EngineStoreActions;
+export type TUIStore = TUIState & TUIActions;
 
-export interface CreateEngineStoreConfig {
+export interface CreateTUIStoreConfig {
   engine: Engine;
-  repository: string;
 }
