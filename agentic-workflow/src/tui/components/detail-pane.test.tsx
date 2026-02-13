@@ -721,6 +721,86 @@ test('it switches from stream view to issue detail view when status changes', as
   });
 });
 
+test('it resumes auto-scroll from the tail when status changes to a stream view', async () => {
+  const { store, lastFrame, stdin } = setupTest({ paneHeight: 3 });
+
+  // Start with issue detail view
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
+
+  const issueDetailCache = new Map(store.getState().issueDetailCache);
+  issueDetailCache.set(1, {
+    body: 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ tasks, issueDetailCache, focusedPane: 'detailPane' });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#1 Task');
+  });
+
+  // Scroll down so we're not at the top
+  stdin.write('j');
+  stdin.write('j');
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).not.toContain('#1 Task');
+  });
+
+  // Status changes to agent-implementing — auto-scroll should resume from tail
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const updatedTasks = new Map<number, Task>();
+  updatedTasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
+
+  // 5 chunks + 1 header = 6 total lines, paneHeight=3 → tail should show last 3
+  const agentStreams = new Map<string, string[]>();
+  agentStreams.set('sess-1', ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4', 'Chunk 5']);
+  store.setState({ tasks: updatedTasks, agentStreams });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // Auto-scroll pins to tail: last 3 lines visible
+    expect(frame).toContain('Chunk 5');
+    expect(frame).not.toContain('Chunk 1');
+  });
+
+  // Verify auto-scroll is active by adding more chunks
+  const moreStreams = new Map(store.getState().agentStreams);
+  moreStreams.set('sess-1', [
+    'Chunk 1',
+    'Chunk 2',
+    'Chunk 3',
+    'Chunk 4',
+    'Chunk 5',
+    'Chunk 6',
+    'Chunk 7',
+  ]);
+  store.setState({ agentStreams: moreStreams });
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('Chunk 7');
+  });
+});
+
 test('it resets scroll position to top when the pinned task status changes to a non-stream view', async () => {
   const { store, lastFrame, stdin } = setupTest({ paneHeight: 3 });
 
