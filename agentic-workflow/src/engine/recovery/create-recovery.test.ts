@@ -80,7 +80,7 @@ test('it resets in-progress issues to pending on startup', async () => {
   });
 });
 
-test('it emits recoveryPerformed for each issue reset during startup', async () => {
+test('it emits only synthetic issueStatusChanged during startup', async () => {
   const { octokit, events, recovery } = setupTest();
 
   vi.mocked(octokit.issues.listForRepo).mockResolvedValue({
@@ -104,14 +104,7 @@ test('it emits recoveryPerformed for each issue reset during startup', async () 
   await recovery.performStartupRecovery();
 
   const recoveryEvents = events.filter((e) => e.type === 'recoveryPerformed');
-  expect(recoveryEvents).toStrictEqual([
-    {
-      type: 'recoveryPerformed',
-      issueNumber: 10,
-      oldStatus: 'in-progress',
-      newStatus: 'pending',
-    },
-  ]);
+  expect(recoveryEvents).toHaveLength(0);
 });
 
 test('it emits synthetic issueStatusChanged with isRecovery true during startup', async () => {
@@ -209,8 +202,8 @@ test('it handles multiple in-progress issues during startup', async () => {
   expect(octokit.issues.removeLabel).toHaveBeenCalledTimes(2);
   expect(octokit.issues.addLabels).toHaveBeenCalledTimes(2);
 
-  const recoveryEvents = events.filter((e) => e.type === 'recoveryPerformed');
-  expect(recoveryEvents).toHaveLength(2);
+  const statusEvents = events.filter((e) => e.type === 'issueStatusChanged');
+  expect(statusEvents).toHaveLength(2);
 });
 
 test('it returns zero recoveries when no in-progress issues exist at startup', async () => {
@@ -338,7 +331,7 @@ test('it resets in-progress issues to pending after implementor session complete
   });
 });
 
-test('it emits recoveryPerformed and synthetic issueStatusChanged after crash recovery', async () => {
+test('it emits only synthetic issueStatusChanged after crash recovery', async () => {
   const { octokit, events, recovery } = setupTest();
 
   const snapshot = createSnapshot(
@@ -367,12 +360,6 @@ test('it emits recoveryPerformed and synthetic issueStatusChanged after crash re
   });
 
   expect(events).toStrictEqual([
-    {
-      type: 'recoveryPerformed',
-      issueNumber: 10,
-      oldStatus: 'in-progress',
-      newStatus: 'pending',
-    },
     {
       type: 'issueStatusChanged',
       issueNumber: 10,
