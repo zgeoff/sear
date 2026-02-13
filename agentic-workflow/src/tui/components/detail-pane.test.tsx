@@ -3,6 +3,7 @@ import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
 import { createTUIStore } from '../store.ts';
 import { createMockEngine } from '../test-utils/create-mock-engine.ts';
+import type { Task, TaskAgent } from '../types.ts';
 import { DetailPane } from './detail-pane.tsx';
 
 interface SetupTestOptions {
@@ -27,6 +28,26 @@ function setupTest(options?: SetupTestOptions): ReturnType<typeof render> & {
   return { store, engine, emit, ...instance };
 }
 
+function buildTask(overrides: Partial<Task> & { issueNumber: number }): Task {
+  return {
+    title: `Task #${overrides.issueNumber}`,
+    status: 'ready-to-implement',
+    statusLabel: 'pending',
+    priority: null,
+    agentCount: 0,
+    createdAt: '2026-01-01T00:00:00Z',
+    prs: [],
+    agent: null,
+    ...overrides,
+  };
+}
+
+function pinTask(store: ReturnType<typeof createTUIStore>, issueNumber: number): void {
+  const state = store.getState();
+  // Only set pinnedTask (not trigger fetch side-effects from the store action)
+  store.setState({ pinnedTask: issueNumber, selectedIssue: state.selectedIssue ?? issueNumber });
+}
+
 // ---------------------------------------------------------------------------
 // No task selected
 // ---------------------------------------------------------------------------
@@ -38,21 +59,22 @@ test('it shows a placeholder when no task is pinned', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Issue details (pending/unblocked/needs-changes)
+// Issue detail view (ready-to-implement, needs-refinement, blocked)
 // ---------------------------------------------------------------------------
 
-test('it displays issue details when a dispatchable issue is selected', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it displays issue details when a ready-to-implement task is pinned', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Fix the login bug',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Fix the login bug',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -60,7 +82,8 @@ test('it displays issue details when a dispatchable issue is selected', async ()
     labels: ['task:implement', 'priority:medium'],
     stale: false,
   });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -71,20 +94,77 @@ test('it displays issue details when a dispatchable issue is selected', async ()
   });
 });
 
-test('it shows a loading indicator when selected issue has no cached data', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it displays issue details for a needs-refinement task', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Fix the login bug',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Needs spec fix',
+      status: 'needs-refinement',
+      statusLabel: 'needs-refinement',
+    }),
+  );
+
+  const issueDetailCache = new Map(store.getState().issueDetailCache);
+  issueDetailCache.set(1, {
+    body: 'Spec has ambiguity in section 3',
+    labels: ['task:implement', 'status:needs-refinement'],
+    stale: false,
   });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
 
-  store.setState({ pinnedTask: 1 });
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('#1 Needs spec fix');
+    expect(frame).toContain('Spec has ambiguity in section 3');
+  });
+});
+
+test('it displays issue details for a blocked task', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({ issueNumber: 1, title: 'Blocked task', status: 'blocked', statusLabel: 'blocked' }),
+  );
+
+  const issueDetailCache = new Map(store.getState().issueDetailCache);
+  issueDetailCache.set(1, {
+    body: 'Waiting on external dependency',
+    labels: ['task:implement', 'status:blocked'],
+    stale: false,
+  });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('#1 Blocked task');
+    expect(frame).toContain('Waiting on external dependency');
+  });
+});
+
+test('it shows a loading indicator when the pinned task has no cached issue data', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Fix the login bug',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
+
+  store.setState({ tasks });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -93,18 +173,19 @@ test('it shows a loading indicator when selected issue has no cached data', asyn
   });
 });
 
-test('it shows stale data immediately without a loading spinner flash', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it shows stale data immediately with a refreshing indicator', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Fix the login bug',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Fix the login bug',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -112,7 +193,8 @@ test('it shows stale data immediately without a loading spinner flash', async ()
     labels: ['task:implement'],
     stale: true,
   });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -123,32 +205,30 @@ test('it shows stale data immediately without a loading spinner flash', async ()
 });
 
 // ---------------------------------------------------------------------------
-// Streaming (agent running)
+// Agent stream view (agent-implementing, agent-reviewing)
 // ---------------------------------------------------------------------------
 
-test('it streams live implementor output when an agent is running', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it streams live implementor output when an agent is implementing', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Implement feature',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Implement feature',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, { ...task, agent: { type: 'implementor', running: true, sessionID: 'sess-1' } });
-  }
-
-  const agentStreams = new Map(store.getState().agentStreams);
+  const agentStreams = new Map<string, string[]>();
   agentStreams.set('sess-1', ['Building project...', 'Running tests...', 'All tests passed.']);
 
-  store.setState({ tasks, agentStreams, pinnedTask: 1 });
+  store.setState({ tasks, agentStreams });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -160,28 +240,26 @@ test('it streams live implementor output when an agent is running', async () => 
 });
 
 test('it streams live reviewer output when a reviewer is running', async () => {
-  const { store, emit, lastFrame } = setupTest();
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Review PR',
-    oldStatus: null,
-    newStatus: 'review',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const agent: TaskAgent = { type: 'reviewer', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Review PR',
+      status: 'agent-reviewing',
+      statusLabel: 'review',
+      agent,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, { ...task, agent: { type: 'reviewer', running: true, sessionID: 'sess-1' } });
-  }
-
-  const agentStreams = new Map(store.getState().agentStreams);
+  const agentStreams = new Map<string, string[]>();
   agentStreams.set('sess-1', ['Reviewing changes...', 'Code looks good.']);
 
-  store.setState({ tasks, agentStreams, pinnedTask: 1 });
+  store.setState({ tasks, agentStreams });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -192,27 +270,25 @@ test('it streams live reviewer output when a reviewer is running', async () => {
 });
 
 test('it auto-scrolls to the latest output when new chunks arrive', async () => {
-  const { store, emit, lastFrame } = setupTest();
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Implement feature',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Implement feature',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, { ...task, agent: { type: 'implementor', running: true, sessionID: 'sess-1' } });
-  }
-
-  const agentStreams = new Map(store.getState().agentStreams);
+  const agentStreams = new Map<string, string[]>();
   agentStreams.set('sess-1', ['Line 1']);
-  store.setState({ tasks, agentStreams, pinnedTask: 1 });
+  store.setState({ tasks, agentStreams });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('Line 1');
@@ -227,133 +303,61 @@ test('it auto-scrolls to the latest output when new chunks arrive', async () => 
   });
 });
 
-// ---------------------------------------------------------------------------
-// PR Summary (review, no agent)
-// ---------------------------------------------------------------------------
+test('it only displays the last lines when the stream buffer exceeds the cap', async () => {
+  const { store, lastFrame } = setupTest({ paneHeight: 5 });
 
-test('it displays a PR summary when a review issue has no running agent', async () => {
-  const { store, emit, lastFrame } = setupTest();
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Big stream',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Review task',
-    oldStatus: null,
-    newStatus: 'review',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'success' }],
-    });
+  // Simulate a buffer that has been capped at 10,000 lines (oldest dropped)
+  const lines: string[] = [];
+  for (let i = 1; i <= 10_000; i += 1) {
+    lines.push(`line-${i}`);
   }
 
-  const prDetailCache = new Map(store.getState().prDetailCache);
-  prDetailCache.set(10, {
-    title: 'feat: add login',
-    changedFilesCount: 5,
-    stale: false,
-  });
-  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
+  const agentStreams = new Map<string, string[]>();
+  agentStreams.set('sess-1', lines);
+  store.setState({ tasks, agentStreams });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('PR #10: feat: add login');
-    expect(frame).toContain('Changed files: 5');
-    expect(frame).toContain('CI: success');
+    // Auto-scroll pins to tail — last visible lines should be the final buffer entries
+    expect(frame).toContain('line-10000');
+    // Header and early lines should not be visible
+    expect(frame).not.toContain('Implementor output');
+    expect(frame).not.toContain('line-9990');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Needs-refinement / blocked (with guidance)
+// PR summary view (ready-to-merge)
 // ---------------------------------------------------------------------------
 
-test('it displays issue details with a status marker for a blocked issue', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it displays a PR summary for a ready-to-merge task with cached PR data', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Blocked task',
-    oldStatus: null,
-    newStatus: 'blocked',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const issueDetailCache = new Map(store.getState().issueDetailCache);
-  issueDetailCache.set(1, {
-    body: 'Waiting on external dependency',
-    labels: ['task:implement', 'status:blocked'],
-    stale: false,
-  });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('Blocked');
-    expect(frame).toContain('Waiting on external dependency');
-  });
-});
-
-test('it displays issue details with a refinement marker for a needs-refinement issue', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Needs spec fix',
-    oldStatus: null,
-    newStatus: 'needs-refinement',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const issueDetailCache = new Map(store.getState().issueDetailCache);
-  issueDetailCache.set(1, {
-    body: 'Spec has ambiguity in section 3',
-    labels: ['task:implement', 'status:needs-refinement'],
-    stale: false,
-  });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('Needs Refinement');
-    expect(frame).toContain('Spec has ambiguity in section 3');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Approved (PR ready to merge)
-// ---------------------------------------------------------------------------
-
-test('it displays the PR summary with a ready-to-merge indicator for approved issues', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Approved task',
-    oldStatus: null,
-    newStatus: 'approved',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Approved task',
+      status: 'ready-to-merge',
+      statusLabel: 'approved',
       prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'success' }],
-    });
-  }
+    }),
+  );
 
   const prDetailCache = new Map(store.getState().prDetailCache);
   prDetailCache.set(10, {
@@ -361,163 +365,270 @@ test('it displays the PR summary with a ready-to-merge indicator for approved is
     changedFilesCount: 2,
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, prDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Ready to Merge');
     expect(frame).toContain('PR #10: feat: approved PR');
+    expect(frame).toContain('Changed files: 2');
     expect(frame).toContain('CI: success');
   });
 });
 
-// ---------------------------------------------------------------------------
-// Failure overlay
-// ---------------------------------------------------------------------------
+test('it shows loading for each PR that has no cached detail', async () => {
+  const { store, lastFrame } = setupTest();
 
-test('it shows error details when an issue has a failure from an implementor', async () => {
-  const { store, emit, lastFrame } = setupTest();
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Approved task',
+      status: 'ready-to-merge',
+      statusLabel: 'approved',
+      prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'success' }],
+    }),
+  );
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Failed task',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      agent: {
-        type: 'implementor',
-        running: false,
-        sessionID: 'sess-abc-123',
-        branchName: 'issue-1-1700000000',
-        crash: { error: 'process crashed' },
-      },
-    });
-  }
-  store.setState({ tasks, pinnedTask: 1 });
+  store.setState({ tasks });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Agent Failure');
-    expect(frame).toContain('Implementor');
-    expect(frame).toContain('process crashed');
-    expect(frame).toContain('sess-abc-123');
-    expect(frame).toContain('issue-1-1700000000');
+    expect(frame).toContain('PR #10: Loading...');
   });
 });
 
-test('it shows error details with branch name when a reviewer fails', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it displays multiple PRs in the summary view', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Failed review',
-    oldStatus: null,
-    newStatus: 'review',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Multi-PR task',
+      status: 'ready-to-merge',
+      statusLabel: 'approved',
+      prs: [
+        { number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'success' },
+        { number: 11, url: 'https://github.com/owner/repo/pull/11', ciStatus: 'failure' },
+      ],
+    }),
+  );
+
+  const prDetailCache = new Map(store.getState().prDetailCache);
+  prDetailCache.set(10, {
+    title: 'feat: first PR',
+    changedFilesCount: 3,
+    stale: false,
   });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      agent: {
-        type: 'reviewer',
-        running: false,
-        sessionID: 'sess-rev-456',
-        branchName: 'issue-1-pr-branch',
-        crash: { error: 'review timeout' },
-      },
-    });
-  }
-  store.setState({ tasks, pinnedTask: 1 });
+  prDetailCache.set(11, {
+    title: 'feat: second PR',
+    changedFilesCount: 7,
+    failedCheckNames: ['lint', 'typecheck'],
+    stale: false,
+  });
+  store.setState({ tasks, prDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Agent Failure');
-    expect(frame).toContain('Reviewer');
+    expect(frame).toContain('PR #10: feat: first PR');
+    expect(frame).toContain('PR #11: feat: second PR');
+    expect(frame).toContain('Changed files: 7');
+    expect(frame).toContain('  - lint');
+    expect(frame).toContain('  - typecheck');
+  });
+});
+
+test('it displays CI failure details with failed check names', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Approved task',
+      status: 'ready-to-merge',
+      statusLabel: 'approved',
+      prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'failure' }],
+    }),
+  );
+
+  const prDetailCache = new Map(store.getState().prDetailCache);
+  prDetailCache.set(10, {
+    title: 'feat: add login',
+    changedFilesCount: 5,
+    failedCheckNames: ['lint', 'typecheck', 'test'],
+    stale: false,
+  });
+  store.setState({ tasks, prDetailCache });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('CI: failure');
+    expect(frame).toContain('  - lint');
+    expect(frame).toContain('  - typecheck');
+    expect(frame).toContain('  - test');
+  });
+});
+
+test('it shows no linked PRs message when the task has no PRs', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'No PRs task',
+      status: 'ready-to-merge',
+      statusLabel: 'approved',
+      prs: [],
+    }),
+  );
+
+  store.setState({ tasks });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('No linked PRs');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Crash detail view (agent-crashed)
+// ---------------------------------------------------------------------------
+
+test('it shows crash details for an implementor failure', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const agent: TaskAgent = {
+    type: 'implementor',
+    running: false,
+    sessionID: 'sess-abc-123',
+    branchName: 'issue-1-1700000000',
+    crash: { error: 'process crashed' },
+  };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Failed task',
+      status: 'agent-crashed',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
+
+  store.setState({ tasks });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Agent: Implementor');
+    expect(frame).toContain('process crashed');
+    expect(frame).toContain('Session: sess-abc-123');
+    expect(frame).toContain('Branch: issue-1-1700000000');
+    expect(frame).toContain('Press [d] to retry');
+  });
+});
+
+test('it shows crash details with branch name for a reviewer failure', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const agent: TaskAgent = {
+    type: 'reviewer',
+    running: false,
+    sessionID: 'sess-rev-456',
+    branchName: 'issue-1-pr-branch',
+    crash: { error: 'review timeout' },
+  };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Failed review',
+      status: 'agent-crashed',
+      statusLabel: 'review',
+      agent,
+    }),
+  );
+
+  store.setState({ tasks });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Agent: Reviewer');
     expect(frame).toContain('review timeout');
-    expect(frame).toContain('sess-rev-456');
+    expect(frame).toContain('Session: sess-rev-456');
     expect(frame).toContain('Branch: issue-1-pr-branch');
   });
 });
 
-test('it shows the log file path when a failure includes session log information', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it renders the error message in red using ANSI escape codes', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Failed task',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const agent: TaskAgent = {
+    type: 'implementor',
+    running: false,
+    sessionID: 'sess-1',
+    crash: { error: 'fatal error' },
+  };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'agent-crashed',
+      statusLabel: 'pending',
+      agent,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      agent: {
-        type: 'implementor',
-        running: false,
-        sessionID: 'sess-abc-123',
-        branchName: 'issue-1-1700000000',
-        logFilePath: '/logs/2026-02-08T10-00-00Z-implementor-1.log',
-        crash: { error: 'process crashed' },
-      },
-    });
-  }
-  store.setState({ tasks, pinnedTask: 1 });
+  store.setState({ tasks });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Agent Failure');
-    expect(frame).toContain('/logs/2026-02-08T10-00-00Z-implementor-1.log');
+    // The error line starts with ANSI red escape (\x1b[31m) before "Error:"
+    expect(frame).toContain('\x1b[31mError: fatal error');
   });
 });
 
-test('it renders the log file path as a clickable terminal hyperlink', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it shows the log file path as an OSC 8 terminal hyperlink', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Failed task',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const agent: TaskAgent = {
+    type: 'implementor',
+    running: false,
+    sessionID: 'sess-abc-123',
+    logFilePath: '/logs/agent.log',
+    crash: { error: 'process crashed' },
+  };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Failed task',
+      status: 'agent-crashed',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      agent: {
-        type: 'implementor',
-        running: false,
-        sessionID: 'sess-abc-123',
-        logFilePath: '/logs/agent.log',
-        crash: { error: 'process crashed' },
-      },
-    });
-  }
-  store.setState({ tasks, pinnedTask: 1 });
+  store.setState({ tasks });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -526,75 +637,282 @@ test('it renders the log file path as a clickable terminal hyperlink', async () 
   });
 });
 
-test('it does not show a log file path when a failure has no session log information', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it does not show a log file line when logFilePath is not present', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Failed task',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const agent: TaskAgent = {
+    type: 'implementor',
+    running: false,
+    sessionID: 'sess-abc-123',
+    crash: { error: 'process crashed' },
+  };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Failed task',
+      status: 'agent-crashed',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      agent: {
-        type: 'implementor',
-        running: false,
-        sessionID: 'sess-abc-123',
-        crash: { error: 'process crashed' },
-      },
-    });
-  }
-  store.setState({ tasks, pinnedTask: 1 });
+  store.setState({ tasks });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Agent Failure');
+    expect(frame).toContain('Agent: Implementor');
     expect(frame).not.toContain('Log:');
   });
 });
 
-test('it shows the failure overlay regardless of the issue status label', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it shows a fallback message when an agent-crashed task has no agent data', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Recovered task',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Crashed task',
+      status: 'agent-crashed',
+      statusLabel: 'in-progress',
+      agent: null,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      agent: {
-        type: 'implementor',
-        running: false,
-        sessionID: 'sess-777',
-        branchName: 'issue-1-1700000000',
-        crash: { error: 'crashed' },
-      },
-    });
-  }
-  store.setState({ tasks, pinnedTask: 1 });
+  store.setState({ tasks });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    expect(frame).toContain('Agent Failure');
-    expect(frame).not.toContain('No task selected');
-    expect(frame).not.toContain('Loading...');
+    expect(frame).toContain('Crash information unavailable');
+    expect(frame).toContain('Press [d] to retry');
+    expect(frame).not.toContain('Agent:');
+  });
+});
+
+test('it does not show a branch line when branchName is not present', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const agent: TaskAgent = {
+    type: 'implementor',
+    running: false,
+    sessionID: 'sess-abc-123',
+    crash: { error: 'process crashed' },
+  };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Failed task',
+      status: 'agent-crashed',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
+
+  store.setState({ tasks });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Agent: Implementor');
+    expect(frame).not.toContain('Branch:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Status change auto-switch
+// ---------------------------------------------------------------------------
+
+test('it switches from stream view to issue detail view when status changes', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
+
+  const agentStreams = new Map<string, string[]>();
+  agentStreams.set('sess-1', ['Building...']);
+
+  store.setState({ tasks, agentStreams });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('Implementor output for #1');
+  });
+
+  // Status changes to ready-to-merge
+  const updatedTasks = new Map<number, Task>();
+  updatedTasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'ready-to-merge',
+      statusLabel: 'approved',
+      prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'success' }],
+      agent: { ...agent, running: false },
+    }),
+  );
+
+  const prDetailCache = new Map(store.getState().prDetailCache);
+  prDetailCache.set(10, {
+    title: 'feat: PR',
+    changedFilesCount: 2,
+    stale: false,
+  });
+  store.setState({ tasks: updatedTasks, prDetailCache });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('PR #10: feat: PR');
+    expect(frame).not.toContain('Implementor output');
+  });
+});
+
+test('it resumes auto-scroll from the tail when status changes to a stream view', async () => {
+  const { store, lastFrame, stdin } = setupTest({ paneHeight: 3 });
+
+  // Start with issue detail view
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
+
+  const issueDetailCache = new Map(store.getState().issueDetailCache);
+  issueDetailCache.set(1, {
+    body: 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ tasks, issueDetailCache, focusedPane: 'detailPane' });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#1 Task');
+  });
+
+  // Scroll down so we're not at the top
+  stdin.write('j');
+  stdin.write('j');
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).not.toContain('#1 Task');
+  });
+
+  // Status changes to agent-implementing — auto-scroll should resume from tail
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const updatedTasks = new Map<number, Task>();
+  updatedTasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
+
+  // 5 chunks + 1 header = 6 total lines, paneHeight=3 → tail should show last 3
+  const agentStreams = new Map<string, string[]>();
+  agentStreams.set('sess-1', ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4', 'Chunk 5']);
+  store.setState({ tasks: updatedTasks, agentStreams });
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // Auto-scroll pins to tail: last 3 lines visible (Chunk 3, 4, 5)
+    expect(frame).toContain('Chunk 5');
+    // Header and early chunks are scrolled out — proves prior offset was discarded
+    expect(frame).not.toContain('Implementor output');
+    expect(frame).not.toContain('Chunk 1');
+  });
+
+  // Verify auto-scroll is active by adding more chunks
+  const moreStreams = new Map(store.getState().agentStreams);
+  moreStreams.set('sess-1', [
+    'Chunk 1',
+    'Chunk 2',
+    'Chunk 3',
+    'Chunk 4',
+    'Chunk 5',
+    'Chunk 6',
+    'Chunk 7',
+  ]);
+  store.setState({ agentStreams: moreStreams });
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('Chunk 7');
+  });
+});
+
+test('it resets scroll position to top when the pinned task status changes to a non-stream view', async () => {
+  const { store, lastFrame, stdin } = setupTest({ paneHeight: 3 });
+
+  // Start with issue detail that has enough content to scroll
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
+
+  const issueDetailCache = new Map(store.getState().issueDetailCache);
+  issueDetailCache.set(1, {
+    body: 'Line 1\nLine 2\nLine 3\nLine 4\nLine 5',
+    labels: ['task:implement'],
+    stale: false,
+  });
+  store.setState({ tasks, issueDetailCache, focusedPane: 'detailPane' });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).toContain('#1 Task');
+  });
+
+  // Scroll down
+  stdin.write('j');
+  stdin.write('j');
+
+  await vi.waitFor(() => {
+    expect(lastFrame()).not.toContain('#1 Task');
+  });
+
+  // Change status — scroll should reset
+  const updatedTasks = new Map<number, Task>();
+  updatedTasks.set(
+    1,
+    buildTask({ issueNumber: 1, title: 'Task', status: 'blocked', statusLabel: 'blocked' }),
+  );
+  store.setState({ tasks: updatedTasks });
+
+  await vi.waitFor(() => {
+    // Scroll reset to top — header should be visible again
+    expect(lastFrame()).toContain('#1 Task');
   });
 });
 
@@ -603,17 +921,18 @@ test('it shows the failure overlay regardless of the issue status label', async 
 // ---------------------------------------------------------------------------
 
 test('it scrolls issue details when the detail pane is focused and the user presses navigation keys', async () => {
-  const { store, emit, lastFrame, stdin } = setupTest();
+  const { store, lastFrame, stdin } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Scrollable issue',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Scrollable issue',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -622,10 +941,11 @@ test('it scrolls issue details when the detail pane is focused and the user pres
     stale: false,
   });
   store.setState({
+    tasks,
     issueDetailCache,
-    pinnedTask: 1,
     focusedPane: 'detailPane',
   });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('Line A');
@@ -640,17 +960,18 @@ test('it scrolls issue details when the detail pane is focused and the user pres
 });
 
 test('it does not scroll when the detail pane is not focused', async () => {
-  const { store, emit, lastFrame, stdin } = setupTest();
+  const { store, lastFrame, stdin } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Scrollable issue',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Scrollable issue',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -659,10 +980,11 @@ test('it does not scroll when the detail pane is not focused', async () => {
     stale: false,
   });
   store.setState({
+    tasks,
     issueDetailCache,
-    pinnedTask: 1,
     focusedPane: 'taskList',
   });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('Line A');
@@ -676,83 +998,22 @@ test('it does not scroll when the detail pane is not focused', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Unblocked and needs-changes status display
-// ---------------------------------------------------------------------------
-
-test('it displays issue details for an unblocked issue', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Unblocked task',
-    oldStatus: null,
-    newStatus: 'unblocked',
-    priorityLabel: 'priority:high',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const issueDetailCache = new Map(store.getState().issueDetailCache);
-  issueDetailCache.set(1, {
-    body: 'Ready to be worked on',
-    labels: ['task:implement', 'status:unblocked'],
-    stale: false,
-  });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('#1 Unblocked task');
-    expect(frame).toContain('Ready to be worked on');
-  });
-});
-
-test('it displays issue details for a needs-changes issue', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Needs changes task',
-    oldStatus: null,
-    newStatus: 'needs-changes',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const issueDetailCache = new Map(store.getState().issueDetailCache);
-  issueDetailCache.set(1, {
-    body: 'Reviewer requested changes',
-    labels: ['task:implement', 'status:needs-changes'],
-    stale: false,
-  });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('#1 Needs changes task');
-    expect(frame).toContain('Reviewer requested changes');
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Scroll windowing — only visible rows rendered
 // ---------------------------------------------------------------------------
 
 test('it only renders the visible window of lines when content exceeds the pane height', async () => {
-  // paneHeight=3 means only 3 lines visible at a time.
-  // Issue details: header + labels + blank + body lines = at least 4 lines.
-  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+  const { store, lastFrame } = setupTest({ paneHeight: 3 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Long issue',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Long issue',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -760,7 +1021,8 @@ test('it only renders the visible window of lines when content exceeds the pane 
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -774,17 +1036,18 @@ test('it only renders the visible window of lines when content exceeds the pane 
 });
 
 test('it renders content beyond the window after scrolling down', async () => {
-  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 3 });
+  const { store, lastFrame, stdin } = setupTest({ paneHeight: 3 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Long issue',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Long issue',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -793,10 +1056,11 @@ test('it renders content beyond the window after scrolling down', async () => {
     stale: false,
   });
   store.setState({
+    tasks,
     issueDetailCache,
-    pinnedTask: 1,
     focusedPane: 'detailPane',
   });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('#1 Long issue');
@@ -815,28 +1079,26 @@ test('it renders content beyond the window after scrolling down', async () => {
 
 test('it applies scroll windowing to streaming output', async () => {
   // paneHeight=3: header line + 2 visible chunk lines
-  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+  const { store, lastFrame } = setupTest({ paneHeight: 3 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Streaming',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, { ...task, agent: { type: 'implementor', running: true, sessionID: 'sess-1' } });
-  }
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Streaming',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
   // 5 chunks + 1 header = 6 total lines, paneHeight=3
-  const agentStreams = new Map(store.getState().agentStreams);
+  const agentStreams = new Map<string, string[]>();
   agentStreams.set('sess-1', ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4', 'Chunk 5']);
-  store.setState({ tasks, agentStreams, pinnedTask: 1 });
+  store.setState({ tasks, agentStreams });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -848,69 +1110,58 @@ test('it applies scroll windowing to streaming output', async () => {
   });
 });
 
-test('it applies scroll windowing to the failure overlay', async () => {
-  // paneHeight=3: only 3 lines visible out of ~7 failure lines
-  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+test('it applies scroll windowing to the crash detail view', async () => {
+  // paneHeight=3: only 3 lines visible out of ~6 crash detail lines
+  const { store, lastFrame } = setupTest({ paneHeight: 3 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Failed task',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const agent: TaskAgent = {
+    type: 'implementor',
+    running: false,
+    sessionID: 'sess-abc-123',
+    branchName: 'issue-1-1700000000',
+    logFilePath: '/logs/agent.log',
+    crash: { error: 'process crashed' },
+  };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Failed task',
+      status: 'agent-crashed',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      agent: {
-        type: 'implementor',
-        running: false,
-        sessionID: 'sess-abc-123',
-        branchName: 'issue-1-1700000000',
-        logFilePath: '/logs/agent.log',
-        crash: { error: 'process crashed' },
-      },
-    });
-  }
-  store.setState({ tasks, pinnedTask: 1 });
+  store.setState({ tasks });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    // With 3 visible rows, only first 3 of ~8 failure lines visible:
-    // "Agent Failure", "Issue: #1 Failed task", "Agent: Implementor"
-    expect(frame).toContain('Agent Failure');
+    // With 3 visible rows, only first 3 of ~6 crash lines visible:
+    // "Agent: Implementor", "Error: process crashed", "Session: sess-abc-123"
+    expect(frame).toContain('Agent: Implementor');
     // Later lines should NOT be visible without scrolling
-    expect(frame).not.toContain('Press Enter');
+    expect(frame).not.toContain('Press [d]');
   });
 });
 
 test('it applies scroll windowing to the PR summary', async () => {
-  // paneHeight=3: only 3 of 4-5 PR lines visible
-  const { store, emit, lastFrame } = setupTest({ paneHeight: 3 });
+  // paneHeight=3: only 3 of 3+ PR lines visible
+  const { store, lastFrame } = setupTest({ paneHeight: 3 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Review task',
-    oldStatus: null,
-    newStatus: 'review',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Approved task',
+      status: 'ready-to-merge',
+      statusLabel: 'approved',
       prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'success' }],
-    });
-  }
+    }),
+  );
 
   const prDetailCache = new Map(store.getState().prDetailCache);
   prDetailCache.set(10, {
@@ -918,16 +1169,16 @@ test('it applies scroll windowing to the PR summary', async () => {
     changedFilesCount: 5,
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, prDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    // 4 lines total: PR title, Issue ref, Changed files, CI status
-    // Only first 3 visible
+    // 3 lines total: PR title, Changed files, CI status
+    // All 3 should be visible
     expect(frame).toContain('PR #10: feat: add login');
-    expect(frame).toContain('Issue: #1 Review task');
     expect(frame).toContain('Changed files: 5');
-    expect(frame).not.toContain('CI: success');
+    expect(frame).toContain('CI: success');
   });
 });
 
@@ -936,17 +1187,18 @@ test('it applies scroll windowing to the PR summary', async () => {
 // ---------------------------------------------------------------------------
 
 test('it truncates lines that exceed the pane width with an ellipsis', async () => {
-  const { store, emit, lastFrame } = setupTest({ paneWidth: 20, paneHeight: 10 });
+  const { store, lastFrame } = setupTest({ paneWidth: 20, paneHeight: 10 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'A very long title that exceeds the pane width',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'A very long title that exceeds the pane width',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -954,7 +1206,8 @@ test('it truncates lines that exceed the pane width with an ellipsis', async () 
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -966,17 +1219,18 @@ test('it truncates lines that exceed the pane width with an ellipsis', async () 
 });
 
 test('it does not truncate lines that fit within the pane width', async () => {
-  const { store, emit, lastFrame } = setupTest({ paneWidth: 80 });
+  const { store, lastFrame } = setupTest({ paneWidth: 80 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Short title',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Short title',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -984,7 +1238,8 @@ test('it does not truncate lines that fit within the pane width', async () => {
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     const frame = lastFrame();
@@ -1000,28 +1255,26 @@ test('it does not truncate lines that fit within the pane width', async () => {
 
 test('it resumes auto-scroll when the user scrolls back to the bottom of the stream', async () => {
   // paneHeight=3, so visible row count is 3
-  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 3 });
+  const { store, lastFrame, stdin } = setupTest({ paneHeight: 3 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Streaming',
-    oldStatus: null,
-    newStatus: 'in-progress',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, { ...task, agent: { type: 'implementor', running: true, sessionID: 'sess-1' } });
-  }
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Streaming',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
 
   // 4 chunks + 1 header = 5 total lines
-  const agentStreams = new Map(store.getState().agentStreams);
+  const agentStreams = new Map<string, string[]>();
   agentStreams.set('sess-1', ['Chunk 1', 'Chunk 2', 'Chunk 3', 'Chunk 4']);
-  store.setState({ tasks, agentStreams, pinnedTask: 1, focusedPane: 'detailPane' });
+  store.setState({ tasks, agentStreams, focusedPane: 'detailPane' });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('Chunk 4');
@@ -1065,17 +1318,18 @@ test('it resumes auto-scroll when the user scrolls back to the bottom of the str
 // ---------------------------------------------------------------------------
 
 test('it does not scroll above the first line', async () => {
-  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 5 });
+  const { store, lastFrame, stdin } = setupTest({ paneHeight: 5 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Issue',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Issue',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -1083,7 +1337,8 @@ test('it does not scroll above the first line', async () => {
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, pinnedTask: 1, focusedPane: 'detailPane' });
+  store.setState({ tasks, issueDetailCache, focusedPane: 'detailPane' });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('#1 Issue');
@@ -1101,17 +1356,18 @@ test('it does not scroll above the first line', async () => {
 });
 
 test('it does not scroll below the last line', async () => {
-  const { store, emit, lastFrame, stdin } = setupTest({ paneHeight: 5 });
+  const { store, lastFrame, stdin } = setupTest({ paneHeight: 5 });
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Issue',
-    oldStatus: null,
-    newStatus: 'pending',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Issue',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
   const issueDetailCache = new Map(store.getState().issueDetailCache);
   issueDetailCache.set(1, {
@@ -1119,7 +1375,8 @@ test('it does not scroll below the last line', async () => {
     labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ issueDetailCache, pinnedTask: 1, focusedPane: 'detailPane' });
+  store.setState({ tasks, issueDetailCache, focusedPane: 'detailPane' });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
     expect(lastFrame()).toContain('#1 Issue');
@@ -1141,168 +1398,39 @@ test('it does not scroll below the last line', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// No PR found
+// Pinned task removal
 // ---------------------------------------------------------------------------
 
-test('it shows a no-PR message when a review issue has no linked PR', async () => {
-  const { store, emit, lastFrame } = setupTest();
+test('it shows the no-task placeholder when the pinned task is unpinned', async () => {
+  const { store, lastFrame } = setupTest();
 
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Review task',
-    oldStatus: null,
-    newStatus: 'review',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Task',
+      status: 'ready-to-implement',
+      statusLabel: 'pending',
+    }),
+  );
 
-  store.setState({ pinnedTask: 1 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('No PR found');
-    expect(frame).not.toContain('Loading...');
-  });
-});
-
-test('it shows a no-PR message when an approved issue has no linked PR', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Approved task',
-    oldStatus: null,
-    newStatus: 'approved',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  store.setState({ pinnedTask: 1 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('No PR found');
-    expect(frame).not.toContain('Loading...');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// CI failure display
-// ---------------------------------------------------------------------------
-
-test('it displays CI failure details when a review issue has ciStatus failure and failed check names', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Review task',
-    oldStatus: null,
-    newStatus: 'review',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'failure' }],
-    });
-  }
-
-  const prDetailCache = new Map(store.getState().prDetailCache);
-  prDetailCache.set(10, {
-    title: 'feat: add login',
-    changedFilesCount: 5,
-    failedCheckNames: ['lint', 'typecheck', 'test'],
+  const issueDetailCache = new Map(store.getState().issueDetailCache);
+  issueDetailCache.set(1, {
+    body: 'Some content',
+    labels: ['task:implement'],
     stale: false,
   });
-  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
+  store.setState({ tasks, issueDetailCache });
+  pinTask(store, 1);
 
   await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('CI: FAILURE');
-    expect(frame).toContain('  - lint');
-    expect(frame).toContain('  - typecheck');
-    expect(frame).toContain('  - test');
-  });
-});
-
-test('it displays CI failure with resolution guidance when an approved issue has ciStatus failure', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Approved task',
-    oldStatus: null,
-    newStatus: 'approved',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
+    expect(lastFrame()).toContain('#1 Task');
   });
 
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'failure' }],
-    });
-  }
-
-  const prDetailCache = new Map(store.getState().prDetailCache);
-  prDetailCache.set(10, {
-    title: 'feat: approved PR',
-    changedFilesCount: 2,
-    failedCheckNames: ['lint'],
-    stale: false,
-  });
-  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
+  store.setState({ pinnedTask: null });
 
   await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('CI: FAILURE');
-    expect(frame).toContain('  - lint');
-  });
-});
-
-test('it does not show CI failure details when ciStatus is failure but failedCheckNames are not yet cached', async () => {
-  const { store, emit, lastFrame } = setupTest();
-
-  emit({
-    type: 'issueStatusChanged',
-    issueNumber: 1,
-    title: 'Review task',
-    oldStatus: null,
-    newStatus: 'review',
-    priorityLabel: 'priority:medium',
-    createdAt: '2026-01-01T00:00:00Z',
-  });
-
-  const tasks = new Map(store.getState().tasks);
-  const task = tasks.get(1);
-  if (task) {
-    tasks.set(1, {
-      ...task,
-      prs: [{ number: 10, url: 'https://github.com/owner/repo/pull/10', ciStatus: 'failure' }],
-    });
-  }
-
-  const prDetailCache = new Map(store.getState().prDetailCache);
-  prDetailCache.set(10, {
-    title: 'feat: add login',
-    changedFilesCount: 5,
-    stale: false,
-  });
-  store.setState({ tasks, prDetailCache, pinnedTask: 1 });
-
-  await vi.waitFor(() => {
-    const frame = lastFrame();
-    expect(frame).toContain('CI: failure');
-    expect(frame).not.toContain('CI: FAILURE');
+    expect(lastFrame()).toContain('No task selected');
   });
 });
