@@ -66,8 +66,8 @@ Use `scripts/workflow/gh.sh` for all GitHub CLI operations.
 ## Constraints
 
 - Do not narrate reasoning between tool calls. Output only: gate check results, issue action
-  summaries (created/updated/closed with number and title), and the final planning summary. No
-  exploratory commentary.
+  summaries (created/updated/closed with number and title), and the final Planner Structured Output.
+  No exploratory commentary.
 
 ## Workflow
 
@@ -99,22 +99,11 @@ specs. Only specs that pass all gates proceed to decomposition.
 1. Spec frontmatter `status` is `approved`.
 2. No open `task:refinement` issues exist for this spec.
 
-For each spec that fails a gate, output this format (one block per failed spec):
+For each spec that fails a gate, note the failure (spec name, which gate failed, and why). This
+chain-of-thought ensures the structured output is accurate.
 
-```
-## Planning Gate Failure
-
-**Spec:** docs/specs/<name>.md
-
-### Failed Gates
-- Gate 1: Spec status is `<actual status>` (required: `approved`)
-- Gate 4: Open `task:refinement` issues: #12, #15
-
-### Action Required
-What must be resolved before the Planner can process this spec.
-```
-
-If all specs fail their gates, output all failure blocks and stop — do not proceed to later phases.
+If all specs fail their gates, skip to Phase 5 — output the Planner Structured Output with all
+arrays empty.
 
 ### Phase 1: Review Existing Issues
 
@@ -283,38 +272,38 @@ When a new issue supersedes an existing open issue, close the old one as a dupli
 referencing the new issue number. Do this after creating the new issue so you have the number to
 reference.
 
-### Phase 5: Report Summary
+### Phase 5: Structured Output
 
-After all issues are created/updated/closed, output this summary. When multiple specs are processed,
-include per-spec sections with a combined dependency graph at the end:
+After all issues are created/updated/closed (or after gate failures if no specs passed), output a
+**Planner Structured Output** as a fenced `json` code block. This is your final message and captures
+the blocking delta from the run:
 
+```json
+{
+  "created": [20, 21, 22, 23],
+  "closed": [12, 15],
+  "updated": [13],
+  "blocking": {
+    "13": [20],
+    "20": [21, 22],
+    "21": [],
+    "22": [23, 8],
+    "23": []
+  }
+}
 ```
-## Planning Summary
 
-### docs/specs/<name-1>.md (v<version>)
+Rules:
 
-#### Existing Issues
-- Closed: #12 (irrelevant), #15 (duplicate of #20)
-- Updated: #13 (scope revised)
-
-#### New Issues Created
-- #20: <title> [priority:high]
-- #21: <title> [priority:medium] (blocked by #20)
-
-### docs/specs/<name-2>.md (v<version>)
-
-#### Existing Issues
-- (none)
-
-#### New Issues Created
-- #22: <title> [priority:medium] (blocked by #20)
-- #23: <title> [priority:low]
-
-### Combined Dependency Graph
-#20 → #21
-#20 → #22
-#21, #22 → #23
-```
+- `created`: Issue numbers created this run, in creation order.
+- `closed`: Issue numbers closed this run.
+- `updated`: Issue numbers updated this run (body or labels revised).
+- `blocking`: Each issue from `created` and `updated` as a key, mapping to an array of issue numbers
+  it blocks. Values may reference any issue — new, updated, or existing. Empty array if no
+  dependents.
+- Closed issues do not appear as keys in `blocking`.
+- Every issue in `created` and `updated` must appear as a key in `blocking`.
+- If no actions were taken (gate failures, idempotent re-run): all arrays empty, `blocking` is `{}`.
 
 ## Handling Spec Ambiguity
 

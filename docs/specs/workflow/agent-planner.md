@@ -1,7 +1,7 @@
 ---
 title: Planner Agent
-version: 0.5.0
-last_updated: 2026-02-11
+version: 0.6.0
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -21,8 +21,8 @@ priority.
   [skill-github-workflow.md: Authentication](./skill-github-workflow.md#authentication) for wrapper
   behavior).
 - Must not narrate reasoning between tool calls. Output only: gate check results, issue action
-  summaries (created/updated/closed with number and title), and the final planning summary. No
-  exploratory commentary.
+  summaries (created/updated/closed with number and title), and the final Planner Structured Output.
+  No exploratory commentary.
 - Must not make interpretive decisions about spec intent. Ambiguity, contradiction, or gaps must
   produce `task:refinement` issues, not guesses.
 - The agent definition body must include the permitted bash command list from
@@ -86,10 +86,9 @@ are evaluated per spec — a failing spec is reported and skipped; passing specs
 1. Spec frontmatter `status` is `approved`.
 2. No open `task:refinement` issues exist for this spec.
 
-For each spec that fails a gate, the Planner outputs a failure report using the Planning Gate
-Failure Format (see
-[workflow-contracts.md: Planning Gate Failure Format](./workflow-contracts.md#planning-gate-failure-format)).
-If all specs fail, the Planner stops after reporting all failures.
+For each spec that fails a gate, the Planner notes the failure (spec name, which gate failed, and
+why) as chain-of-thought before continuing. If all specs fail, the Planner stops after reporting all
+failures and outputs the Planner Structured Output with all arrays empty.
 
 ## Decomposition Process
 
@@ -144,10 +143,10 @@ Each `task:implement` issue receives exactly four labels: type (`task:implement`
 (`status:pending`), priority, and complexity. Each `task:refinement` issue receives exactly three
 labels (no complexity).
 
-### Phase 5: Report Summary
+### Phase 5: Structured Output
 
-After all issues are created/updated/closed, the Planner outputs a planning summary as its final
-text output (see [Completion Output](#completion-output)).
+After all issues are created/updated/closed, the Planner outputs a Planner Structured Output JSON
+block as its final message (see [Completion Output](#completion-output)).
 
 ## Complexity Assessment
 
@@ -190,14 +189,12 @@ only if the ambiguous section does not block critical-path work.
 
 ## Completion Output
 
-On every run, the Planner returns one of:
-
-- **Planning Summary** (see
-  [workflow-contracts.md: Planning Summary Format](./workflow-contracts.md#planning-summary-format))
-  — when at least one spec passed its gates and decomposition ran.
-- **Gate Failure reports only** (see
-  [workflow-contracts.md: Planning Gate Failure Format](./workflow-contracts.md#planning-gate-failure-format))
-  — when all specs failed their gates.
+On every run, the Planner outputs a **Planner Structured Output** JSON block as its final message
+(see
+[workflow-contracts.md: Planner Structured Output](./workflow-contracts.md#planner-structured-output)).
+This captures the blocking delta — every issue action and dependency relationship established or
+modified during the run. Gate-failure-only and idempotent no-op runs produce a structured output
+with all arrays empty.
 
 ## Acceptance Criteria
 
@@ -233,10 +230,10 @@ On every run, the Planner returns one of:
       then it is marked `priority:high`.
 - [ ] Given an ambiguous section in the spec, when the Planner encounters it, then it creates a
       `task:refinement` issue instead of guessing intent.
-- [ ] Given the Planner completes, then it outputs a planning summary listing all closed, updated,
-      and newly created issues with priorities and dependencies.
 - [ ] Given a re-invocation where existing issues are current and the codebase satisfies all
       criteria, then no new issues are created, no issues are closed, and no issues are updated.
+- [ ] Given the Planner completes (any outcome), then its final output includes a Planner Structured
+      Output JSON block where every issue in `created` and `updated` appears as a key in `blocking`.
 
 ## Dependencies
 
@@ -244,7 +241,7 @@ On every run, the Planner returns one of:
   `docs/specs/workflow/github-cli.md`).
 - Label setup — All workflow labels must exist in the repository (see `script-label-setup.md`).
 - `workflow-contracts.md` — Shared data formats: Task Issue Template, Refinement Issue Template,
-  Planning Gate Failure Format, Planning Summary Format.
+  Planner Structured Output.
 - Agent Bash Tool Validator — PreToolUse hook that validates all Bash commands against
   blocklist/allowlist before execution. See `agent-hook-bash-validator.md` (rules) and
   `agent-hook-bash-validator-script.md` (shell implementation).

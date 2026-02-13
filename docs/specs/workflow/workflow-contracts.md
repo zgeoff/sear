@@ -1,7 +1,7 @@
 ---
 title: Workflow Contracts
-version: 0.4.0
-last_updated: 2026-02-12
+version: 0.5.0
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -61,38 +61,50 @@ Produced by the Reviewer as its final text output, returned to the invoking proc
 Brief description of the review result. For approvals, confirm what was verified. For rejections, list the categories with findings.
 ```
 
-#### Planning Summary Format
+#### Planner Structured Output
 
-Produced by the Planner as its final text output, returned to the invoking process. When multiple
-specs are processed, includes per-spec sections with a combined dependency graph.
+Produced by the Planner as its final output. Captures the blocking delta — every issue action and
+dependency change from the run — as machine-readable structured data.
 
+```typescript
+interface PlannerStructuredOutput {
+  created: number[]; // issues created this run, in creation order
+  closed: number[]; // issues closed this run
+  updated: number[]; // issues updated this run (body/labels revised)
+  blocking: Record<string, number[]>; // issue → issues it blocks
+}
 ```
-## Planning Summary
 
-### docs/specs/<name-1>.md (v<version>)
+Rules:
 
-#### Existing Issues
-- Closed: #12 (irrelevant), #15 (duplicate of #20)
-- Updated: #13 (scope revised)
+- Every issue in `created` and `updated` appears as a key in `blocking`, even when the array is
+  empty (completeness guarantee).
+- Values in `blocking` may reference any issue number — created, updated, or existing issues not
+  otherwise touched in this run.
+- Closed issues do not appear as keys in `blocking` (they are removed from the graph) but may appear
+  as values if another issue still references them.
+- Gate-failure-only and idempotent no-op runs: all arrays are empty and `blocking` is `{}`.
 
-#### New Issues Created
-- #20: <title> [priority:high]
-- #21: <title> [priority:medium] (blocked by #20)
+Example:
 
-### docs/specs/<name-2>.md (v<version>)
-
-#### Existing Issues
-- (none)
-
-#### New Issues Created
-- #22: <title> [priority:medium] (blocked by #20)
-- #23: <title> [priority:low]
-
-### Combined Dependency Graph
-#20 → #21
-#20 → #22
-#21, #22 → #23
+```json
+{
+  "created": [20, 21, 22, 23],
+  "closed": [12, 15],
+  "updated": [13],
+  "blocking": {
+    "13": [20],
+    "20": [21, 22],
+    "21": [],
+    "22": [23, 8],
+    "23": []
+  }
+}
 ```
+
+> **Rationale:** The structured output enables future engine consumption of the Planner's dependency
+> graph without parsing markdown. It is output-only for now (not consumed by the engine) to measure
+> prompt adherence before building ingestion.
 
 ### Issue Comment Formats
 
@@ -314,23 +326,6 @@ Labels at creation:
 - **Priority:** One of `priority:high` (default — blocks task creation), `priority:medium` (only if
   the ambiguous section does not block critical-path work)
 
-#### Planning Gate Failure Format
-
-Output by the Planner when a spec fails pre-planning validation gates. One block per failed spec.
-
-```
-## Planning Gate Failure
-
-**Spec:** docs/specs/<name>.md
-
-### Failed Gates
-- Gate 1: Spec status is `<actual status>` (required: `approved`)
-- Gate 4: Open `task:refinement` issues: #12, #15
-
-### Action Required
-What must be resolved before the Planner can process this spec.
-```
-
 ### Scope Enforcement Rules
 
 These rules govern what files an agent may modify. They are referenced by the Implementor (which
@@ -395,8 +390,10 @@ When a file outside scope needs non-incidental changes:
       categories: type, status, priority, and complexity.
 - [ ] Given a refinement issue created from the template, when inspected, then it does not have a
       complexity label.
-- [ ] Given a planning gate failure output, when multiple specs fail validation, then each failed
-      spec has its own block with specific failed gates and required actions.
+- [ ] Given a Planner Structured Output, when inspected, then every issue in `created` and `updated`
+      appears as a key in `blocking`.
+- [ ] Given a Planner Structured Output from a gate-failure-only or idempotent no-op run, when
+      inspected, then all arrays are empty and `blocking` is `{}`.
 - [ ] Given a scope enforcement decision, when a change qualifies under all three incidental-change
       criteria, then it is permitted without listing the file in "In Scope".
 - [ ] Given a scope enforcement decision, when a change fails any one of the three incidental-change
@@ -415,7 +412,7 @@ When a file outside scope needs non-incidental changes:
 - [workflow.md](./workflow.md) -- status labels, label taxonomy, lifecycle phases, and quality gates
   referenced by templates
 - [agent-planner.md](./agent-planner.md) -- consumes task issue template, refinement issue template,
-  and planning summary format
+  and Planner Structured Output format
 - [agent-implementor.md](./agent-implementor.md) -- consumes completion output, blocker comment,
   escalation comment, and scope enforcement rules
 - [agent-reviewer.md](./agent-reviewer.md) -- consumes review approval template, review rejection
