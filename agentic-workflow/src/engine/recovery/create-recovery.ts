@@ -30,13 +30,6 @@ async function performStartupRecovery(config: RecoveryConfig): Promise<StartupRe
     const priorityLabel = extractPriorityLabel(issue.labels);
 
     emitter.emit({
-      type: 'recoveryPerformed',
-      issueNumber: issue.number,
-      oldStatus: 'in-progress',
-      newStatus: 'pending',
-    });
-
-    emitter.emit({
       type: 'issueStatusChanged',
       issueNumber: issue.number,
       title: issue.title,
@@ -80,13 +73,6 @@ async function performCrashRecovery(
   snapshot.set(issueNumber, {
     ...entry,
     statusLabel: 'pending',
-  });
-
-  emitter.emit({
-    type: 'recoveryPerformed',
-    issueNumber,
-    oldStatus: 'in-progress',
-    newStatus: 'pending',
   });
 
   emitter.emit({
