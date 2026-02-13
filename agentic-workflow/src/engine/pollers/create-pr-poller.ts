@@ -82,7 +82,7 @@ function removeAbsentPRs(
 function updateSnapshotMetadata(
   snapshot: Map<number, PRSnapshotEntry>,
   pullsList: PullsListItem[],
-  onPRDetected: (prNumber: number) => void,
+  onPRDetected: ((prNumber: number) => void) | undefined,
 ): void {
   for (const pr of pullsList) {
     const existing = snapshot.get(pr.number);
@@ -107,7 +107,9 @@ function updateSnapshotMetadata(
         body: pr.body ?? '',
         ciStatus: null,
       });
-      onPRDetected(pr.number);
+      if (onPRDetected) {
+        onPRDetected(pr.number);
+      }
     }
   }
 }

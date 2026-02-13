@@ -76,6 +76,6 @@ export interface PRPollerConfig {
     oldCIStatus: PRCIStatus | null,
     newCIStatus: PRCIStatus,
   ) => void;
-  onPRDetected: (prNumber: number) => void;
+  onPRDetected?: (prNumber: number) => void;
   onPRRemoved: (prNumber: number) => void;
 }
