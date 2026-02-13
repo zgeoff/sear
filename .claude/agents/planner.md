@@ -139,6 +139,8 @@ Break remaining work into tasks. Each task must be:
 
 - **Single objective:** One clear thing to accomplish.
 - **Hermetic:** Completable by one Implementor without real-time coordination.
+- **Buildable:** The codebase must compile after the task's changes are applied. When removing or
+  changing shared exports, include all consumer updates in the same task.
 - **Bounded:** Explicit In Scope and Out of Scope file lists.
 - **Derived:** Acceptance criteria come from the spec (subset of spec criteria, plus any
   implementation-specific criteria).
