@@ -212,6 +212,19 @@ worktree will be destroyed. A task is not complete until a PR exists.
      scripts/workflow/gh.sh pr ready <number>
      ```
 
+## Debugging Strategy
+
+When a test or validation failure occurs after your edits:
+
+1. **Isolate first** — identify the specific failing test or assertion. Use `Grep` with `-A`/`-B`
+   context flags to find the failure site, not full file reads.
+2. **Form a hypothesis** before reading any file. State what you expect to find and why.
+3. **Targeted reads only** — use `Read` with `offset`/`limit` to read specific sections. Do not
+   re-read entire files you have already read.
+4. **One fix attempt** — apply your fix, re-run validation. If it fails again on the same issue,
+   escalate as a blocker (type: `debugging-limit`). Do not enter a read → edit → read → edit loop on
+   the same failure.
+
 ## Blocker Handling
 
 When you encounter something that prevents continued progress:
@@ -224,7 +237,8 @@ When you encounter something that prevents continued progress:
 3. **Post a blocker comment** on the task issue using the Blocker Comment Format below.
 4. **Update the label** from `status:in-progress` to:
    - `status:needs-refinement` for spec blockers (ambiguity, contradiction, gap)
-   - `status:blocked` for non-spec blockers (external dependency, technical constraint)
+   - `status:blocked` for non-spec blockers (external dependency, technical constraint, debugging
+     limit)
 
 ### Blocker Comment Format
 
@@ -232,8 +246,8 @@ When you encounter something that prevents continued progress:
 ## Blocker: <Short Title>
 
 **Type:** spec-ambiguity | spec-contradiction | spec-gap | external-dependency |
-technical-constraint **Description:** Clear explanation of what is blocking progress. **Spec
-Reference:** `docs/specs/<name>.md` § <section> — "<relevant quote>"
+technical-constraint | debugging-limit **Description:** Clear explanation of what is blocking
+progress. **Spec Reference:** `docs/specs/<name>.md` § <section> — "<relevant quote>"
 
 **Options:**
 
