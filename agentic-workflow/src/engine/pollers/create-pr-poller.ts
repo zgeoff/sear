@@ -32,7 +32,7 @@ export function createPRPoller(config: PRPollerConfig): PRPoller {
 
     // Step 2: Update snapshot — remove absent PRs, add new, update metadata for existing
     removeAbsentPRs(snapshot, currentPRNumbers, config.onPRRemoved);
-    updateSnapshotMetadata(snapshot, pullsList);
+    updateSnapshotMetadata(snapshot, pullsList, config.onPRDetected);
 
     // Steps 3–6: CI status fetch + change reporting + snapshot update
     // Use Promise.allSettled to avoid sequential await in loop
@@ -82,6 +82,7 @@ function removeAbsentPRs(
 function updateSnapshotMetadata(
   snapshot: Map<number, PRSnapshotEntry>,
   pullsList: PullsListItem[],
+  onPRDetected: ((prNumber: number) => void) | undefined,
 ): void {
   for (const pr of pullsList) {
     const existing = snapshot.get(pr.number);
@@ -106,6 +107,9 @@ function updateSnapshotMetadata(
         body: pr.body ?? '',
         ciStatus: null,
       });
+      if (onPRDetected) {
+        onPRDetected(pr.number);
+      }
     }
   }
 }

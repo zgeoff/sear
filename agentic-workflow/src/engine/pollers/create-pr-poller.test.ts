@@ -19,6 +19,10 @@ interface CIStatusCall {
   newCIStatus: PRCIStatus;
 }
 
+interface PRDetectedCall {
+  prNumber: number;
+}
+
 interface SetupOptions {
   prs?: PullsListItem[];
 }
@@ -92,11 +96,13 @@ function setupCIMocks(
 function setupTest(options: SetupOptions = {}): {
   client: GitHubClient;
   ciStatusCalls: CIStatusCall[];
+  detectedCalls: PRDetectedCall[];
   removedCalls: number[];
   poller: ReturnType<typeof createPRPoller>;
 } {
   const client = createMockGitHubClient();
   const ciStatusCalls: CIStatusCall[] = [];
+  const detectedCalls: PRDetectedCall[] = [];
   const removedCalls: number[] = [];
 
   vi.mocked(client.pulls.list).mockResolvedValue({
@@ -119,12 +125,15 @@ function setupTest(options: SetupOptions = {}): {
     ) => {
       ciStatusCalls.push({ prNumber, oldCIStatus, newCIStatus });
     },
+    onPRDetected: (prNumber: number) => {
+      detectedCalls.push({ prNumber });
+    },
     onPRRemoved: (prNumber: number) => {
       removedCalls.push(prNumber);
     },
   });
 
-  return { client, ciStatusCalls, removedCalls, poller };
+  return { client, ciStatusCalls, detectedCalls, removedCalls, poller };
 }
 
 // ---------------------------------------------------------------------------
@@ -952,4 +961,92 @@ test('it passes the correct owner and repo to the pulls list call', async () => 
       per_page: 100,
     }),
   );
+});
+
+// ---------------------------------------------------------------------------
+// Change Reporting — onPRDetected
+// ---------------------------------------------------------------------------
+
+test('it calls onPRDetected when a new PR appears that was not in the previous snapshot', async () => {
+  const prs = [buildPR({ number: 1 })];
+  const { client, detectedCalls, poller } = setupTest({ prs });
+
+  // First poll — PR #1 detected
+  await poller.poll();
+  expect(detectedCalls).toHaveLength(1);
+  expect(detectedCalls[0]).toStrictEqual({ prNumber: 1 });
+
+  detectedCalls.length = 0;
+
+  // Second poll — PR #2 appears
+  vi.mocked(client.pulls.list).mockResolvedValue({
+    data: [buildPR({ number: 1 }), buildPR({ number: 2 })],
+  });
+
+  await poller.poll();
+
+  expect(detectedCalls).toHaveLength(1);
+  expect(detectedCalls[0]).toStrictEqual({ prNumber: 2 });
+});
+
+test('it calls onPRDetected for each PR on the first cycle with empty snapshot', async () => {
+  const prs = [buildPR({ number: 1 }), buildPR({ number: 2 }), buildPR({ number: 3 })];
+  const { detectedCalls, poller } = setupTest({ prs });
+
+  await poller.poll();
+
+  expect(detectedCalls).toHaveLength(3);
+  expect(detectedCalls).toContainEqual({ prNumber: 1 });
+  expect(detectedCalls).toContainEqual({ prNumber: 2 });
+  expect(detectedCalls).toContainEqual({ prNumber: 3 });
+});
+
+test('it does not call onPRDetected when a PR was already in the snapshot from the previous cycle', async () => {
+  const prs = [buildPR({ number: 1 })];
+  const { detectedCalls, poller } = setupTest({ prs });
+
+  // First poll — PR #1 detected
+  await poller.poll();
+  expect(detectedCalls).toHaveLength(1);
+
+  detectedCalls.length = 0;
+
+  // Second poll — PR #1 still present
+  await poller.poll();
+
+  expect(detectedCalls).toHaveLength(0);
+});
+
+test('it calls onPRDetected after the PR has been added to the snapshot', async () => {
+  const prs = [buildPR({ number: 1 })];
+  const client = createMockGitHubClient();
+  let snapshotSizeWhenCallbackFired = 0;
+
+  vi.mocked(client.pulls.list).mockResolvedValue({
+    data: prs,
+  });
+
+  const successCI = buildSuccessCIResponse();
+  setupCIMocks(client, successCI.combinedStatus, successCI.checkRuns);
+
+  const poller = createPRPoller({
+    gitHubClient: client,
+    owner: 'test-owner',
+    repo: 'test-repo',
+    pollInterval: 30,
+    onCIStatusChanged: () => {
+      // no-op
+    },
+    onPRDetected: () => {
+      snapshotSizeWhenCallbackFired = poller.getSnapshot().size;
+    },
+    onPRRemoved: () => {
+      // no-op
+    },
+  });
+
+  await poller.poll();
+
+  expect(snapshotSizeWhenCallbackFired).toBe(1);
+  expect(poller.getSnapshot().size).toBe(1);
 });
