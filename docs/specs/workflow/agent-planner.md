@@ -1,6 +1,6 @@
 ---
 title: Planner Agent
-version: 0.6.0
+version: 0.7.0
 last_updated: 2026-02-13
 status: approved
 ---
@@ -125,6 +125,8 @@ Break remaining work into tasks. Each task must be:
 
 - **Single objective:** One clear thing to accomplish.
 - **Hermetic:** Completable by one Implementor without real-time coordination.
+- **Buildable:** The codebase must compile after the task's changes are applied. When removing or
+  changing shared exports, include all consumer updates in the same task.
 - **Bounded:** Explicit In Scope and Out of Scope file lists. When two tasks could touch the same
   file, define non-overlapping boundaries (e.g., one task handles type definitions, another handles
   the implementation).
@@ -222,6 +224,8 @@ with all arrays empty.
 - [ ] Given the Planner creates a `task:refinement` issue, when the issue is inspected, then it has
       exactly three labels: `task:refinement`, `status:pending`, and one priority label (no
       complexity label).
+- [ ] Given a task that removes or changes exports from a shared module, when the task issue is
+      inspected, then its In Scope list includes all consumer files that reference those exports.
 - [ ] Given two tasks that could touch the same file, when the Planner creates them, then their
       scope sections define non-overlapping boundaries.
 - [ ] Given a task that depends on another task, when the task issue is inspected, then it includes
