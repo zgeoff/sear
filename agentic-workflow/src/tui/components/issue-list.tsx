@@ -1,360 +1,291 @@
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import type { ReactNode } from 'react';
-import { useEffect, useRef, useState } from 'react';
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
-import { selectSortedTasks } from '../store.ts';
-import type { Task, TUIStore } from '../types.ts';
-import { List } from './list/list.tsx';
-import type { ListItemData } from './list/types.ts';
-
-export type IssueListPromptChangeHandler = (message: string | null) => void;
+import { selectActionCount, selectAgentSectionCount, selectSortedTasks } from '../store.ts';
+import type { CIStatus, Priority, SortedTask, Task, TaskStatus, TUIStore } from '../types.ts';
 
 export interface IssueListProps {
   store: StoreApi<TUIStore>;
-  focused: boolean;
-  onOpenURL: (url: string) => void;
-  repository: string;
   paneWidth: number;
   paneHeight: number;
-  viewportOffset: number;
-  onViewportOffsetChange: (offset: number) => void;
-  mouseScrolled: boolean;
-  onMouseScrolledChange: (scrolled: boolean) => void;
-  promptActive: boolean;
-  onPromptChange: IssueListPromptChangeHandler;
 }
 
-type PromptState =
-  | { type: 'none' }
-  | { type: 'dispatch'; issueNumber: number; hasCIFailure: boolean }
-  | { type: 'cancel'; issueNumber: number }
-  | { type: 'retry'; issueNumber: number; agentType: 'implementor' | 'reviewer' };
+interface SectionSlice {
+  items: SortedTask[];
+  capacity: number;
+  total: number;
+}
 
-const SPINNER_FRAMES: readonly string[] = [
-  '\u280B',
-  '\u2819',
-  '\u2839',
-  '\u2838',
-  '\u283C',
-  '\u2834',
-  '\u2826',
-  '\u2827',
-  '\u2807',
-  '\u280F',
-];
-const SPINNER_INTERVAL_MS = 80;
+const ISSUE_COL_WIDTH = 6;
+const PR_COL_WIDTH = 8;
+const STATUS_COL_WIDTH = 10;
+const ICON_COL_WIDTH = 2;
+const COLUMN_GAPS = 4;
+const FIXED_COLUMNS_WIDTH: number =
+  ISSUE_COL_WIDTH + PR_COL_WIDTH + STATUS_COL_WIDTH + ICON_COL_WIDTH + COLUMN_GAPS;
+const HORIZONTAL_PADDING = 1;
 
-const READY_MARKER = '\u25CF';
-const STALE_MARKER = '\u25CB';
-const REVIEW_MARKER = '\u25B6';
-const BLOCKED_MARKER = '\u26A0';
-const DONE_MARKER = '\u2713';
-const ERROR_MARKER = '\u2717';
-const CI_MARKER = '\u274C';
+const SECTION_HEADER_ROWS = 1;
+const MIN_SECTIONS = 2;
+
+const ELLIPSIS = '\u2026';
+
+const STATUS_DISPLAY: Record<TaskStatus, string> = {
+  'ready-to-merge': 'APPROVED',
+  'agent-crashed': 'FAILED',
+  blocked: 'BLOCKED',
+  'needs-refinement': 'REFINE',
+  'ready-to-implement': 'DISPATCH',
+  'agent-implementing': 'WIP',
+  'agent-reviewing': 'REVIEW',
+};
+
+const STATUS_ICON: Record<TaskStatus, string> = {
+  'ready-to-merge': '\u2714',
+  // biome-ignore lint/security/noSecrets: emoji character, not a secret
+  'agent-crashed': '\uD83D\uDCA5',
+  blocked: '\u26D4',
+  'needs-refinement': '\uD83D\uDCDD',
+  'ready-to-implement': '\u25CF',
+  // biome-ignore lint/security/noSecrets: emoji character, not a secret
+  'agent-implementing': '\uD83E\uDD16',
+  // biome-ignore lint/security/noSecrets: emoji character, not a secret
+  'agent-reviewing': '\uD83D\uDD0E',
+};
+
+const CI_STATUS_PRIORITY: Record<string, number> = {
+  failure: 3,
+  pending: 2,
+  success: 1,
+};
 
 export function IssueList(props: IssueListProps): ReactNode {
   const tasks = useStore(props.store, (s) => s.tasks);
   const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
-  const selectIssue = useStore(props.store, (s) => s.selectIssue);
-  const dispatch = useStore(props.store, (s) => s.dispatch);
-  const cancelAgent = useStore(props.store, (s) => s.cancelAgent);
-  const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
-  const [spinnerFrame, setSpinnerFrame] = useState(0);
-
-  const promptRef = useRef(prompt);
-  promptRef.current = prompt;
-
-  const onPromptChange = props.onPromptChange;
-  useEffect(() => {
-    const message = prompt.type !== 'none' ? buildPromptMessage(prompt) : null;
-    onPromptChange(message);
-  }, [prompt, onPromptChange]);
+  const actionCount = useStore(props.store, selectActionCount);
+  const agentSectionCount = useStore(props.store, selectAgentSectionCount);
 
   const sortedTasks = selectSortedTasks(tasks);
-  const sortedTaskList = sortedTasks.map((st) => st.task);
-  const hasRunningAgent = sortedTaskList.some((task) => task.agent?.running === true);
 
-  useEffect(() => {
-    if (!hasRunningAgent) {
-      return;
-    }
-    const timer = setInterval(() => {
-      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
-    }, SPINNER_INTERVAL_MS);
-    return () => {
-      clearInterval(timer);
-    };
-  }, [hasRunningAgent]);
+  const actionItems = sortedTasks.filter((st) => st.section === 'action');
+  const agentItems = sortedTasks.filter((st) => st.section === 'agents');
 
-  const selectedIndex = sortedTaskList.findIndex((t) => t.issueNumber === selectedIssue);
+  const contentHeight = props.paneHeight;
+  const actionPaneHeight = Math.ceil(contentHeight / MIN_SECTIONS);
+  const agentsPaneHeight = Math.floor(contentHeight / MIN_SECTIONS);
 
-  useInput(
-    (input, key) => {
-      if (!props.focused) {
-        return;
-      }
+  const actionCapacity = Math.max(0, actionPaneHeight - SECTION_HEADER_ROWS);
+  const agentsCapacity = Math.max(0, agentsPaneHeight - SECTION_HEADER_ROWS);
 
-      const currentPrompt = promptRef.current;
+  const actionSlice = buildSectionSlice(actionItems, actionCapacity, actionCount);
+  const agentsSlice = buildSectionSlice(agentItems, agentsCapacity, agentSectionCount);
 
-      if (currentPrompt.type !== 'none') {
-        if (input === 'y') {
-          confirmPrompt(currentPrompt);
-          setPrompt({ type: 'none' });
-          return;
-        }
-        if (input === 'n' || key.escape) {
-          setPrompt({ type: 'none' });
-          return;
-        }
-        return;
-      }
+  const titleWidth = Math.max(0, props.paneWidth - FIXED_COLUMNS_WIDTH - HORIZONTAL_PADDING);
 
-      if (sortedTaskList.length === 0) {
-        return;
-      }
-
-      const currentIndex = sortedTaskList.findIndex((t) => t.issueNumber === selectedIssue);
-
-      if (input === 'j' || key.downArrow) {
-        const nextIndex =
-          currentIndex < sortedTaskList.length - 1 ? currentIndex + 1 : currentIndex;
-        const nextTask = sortedTaskList[nextIndex];
-        if (nextTask) {
-          selectIssue(nextTask.issueNumber);
-        }
-        return;
-      }
-
-      if (input === 'k' || key.upArrow) {
-        const nextIndex = currentIndex > 0 ? currentIndex - 1 : 0;
-        const nextTask = sortedTaskList[nextIndex];
-        if (nextTask) {
-          selectIssue(nextTask.issueNumber);
-        }
-        return;
-      }
-
-      if (key.return && !props.promptActive) {
-        const selected = sortedTaskList.find((t) => t.issueNumber === selectedIssue);
-        if (!selected) {
-          return;
-        }
-        handleEnter(selected);
-        return;
-      }
-    },
-    { isActive: props.focused },
-  );
-
-  function confirmPrompt(currentPrompt: PromptState): void {
-    match(currentPrompt)
-      .with({ type: 'dispatch' }, (p) => {
-        dispatch(p.issueNumber);
-      })
-      .with({ type: 'cancel' }, (p) => {
-        cancelAgent(p.issueNumber);
-      })
-      .with({ type: 'retry' }, (p) => {
-        dispatch(p.issueNumber);
-      })
-      .with({ type: 'none' }, () => {
-        /* no-op for dismissed prompt */
-      })
-      .exhaustive();
-  }
-
-  function handleEnter(task: Task): void {
-    const action = getEnterAction(task, props.repository);
-
-    match(action)
-      .with({ type: 'dispatch' }, (a) => {
-        const hasCIFailure = task.prs.some((pr) => pr.ciStatus === 'failure');
-        setPrompt({
-          type: 'dispatch',
-          issueNumber: a.issueNumber,
-          hasCIFailure,
-        });
-      })
-      .with({ type: 'cancel' }, (a) => {
-        setPrompt({ type: 'cancel', issueNumber: a.issueNumber });
-      })
-      .with({ type: 'retry' }, (a) => {
-        setPrompt({ type: 'retry', issueNumber: a.issueNumber, agentType: a.agentType });
-      })
-      .with({ type: 'openURL' }, (a) => {
-        props.onOpenURL(a.url);
-      })
-      .exhaustive();
-  }
-
-  if (sortedTaskList.length === 0) {
-    return (
-      <Box flexDirection="column">
-        <Text>No issues tracked</Text>
+  return (
+    <Box flexDirection="column" height={contentHeight}>
+      <Box flexDirection="column" height={actionPaneHeight}>
+        <SectionHeader label="ACTION" slice={actionSlice} />
+        {actionSlice.items.map((st) => (
+          <TaskRow
+            key={st.task.issueNumber}
+            task={st.task}
+            selected={st.task.issueNumber === selectedIssue}
+            titleWidth={titleWidth}
+          />
+        ))}
       </Box>
-    );
-  }
-
-  const currentSpinner = SPINNER_FRAMES[spinnerFrame] ?? '\u280B';
-  const items = buildTaskListItems(sortedTaskList, currentSpinner);
-
-  return (
-    <List
-      items={items}
-      selectedIndex={selectedIndex}
-      focused={props.focused}
-      paneWidth={props.paneWidth}
-      paneHeight={props.paneHeight}
-      viewportOffset={props.viewportOffset}
-      onViewportOffsetChange={props.onViewportOffsetChange}
-      mouseScrolled={props.mouseScrolled}
-      onMouseScrolledChange={props.onMouseScrolledChange}
-    />
+      <Box flexDirection="column" height={agentsPaneHeight}>
+        <SectionHeader label="AGENTS" slice={agentsSlice} />
+        {agentsSlice.items.map((st) => (
+          <TaskRow
+            key={st.task.issueNumber}
+            task={st.task}
+            selected={st.task.issueNumber === selectedIssue}
+            titleWidth={titleWidth}
+          />
+        ))}
+      </Box>
+    </Box>
   );
 }
 
-function buildTaskListItems(sortedTasks: Task[], spinnerChar: string): ListItemData[] {
-  return sortedTasks.map((task) => {
-    const priority = getPriorityIndicator(task.priority);
-    const state = getStateIndicator(task, spinnerChar);
-    const content = `${priority} #${task.issueNumber} ${task.title} ${state}`;
-    const richContent = buildRichTaskContent(task, spinnerChar);
-    return { key: String(task.issueNumber), content, richContent };
-  });
+export function getVisibleTasks(
+  sortedTasks: SortedTask[],
+  actionCapacity: number,
+  agentsCapacity: number,
+): SortedTask[] {
+  const actionItems = sortedTasks.filter((st) => st.section === 'action');
+  const agentItems = sortedTasks.filter((st) => st.section === 'agents');
+  return [...actionItems.slice(0, actionCapacity), ...agentItems.slice(0, agentsCapacity)];
 }
 
-function buildRichTaskContent(task: Task, spinnerChar: string): ReactNode {
-  const priority = getPriorityIndicator(task.priority);
-  const stateIndicator = getStateIndicatorElement(task, spinnerChar);
+export function computeSectionCapacities(paneHeight: number): {
+  actionCapacity: number;
+  agentsCapacity: number;
+} {
+  const actionPaneHeight = Math.ceil(paneHeight / MIN_SECTIONS);
+  const agentsPaneHeight = Math.floor(paneHeight / MIN_SECTIONS);
+  return {
+    actionCapacity: Math.max(0, actionPaneHeight - SECTION_HEADER_ROWS),
+    agentsCapacity: Math.max(0, agentsPaneHeight - SECTION_HEADER_ROWS),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Section Header
+// ---------------------------------------------------------------------------
+
+interface SectionHeaderProps {
+  label: string;
+  slice: SectionSlice;
+}
+
+function SectionHeader(props: SectionHeaderProps): ReactNode {
+  const countDisplay =
+    props.slice.items.length < props.slice.total
+      ? `(${props.slice.items.length}/${props.slice.total})`
+      : `(${props.slice.total})`;
 
   return (
-    <>
-      {priority} #{task.issueNumber} {task.title} {stateIndicator}
-    </>
+    <Box paddingLeft={HORIZONTAL_PADDING}>
+      <Text bold={true} dimColor={true}>
+        {props.label} {countDisplay}
+      </Text>
+    </Box>
   );
 }
 
-function getStateIndicator(task: Task, spinnerChar: string): string {
-  let baseIndicator = '';
+// ---------------------------------------------------------------------------
+// Task Row
+// ---------------------------------------------------------------------------
 
-  if (task.agent?.crash) {
-    baseIndicator = ERROR_MARKER;
-  } else if (task.agent?.running === true) {
-    baseIndicator = spinnerChar;
-  } else {
-    baseIndicator = match(task.statusLabel)
-      .with('pending', () => READY_MARKER)
-      .with('unblocked', () => READY_MARKER)
-      .with('needs-changes', () => READY_MARKER)
-      .with('in-progress', () => STALE_MARKER)
-      .with('review', () => REVIEW_MARKER)
-      .with('needs-refinement', () => BLOCKED_MARKER)
-      .with('blocked', () => BLOCKED_MARKER)
-      .with('approved', () => DONE_MARKER)
-      .otherwise(() => '');
-  }
-
-  const hasCIFailure = task.prs.some((pr) => pr.ciStatus === 'failure');
-  const ciIndicator = hasCIFailure ? ` ${CI_MARKER}` : '';
-  return `${baseIndicator}${ciIndicator}`;
+interface TaskRowProps {
+  task: Task;
+  selected: boolean;
+  titleWidth: number;
 }
 
-function getStateIndicatorElement(task: Task, spinnerChar: string): ReactNode {
-  let baseIndicator: ReactNode = null;
-
-  if (task.agent?.crash) {
-    baseIndicator = <Text color="red">{ERROR_MARKER}</Text>;
-  } else if (task.agent?.running === true) {
-    baseIndicator = <Text color="cyan">{spinnerChar}</Text>;
-  } else {
-    baseIndicator = match(task.statusLabel)
-      .with('pending', () => <Text color="green">{READY_MARKER}</Text>)
-      .with('unblocked', () => <Text color="green">{READY_MARKER}</Text>)
-      .with('needs-changes', () => <Text color="green">{READY_MARKER}</Text>)
-      .with('in-progress', () => <Text color="yellow">{STALE_MARKER}</Text>)
-      .with('review', () => <Text color="cyan">{REVIEW_MARKER}</Text>)
-      .with('needs-refinement', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
-      .with('blocked', () => <Text color="yellow">{BLOCKED_MARKER}</Text>)
-      .with('approved', () => <Text color="green">{DONE_MARKER}</Text>)
-      .otherwise(() => <Text />);
-  }
-
-  const hasCIFailure = task.prs.some((pr) => pr.ciStatus === 'failure');
-  const ciIndicator = hasCIFailure ? <Text color="red"> {CI_MARKER}</Text> : null;
+function TaskRow(props: TaskRowProps): ReactNode {
+  const issueCol = renderIssueColumn(props.task);
+  const prCol = renderPRColumn(props.task);
+  const statusCol = renderStatusColumn(props.task);
+  const iconCol = renderIconColumn(props.task);
+  const titleCol = truncateText(props.task.title, props.titleWidth);
 
   return (
-    <>
-      {baseIndicator}
-      {ciIndicator}
-    </>
+    <Box paddingLeft={HORIZONTAL_PADDING}>
+      <Text inverse={props.selected}>
+        {issueCol} {prCol} {statusCol} {iconCol} {titleCol}
+      </Text>
+    </Box>
   );
 }
 
-function getPriorityIndicator(priority: string | null): string {
+// ---------------------------------------------------------------------------
+// Column Renderers
+// ---------------------------------------------------------------------------
+
+function renderIssueColumn(task: Task): string {
+  const issueStr = `#${task.issueNumber}`;
+  return padRight(issueStr, ISSUE_COL_WIDTH);
+}
+
+export function getIssuePriorityColor(priority: Priority | null): string | undefined {
   if (priority === null) {
-    return '   ';
+    return;
   }
   return match(priority)
-    .with('high', () => '!!!')
-    .with('medium', () => '!! ')
-    .with('low', () => '!  ')
-    .otherwise(() => '   ');
-}
-
-type EnterAction =
-  | { type: 'dispatch'; issueNumber: number }
-  | { type: 'cancel'; issueNumber: number }
-  | { type: 'retry'; issueNumber: number; agentType: 'implementor' | 'reviewer' }
-  | { type: 'openURL'; url: string };
-
-function getEnterAction(task: Task, repository: string): EnterAction {
-  if (task.agent?.crash && task.agent.type) {
-    return { type: 'retry', issueNumber: task.issueNumber, agentType: task.agent.type };
-  }
-
-  if (task.agent?.running === true) {
-    return { type: 'cancel', issueNumber: task.issueNumber };
-  }
-
-  return match(task.statusLabel)
-    .with('pending', () => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }))
-    .with('unblocked', () => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }))
-    .with('needs-changes', () => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }))
-    .with('review', () => {
-      const pr = task.prs[0];
-      const url = pr?.url || `https://github.com/${repository}/issues/${task.issueNumber}`;
-      return { type: 'openURL' as const, url };
-    })
-    .with('needs-refinement', () => ({
-      type: 'openURL' as const,
-      url: `https://github.com/${repository}/issues/${task.issueNumber}`,
-    }))
-    .with('blocked', () => ({
-      type: 'openURL' as const,
-      url: `https://github.com/${repository}/issues/${task.issueNumber}`,
-    }))
-    .with('approved', () => {
-      const pr = task.prs[0];
-      const url = pr?.url || `https://github.com/${repository}/issues/${task.issueNumber}`;
-      return { type: 'openURL' as const, url };
-    })
-    .otherwise(() => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }));
-}
-
-function buildPromptMessage(prompt: PromptState): string {
-  return match(prompt)
-    .with({ type: 'dispatch' }, (p) => {
-      const base = `Dispatch Implementor for #${p.issueNumber}?`;
-      const ciSuffix = p.hasCIFailure ? ' (CI failed)' : '';
-      return `${base}${ciSuffix}`;
-    })
-    .with({ type: 'cancel' }, (p) => `Cancel agent for #${p.issueNumber}?`)
-    .with({ type: 'retry' }, (p) => {
-      const label = p.agentType === 'implementor' ? 'Implementor' : 'Reviewer';
-      return `Retry ${label} for #${p.issueNumber}?`;
-    })
-    .with({ type: 'none' }, () => '')
+    .with('high', () => 'red')
+    .with('medium', () => 'yellow')
+    .with('low', () => 'dim')
     .exhaustive();
+}
+
+function renderPRColumn(task: Task): string {
+  if (task.prs.length === 0) {
+    return padRight('\u2014', PR_COL_WIDTH);
+  }
+  if (task.prs.length === 1) {
+    const pr = task.prs[0];
+    if (pr) {
+      return padRight(`PR#${pr.number}`, PR_COL_WIDTH);
+    }
+  }
+  return padRight(`PRx${task.prs.length}`, PR_COL_WIDTH);
+}
+
+export function getWorstCIStatus(prs: Array<{ ciStatus: CIStatus | null }>): CIStatus | null {
+  let worst: CIStatus | null = null;
+  let worstPriority = 0;
+
+  for (const pr of prs) {
+    if (pr.ciStatus !== null) {
+      const priority = CI_STATUS_PRIORITY[pr.ciStatus] ?? 0;
+      if (priority > worstPriority) {
+        worstPriority = priority;
+        worst = pr.ciStatus;
+      }
+    }
+  }
+
+  return worst;
+}
+
+export function getCIStatusColor(ciStatus: CIStatus | null): string | undefined {
+  if (ciStatus === null) {
+    return 'dim';
+  }
+  return match(ciStatus)
+    .with('failure', () => 'red')
+    .with('pending', () => 'dim')
+    .with('success', () => 'green')
+    .exhaustive();
+}
+
+function renderStatusColumn(task: Task): string {
+  const display = STATUS_DISPLAY[task.status] ?? '';
+  if (task.status === 'agent-implementing') {
+    return padRight(`WIP(${task.agentCount})`, STATUS_COL_WIDTH);
+  }
+  return padRight(display, STATUS_COL_WIDTH);
+}
+
+function renderIconColumn(task: Task): string {
+  const icon = STATUS_ICON[task.status] ?? '';
+  return padRight(icon, ICON_COL_WIDTH);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildSectionSlice(items: SortedTask[], capacity: number, total: number): SectionSlice {
+  return {
+    items: items.slice(0, capacity),
+    capacity,
+    total,
+  };
+}
+
+function padRight(text: string, width: number): string {
+  if (text.length >= width) {
+    return text.slice(0, width);
+  }
+  return text + ' '.repeat(width - text.length);
+}
+
+function truncateText(text: string, maxWidth: number): string {
+  if (maxWidth <= 0) {
+    return '';
+  }
+  if (text.length <= maxWidth) {
+    return text;
+  }
+  if (maxWidth === 1) {
+    return ELLIPSIS;
+  }
+  return text.slice(0, maxWidth - 1) + ELLIPSIS;
 }

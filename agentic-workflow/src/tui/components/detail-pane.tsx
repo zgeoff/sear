@@ -25,7 +25,7 @@ type IssueState =
 
 interface ResolveIssueStateParams {
   issue: Task | null;
-  selectedIssue: number | null;
+  pinnedTask: number | null;
   agentStreams: Map<string, string[]>;
   issueDetailCache: Map<number, CachedIssueDetail>;
   prDetailCache: Map<number, CachedPRDetail>;
@@ -37,7 +37,7 @@ const ELLIPSIS = '\u2026';
 const ANSI_REGEX = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x07]*\x07/g;
 
 export function DetailPane(props: DetailPaneProps): ReactNode {
-  const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
+  const pinnedTask = useStore(props.store, (s) => s.pinnedTask);
   const tasks = useStore(props.store, (s) => s.tasks);
   const agentStreams = useStore(props.store, (s) => s.agentStreams);
   const issueDetailCache = useStore(props.store, (s) => s.issueDetailCache);
@@ -50,10 +50,10 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
 
   const visibleRowCount = props.paneHeight;
 
-  const issue = selectedIssue !== null ? (tasks.get(selectedIssue) ?? null) : null;
+  const issue = pinnedTask !== null ? (tasks.get(pinnedTask) ?? null) : null;
   const issueState = resolveIssueState({
     issue,
-    selectedIssue,
+    pinnedTask,
     agentStreams,
     issueDetailCache,
     prDetailCache,
@@ -66,11 +66,11 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
   const chunks = isStreaming ? issueState.chunks : undefined;
   const chunkCount = chunks?.length ?? 0;
 
-  const prevSelectedIssueRef = useRef(selectedIssue);
+  const prevPinnedTaskRef = useRef(pinnedTask);
 
   useEffect(() => {
-    const issueChanged = selectedIssue !== prevSelectedIssueRef.current;
-    prevSelectedIssueRef.current = selectedIssue;
+    const issueChanged = pinnedTask !== prevPinnedTaskRef.current;
+    prevPinnedTaskRef.current = pinnedTask;
 
     if (issueChanged) {
       setAutoScroll(true);
@@ -88,7 +88,7 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
       setScrollOffset(Math.max(0, lineCount - visibleRowCount));
     }
     prevChunkCountRef.current = chunkCount;
-  }, [selectedIssue, chunkCount, autoScroll, isStreaming, lineCount, visibleRowCount]);
+  }, [pinnedTask, chunkCount, autoScroll, isStreaming, lineCount, visibleRowCount]);
 
   useInput((input, key) => {
     if (focusedPane !== 'detailPane') {
@@ -149,7 +149,7 @@ function buildContentLines(issueState: IssueState): string[] {
 }
 
 function buildNoSelectionLines(): string[] {
-  return ['No issue selected'];
+  return ['No task selected'];
 }
 
 function buildLoadingLines(issue: Task): string[] {
@@ -261,8 +261,8 @@ function buildPrApprovedLines(issue: Task, pr: CachedPRDetail): string[] {
 }
 
 function resolveIssueState(params: ResolveIssueStateParams): IssueState {
-  const { issue, selectedIssue, agentStreams, issueDetailCache, prDetailCache } = params;
-  if (selectedIssue === null || !issue) {
+  const { issue, pinnedTask, agentStreams, issueDetailCache, prDetailCache } = params;
+  if (pinnedTask === null || !issue) {
     return { view: 'none' };
   }
 
