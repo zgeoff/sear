@@ -12,6 +12,7 @@ import type {
   CIStatusChangedEvent,
   EngineEvent,
   IssueStatusChangedEvent,
+  PRLinkedEvent,
 } from '../types.ts';
 import type { AgentQuery, QueryFactory, QueryFactoryParams } from './agent-manager/types.ts';
 import { createEngine } from './create-engine.ts';
@@ -2488,3 +2489,113 @@ test('it emits a CI status changed event with no issue number for unlinked PRs',
 });
 
 // (CI check failed / recovered tests removed — engine no longer emits ciCheckFailed or ciCheckRecovered events)
+
+// ---------------------------------------------------------------------------
+// PR Poller integration: onPRDetected callback
+// ---------------------------------------------------------------------------
+
+test('it emits a prLinked event when a new PR is detected with a tracked issue', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit } = setupTest(issues);
+
+  // Set up a PR linked to issue #42 with closing keyword
+  const prItem = buildPullsListItem({
+    number: 100,
+    html_url: 'https://github.com/owner/repo/pull/100',
+    body: 'Closes #42',
+    draft: false,
+  });
+  vi.mocked(octokit.pulls.list).mockClear();
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+
+  // Set up CI status for the PR
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockClear();
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockClear();
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  await engine.start();
+
+  const prLinkedEvents = events.filter((e): e is PRLinkedEvent => e.type === 'prLinked');
+
+  expect(prLinkedEvents.length).toBeGreaterThanOrEqual(1);
+  expect(prLinkedEvents[0]).toMatchObject({
+    type: 'prLinked',
+    issueNumber: 42,
+    prNumber: 100,
+    url: 'https://github.com/owner/repo/pull/100',
+    ciStatus: null,
+  });
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it does not emit a prLinked event when a new PR has no matching tracked issue', async () => {
+  const issues = [buildMockIssueData(42, 'pending')];
+  const { engine, events, octokit } = setupTest(issues);
+
+  // PR body does NOT contain closing keyword for any tracked issue
+  const prItem = buildPullsListItem({ number: 200, body: 'Some unrelated PR', draft: false });
+  vi.mocked(octokit.pulls.list).mockClear();
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockClear();
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'pending', total_count: 0 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockClear();
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 0, check_runs: [] },
+  });
+
+  await engine.start();
+
+  const prLinkedEvents = events.filter((e): e is PRLinkedEvent => e.type === 'prLinked');
+
+  expect(prLinkedEvents.length).toBe(0);
+
+  engine.send({ command: 'shutdown' });
+});
+
+test('it emits prLinked only for the matching issue when multiple tracked issues exist', async () => {
+  const issues = [buildMockIssueData(10, 'pending'), buildMockIssueData(20, 'pending')];
+  const { engine, events, octokit } = setupTest(issues);
+
+  // PR linked only to issue #20
+  const prItem = buildPullsListItem({
+    number: 300,
+    html_url: 'https://github.com/owner/repo/pull/300',
+    body: 'Fixes #20',
+    draft: false,
+  });
+  vi.mocked(octokit.pulls.list).mockClear();
+  vi.mocked(octokit.pulls.list).mockResolvedValue({ data: [prItem] });
+
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockClear();
+  vi.mocked(octokit.repos.getCombinedStatusForRef).mockResolvedValue({
+    data: { state: 'success', total_count: 1 },
+  });
+  vi.mocked(octokit.checks.listForRef).mockClear();
+  vi.mocked(octokit.checks.listForRef).mockResolvedValue({
+    data: { total_count: 1, check_runs: [{ status: 'completed', conclusion: 'success' }] },
+  });
+
+  await engine.start();
+
+  const prLinkedEvents = events.filter((e): e is PRLinkedEvent => e.type === 'prLinked');
+
+  expect(prLinkedEvents.length).toBe(1);
+  expect(prLinkedEvents[0]).toMatchObject({
+    type: 'prLinked',
+    issueNumber: 20,
+    prNumber: 300,
+    url: 'https://github.com/owner/repo/pull/300',
+    ciStatus: null,
+  });
+
+  engine.send({ command: 'shutdown' });
+});

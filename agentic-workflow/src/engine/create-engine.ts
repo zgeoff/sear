@@ -151,6 +151,19 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
         logger.error('onCIStatusChanged callback failed', { prNumber, error: String(error) });
       }
     },
+    onPRDetected(prNumber: number): void {
+      try {
+        handlePRDetected({
+          prNumber,
+          prPoller,
+          issuePoller,
+          emitter,
+          logger,
+        });
+      } catch (error) {
+        logger.error('onPRDetected callback failed', { prNumber, error: String(error) });
+      }
+    },
     onPRRemoved(prNumber: number): void {
       try {
         handlePRRemoved({
@@ -1092,6 +1105,42 @@ function handlePRRemoved(params: HandlePRRemovedParams): void {
 
   // Clean up the PR→issue mapping
   params.prToIssueMap.delete(params.prNumber);
+}
+
+interface HandlePRDetectedParams {
+  prNumber: number;
+  prPoller: PRPoller;
+  issuePoller: IssuePoller;
+  emitter: EventEmitter;
+  logger: Logger;
+}
+
+function handlePRDetected(params: HandlePRDetectedParams): void {
+  const issueNumber = resolveIssueForPR(params.prNumber, params.prPoller, params.issuePoller);
+
+  if (issueNumber === undefined) {
+    return;
+  }
+
+  const prEntry = params.prPoller.getSnapshot().get(params.prNumber);
+  if (!prEntry) {
+    return;
+  }
+
+  params.emitter.emit({
+    type: 'prLinked',
+    issueNumber,
+    prNumber: params.prNumber,
+    url: prEntry.url,
+    ciStatus: prEntry.ciStatus,
+  });
+
+  params.logger.info('PR linked', {
+    prNumber: params.prNumber,
+    issueNumber,
+    url: prEntry.url,
+    ciStatus: prEntry.ciStatus,
+  });
 }
 
 /**
