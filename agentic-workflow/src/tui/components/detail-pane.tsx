@@ -1,7 +1,6 @@
 import { Box, Text, useInput } from 'ink';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import invariant from 'tiny-invariant';
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
@@ -25,7 +24,7 @@ type ContentView =
   | { view: 'issueDetail'; task: Task; detail: CachedIssueDetail | null }
   | { view: 'agentStream'; task: Task; lines: string[] }
   | { view: 'prSummary'; task: Task; prDetails: PrSummaryEntry[] }
-  | { view: 'crashDetail'; task: Task; agent: TaskAgent };
+  | { view: 'crashDetail'; task: Task; agent: TaskAgent | null };
 
 interface PrSummaryEntry {
   prNumber: number;
@@ -174,10 +173,7 @@ function resolveContentView(params: ResolveContentViewParams): ContentView {
       }));
       return { view: 'prSummary', task, prDetails };
     })
-    .with('agent-crashed', (): ContentView => {
-      invariant(task.agent, 'agent-crashed task must have an agent');
-      return { view: 'crashDetail', task, agent: task.agent };
-    })
+    .with('agent-crashed', (): ContentView => ({ view: 'crashDetail', task, agent: task.agent }))
     .exhaustive();
 }
 
@@ -251,7 +247,11 @@ function buildPrSummaryLines(task: Task, prDetails: PrSummaryEntry[]): string[] 
   return lines;
 }
 
-function buildCrashDetailLines(agent: TaskAgent): string[] {
+function buildCrashDetailLines(agent: TaskAgent | null): string[] {
+  if (agent === null) {
+    return ['Crash information unavailable', 'Press [d] to retry'];
+  }
+
   const agentLabel = agent.type === 'implementor' ? 'Implementor' : 'Reviewer';
   const lines: string[] = [`Agent: ${agentLabel}`];
 

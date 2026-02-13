@@ -303,6 +303,43 @@ test('it auto-scrolls to the latest output when new chunks arrive', async () => 
   });
 });
 
+test('it only displays the last lines when the stream buffer exceeds the cap', async () => {
+  const { store, lastFrame } = setupTest({ paneHeight: 5 });
+
+  const agent: TaskAgent = { type: 'implementor', running: true, sessionID: 'sess-1' };
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Big stream',
+      status: 'agent-implementing',
+      statusLabel: 'in-progress',
+      agent,
+    }),
+  );
+
+  // Simulate a buffer that has been capped at 10,000 lines (oldest dropped)
+  const lines: string[] = [];
+  for (let i = 1; i <= 10_000; i += 1) {
+    lines.push(`line-${i}`);
+  }
+
+  const agentStreams = new Map<string, string[]>();
+  agentStreams.set('sess-1', lines);
+  store.setState({ tasks, agentStreams });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    // Auto-scroll pins to tail — last visible lines should be the final buffer entries
+    expect(frame).toContain('line-10000');
+    // Header and early lines should not be visible
+    expect(frame).not.toContain('Implementor output');
+    expect(frame).not.toContain('line-9990');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // PR summary view (ready-to-merge)
 // ---------------------------------------------------------------------------
@@ -631,6 +668,32 @@ test('it does not show a log file line when logFilePath is not present', async (
   });
 });
 
+test('it shows a fallback message when an agent-crashed task has no agent data', async () => {
+  const { store, lastFrame } = setupTest();
+
+  const tasks = new Map<number, Task>();
+  tasks.set(
+    1,
+    buildTask({
+      issueNumber: 1,
+      title: 'Crashed task',
+      status: 'agent-crashed',
+      statusLabel: 'in-progress',
+      agent: null,
+    }),
+  );
+
+  store.setState({ tasks });
+  pinTask(store, 1);
+
+  await vi.waitFor(() => {
+    const frame = lastFrame();
+    expect(frame).toContain('Crash information unavailable');
+    expect(frame).toContain('Press [d] to retry');
+    expect(frame).not.toContain('Agent:');
+  });
+});
+
 test('it does not show a branch line when branchName is not present', async () => {
   const { store, lastFrame } = setupTest();
 
@@ -778,8 +841,10 @@ test('it resumes auto-scroll from the tail when status changes to a stream view'
 
   await vi.waitFor(() => {
     const frame = lastFrame();
-    // Auto-scroll pins to tail: last 3 lines visible
+    // Auto-scroll pins to tail: last 3 lines visible (Chunk 3, 4, 5)
     expect(frame).toContain('Chunk 5');
+    // Header and early chunks are scrolled out — proves prior offset was discarded
+    expect(frame).not.toContain('Implementor output');
     expect(frame).not.toContain('Chunk 1');
   });
 
