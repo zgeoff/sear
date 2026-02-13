@@ -7,7 +7,7 @@ export interface IssueStatusChangedEvent {
   issueNumber: number;
   title: string;
   oldStatus: string | null; // null on first detection
-  newStatus: string;
+  newStatus: string | null; // null when the issue is removed (closed or task:implement label removed)
   priorityLabel: string;
   createdAt: string; // ISO 8601
   isRecovery?: boolean; // true when emitted as synthetic event from crash recovery
@@ -29,8 +29,10 @@ export interface AgentStartedEvent {
   type: 'agentStarted';
   agentType: AgentType;
   issueNumber?: number; // present for Implementor, Reviewer
-  specPaths?: string[]; // present for Planner
+  specPaths?: string[]; // guaranteed present when agentType is 'planner'
   sessionID: string;
+  branchName?: string; // present for Implementor and Reviewer
+  logFilePath?: string; // present when logging.agentSessions is enabled
 }
 
 export interface AgentCompletedEvent {
@@ -53,58 +55,12 @@ export interface AgentFailedEvent {
   logFilePath?: string; // present when logging.agentSessions is enabled
 }
 
-export interface AgentSkippedEvent {
-  type: 'agentSkipped';
-  agentType: AgentType;
-  issueNumber?: number; // present for Implementor, Reviewer
-  specPaths?: string[]; // present for Planner (deferred paths)
-}
-
-export interface DispatchReadyEvent {
-  type: 'dispatchReady';
+export interface PRLinkedEvent {
+  type: 'prLinked';
   issueNumber: number;
-  statusLabel: string;
-}
-
-export interface IssueBlockedEvent {
-  type: 'issueBlocked';
-  issueNumber: number;
-  contextURL: string; // issue URL
-  resolutionGuidance: string; // "After resolving the blocker, change the label to status:unblocked."
-}
-
-export interface IssueUnblockedEvent {
-  type: 'issueUnblocked';
-  issueNumber: number;
-}
-
-export interface IssueNeedsRefinementEvent {
-  type: 'issueNeedsRefinement';
-  issueNumber: number;
-  contextURL: string; // issue URL
-  resolutionGuidance: string; // "After amending the spec, change the label to status:unblocked."
-  clipboardCommand: string;
-}
-
-export interface IssueRefinedEvent {
-  type: 'issueRefined';
-  issueNumber: number;
-}
-
-export interface PRApprovedEvent {
-  type: 'prApproved';
-  issueNumber: number;
-  contextURL: string; // issue URL (TUI async-updates to PR URL)
-}
-
-export interface PRUnapprovedEvent {
-  type: 'prUnapproved';
-  issueNumber: number;
-}
-
-export interface IssueRemovedEvent {
-  type: 'issueRemoved';
-  issueNumber: number;
+  prNumber: number;
+  url: string; // PR URL
+  ciStatus: 'pending' | 'success' | 'failure' | null; // current CI status at detection time
 }
 
 export interface CIStatusChangedEvent {
@@ -115,45 +71,14 @@ export interface CIStatusChangedEvent {
   newCIStatus: 'pending' | 'success' | 'failure';
 }
 
-export interface CICheckFailedEvent {
-  type: 'ciCheckFailed';
-  issueNumber: number;
-  prNumber: number;
-  contextURL: string; // PR URL
-  resolutionGuidance?: string; // present when issue status is 'approved'
-}
-
-export interface CICheckRecoveredEvent {
-  type: 'ciCheckRecovered';
-  issueNumber: number;
-}
-
-export interface RecoveryPerformedEvent {
-  type: 'recoveryPerformed';
-  issueNumber: number;
-  oldStatus: string;
-  newStatus: string;
-}
-
 export type EngineEvent =
   | IssueStatusChangedEvent
   | SpecChangedEvent
   | AgentStartedEvent
   | AgentCompletedEvent
   | AgentFailedEvent
-  | AgentSkippedEvent
-  | DispatchReadyEvent
-  | IssueBlockedEvent
-  | IssueUnblockedEvent
-  | IssueNeedsRefinementEvent
-  | IssueRefinedEvent
-  | PRApprovedEvent
-  | PRUnapprovedEvent
-  | IssueRemovedEvent
-  | CIStatusChangedEvent
-  | CICheckFailedEvent
-  | CICheckRecoveredEvent
-  | RecoveryPerformedEvent;
+  | PRLinkedEvent
+  | CIStatusChangedEvent;
 
 // ---------------------------------------------------------------------------
 // Engine Commands
@@ -262,7 +187,7 @@ export interface CIStatusResult {
 // Stream
 // ---------------------------------------------------------------------------
 
-// getAgentStream returns null if no agent is running for the issue
+// getAgentStream returns null if no agent session exists for the given sessionID
 export type AgentStream = AsyncIterable<string> | null;
 
 // ---------------------------------------------------------------------------
@@ -355,5 +280,5 @@ export interface Engine {
   getPRFiles: (prNumber: number) => Promise<PRFileEntry[]>;
   getPRReviews: (prNumber: number) => Promise<PRReviewsResult>;
   getCIStatus: (prNumber: number) => Promise<CIStatusResult>;
-  getAgentStream: (issueNumber: number) => AgentStream;
+  getAgentStream: (sessionID: string) => AgentStream;
 }
