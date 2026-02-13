@@ -508,14 +508,15 @@ test('it skips dispatching an implementor for an in-progress issue with a runnin
     expect(agentStarted.length).toBe(1);
   });
 
-  // Second dispatch: agent is now running, should be skipped by agent manager
+  // Second dispatch: agent is now running, should be silently skipped (info log, no event)
   engine.send({ command: 'dispatchImplementor', issueNumber: 42 });
 
+  // Wait briefly then verify only one agentStarted event exists — the second dispatch was skipped
   await vi.waitFor(() => {
-    const agentSkipped = events.filter(
-      (e) => e.type === 'agentSkipped' && 'issueNumber' in e && e.issueNumber === 42,
+    const agentStartedAfter = events.filter(
+      (e) => e.type === 'agentStarted' && 'issueNumber' in e && e.issueNumber === 42,
     );
-    expect(agentSkipped.length).toBe(1);
+    expect(agentStartedAfter.length).toBe(1);
   });
 });
 
