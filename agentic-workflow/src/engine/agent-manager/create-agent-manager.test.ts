@@ -371,7 +371,6 @@ test('it logs at info level and skips dispatch when an implementor is already ru
   });
 
   expect(ctx.mockQueries).toHaveLength(1);
-  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
   expect(ctx.logInfoCalls.some((m) => m.includes('implementor') && m.includes('#42'))).toBe(true);
 });
 
@@ -585,7 +584,7 @@ test('it logs at info level and skips dispatch when a reviewer is dispatched for
   });
 
   expect(ctx.mockQueries).toHaveLength(1);
-  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
+
   expect(ctx.logInfoCalls.some((m) => m.includes('reviewer') && m.includes('#10'))).toBe(true);
 });
 
@@ -821,7 +820,7 @@ test('it logs at info level and skips dispatch when a planner is already running
   await ctx.manager.dispatchPlanner({ specPaths: ['docs/specs/b.md'] });
 
   expect(ctx.mockQueries).toHaveLength(1);
-  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
+
   expect(ctx.logInfoCalls.some((m) => m.includes('planner'))).toBe(true);
 });
 
@@ -1342,7 +1341,6 @@ test('it logs at info level and skips dispatch when a reviewer is dispatched for
     prompt: 'enriched prompt',
   });
 
-  expect(ctx.events.every((e) => e.type !== 'agentSkipped')).toBe(true);
   expect(ctx.logInfoCalls.some((m) => m.includes('reviewer') && m.includes('#5'))).toBe(true);
   expect(ctx.mockQueries).toHaveLength(1);
 });

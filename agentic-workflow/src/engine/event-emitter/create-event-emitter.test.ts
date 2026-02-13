@@ -44,9 +44,10 @@ test('it delivers an emitted event to all subscribed handlers', () => {
   emitter.on(handler3);
 
   const event: EngineEvent = {
-    type: 'dispatchReady',
+    type: 'agentStarted',
+    agentType: 'implementor',
     issueNumber: 5,
-    statusLabel: 'status:pending',
+    sessionID: 'session-5',
   };
 
   emitter.emit(event);
@@ -61,8 +62,13 @@ test('it stops delivering events to a handler after unsubscribing', () => {
   const unsubscribe = emitter.on(handler);
 
   const event1: EngineEvent = {
-    type: 'issueRemoved',
+    type: 'issueStatusChanged',
     issueNumber: 10,
+    title: 'Issue 10',
+    oldStatus: null,
+    newStatus: null,
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
   };
 
   emitter.emit(event1);
@@ -71,8 +77,13 @@ test('it stops delivering events to a handler after unsubscribing', () => {
   unsubscribe();
 
   const event2: EngineEvent = {
-    type: 'issueRemoved',
+    type: 'issueStatusChanged',
     issueNumber: 11,
+    title: 'Issue 11',
+    oldStatus: null,
+    newStatus: null,
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
   };
 
   emitter.emit(event2);
@@ -89,10 +100,14 @@ test('it continues delivering events to remaining handlers after one unsubscribe
   unsubscribe1();
 
   const event: EngineEvent = {
-    type: 'recoveryPerformed',
+    type: 'issueStatusChanged',
     issueNumber: 3,
+    title: 'Issue 3',
     oldStatus: 'in-progress',
     newStatus: 'pending',
+    priorityLabel: 'priority:high',
+    createdAt: '2026-01-01T00:00:00Z',
+    isRecovery: true,
   };
 
   emitter.emit(event);
@@ -112,8 +127,13 @@ test('it invokes handlers synchronously in subscription order', () => {
   });
 
   const event: EngineEvent = {
-    type: 'issueRemoved',
+    type: 'issueStatusChanged',
     issueNumber: 1,
+    title: 'Issue 1',
+    oldStatus: null,
+    newStatus: null,
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
   };
 
   emitter.emit(event);
@@ -165,44 +185,11 @@ test('it accepts and delivers all engine event types', () => {
       branchName: 'issue-3-1700000000',
     },
     {
-      type: 'agentSkipped',
-      agentType: 'planner',
-      specPaths: ['docs/specs/test.md'],
-    },
-    {
-      type: 'dispatchReady',
+      type: 'prLinked',
       issueNumber: 4,
-      statusLabel: 'status:pending',
-    },
-    {
-      type: 'issueNeedsRefinement',
-      issueNumber: 5,
-      clipboardCommand: 'claude -p "Use /spec-writing..."',
-      contextURL: 'https://github.com/owner/repo/issues/5',
-      resolutionGuidance: 'After amending the spec, change the label to status:unblocked.',
-    },
-    {
-      type: 'issueRefined',
-      issueNumber: 5,
-    },
-    {
-      type: 'issueBlocked',
-      issueNumber: 8,
-      contextURL: 'https://github.com/owner/repo/issues/8',
-      resolutionGuidance: 'After resolving the blocker, change the label to status:unblocked.',
-    },
-    {
-      type: 'issueUnblocked',
-      issueNumber: 8,
-    },
-    {
-      type: 'prApproved',
-      issueNumber: 9,
-      contextURL: 'https://github.com/owner/repo/issues/9',
-    },
-    {
-      type: 'prUnapproved',
-      issueNumber: 9,
+      prNumber: 10,
+      url: 'https://github.com/owner/repo/pull/10',
+      ciStatus: null,
     },
     {
       type: 'ciStatusChanged',
@@ -210,26 +197,6 @@ test('it accepts and delivers all engine event types', () => {
       issueNumber: 5,
       oldCIStatus: null,
       newCIStatus: 'failure',
-    },
-    {
-      type: 'ciCheckFailed',
-      issueNumber: 5,
-      prNumber: 10,
-      contextURL: 'https://github.com/owner/repo/pull/10',
-    },
-    {
-      type: 'ciCheckRecovered',
-      issueNumber: 5,
-    },
-    {
-      type: 'issueRemoved',
-      issueNumber: 6,
-    },
-    {
-      type: 'recoveryPerformed',
-      issueNumber: 7,
-      oldStatus: 'in-progress',
-      newStatus: 'pending',
     },
   ];
 
@@ -244,8 +211,13 @@ test('it does not throw when emitting with no subscribers', () => {
   const { emitter } = setupTest();
 
   const event: EngineEvent = {
-    type: 'issueRemoved',
+    type: 'issueStatusChanged',
     issueNumber: 1,
+    title: 'Issue 1',
+    oldStatus: null,
+    newStatus: null,
+    priorityLabel: 'priority:medium',
+    createdAt: '2026-01-01T00:00:00Z',
   };
 
   expect(() => emitter.emit(event)).not.toThrow();

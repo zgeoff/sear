@@ -80,33 +80,6 @@ test('it resets in-progress issues to pending on startup', async () => {
   });
 });
 
-test('it emits only synthetic issueStatusChanged during startup', async () => {
-  const { octokit, events, recovery } = setupTest();
-
-  vi.mocked(octokit.issues.listForRepo).mockResolvedValue({
-    data: [
-      {
-        number: 10,
-        title: 'Task 10',
-        body: 'body',
-        labels: [
-          { name: 'task:implement' },
-          { name: 'status:in-progress' },
-          { name: 'priority:high' },
-        ],
-        created_at: '2026-01-15T00:00:00Z',
-      },
-    ],
-  });
-  vi.mocked(octokit.issues.removeLabel).mockResolvedValue({ data: undefined });
-  vi.mocked(octokit.issues.addLabels).mockResolvedValue({ data: undefined });
-
-  await recovery.performStartupRecovery();
-
-  const recoveryEvents = events.filter((e) => e.type === 'recoveryPerformed');
-  expect(recoveryEvents).toHaveLength(0);
-});
-
 test('it emits synthetic issueStatusChanged with isRecovery true during startup', async () => {
   const { octokit, events, recovery } = setupTest();
 

@@ -895,7 +895,7 @@ test('it places action tasks before agent tasks in the sorted list', () => {
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
   emit(buildIssueStatusChanged({ issueNumber: 2, newStatus: 'in-progress' }));
 
-  const sorted = selectSortedTasks(store.getState());
+  const sorted = selectSortedTasks(store.getState().tasks);
   expect(sorted).toHaveLength(2);
   expect(sorted[0]?.section).toBe('action');
   expect(sorted[0]?.task.issueNumber).toBe(1);
@@ -926,7 +926,7 @@ test('it assigns all action statuses to the action section', () => {
     sessionID: 'sess-5',
   } satisfies AgentFailedEvent);
 
-  const sorted = selectSortedTasks(store.getState());
+  const sorted = selectSortedTasks(store.getState().tasks);
   const actionTasks = sorted.filter((s) => s.section === 'action');
   expect(actionTasks).toHaveLength(5);
 });
@@ -937,7 +937,7 @@ test('it assigns agent-implementing and agent-reviewing to the agents section', 
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'in-progress' }));
   emit(buildIssueStatusChanged({ issueNumber: 2, newStatus: 'review' }));
 
-  const sorted = selectSortedTasks(store.getState());
+  const sorted = selectSortedTasks(store.getState().tasks);
   const agentTasks = sorted.filter((s) => s.section === 'agents');
   expect(agentTasks).toHaveLength(2);
 });
@@ -968,7 +968,7 @@ test('it sorts by status weight descending within a section', () => {
     }),
   );
 
-  const sorted = selectSortedTasks(store.getState());
+  const sorted = selectSortedTasks(store.getState().tasks);
   expect(sorted[0]?.task.issueNumber).toBe(3); // approved, weight 100
   expect(sorted[1]?.task.issueNumber).toBe(2); // blocked, weight 80
   expect(sorted[2]?.task.issueNumber).toBe(1); // pending, weight 50
@@ -992,7 +992,7 @@ test('it sorts by priority weight descending when status weights are equal', () 
     }),
   );
 
-  const sorted = selectSortedTasks(store.getState());
+  const sorted = selectSortedTasks(store.getState().tasks);
   expect(sorted[0]?.task.issueNumber).toBe(2); // high priority
   expect(sorted[1]?.task.issueNumber).toBe(1); // low priority
 });
@@ -1015,7 +1015,7 @@ test('it sorts by issue number ascending when status and priority are equal', ()
     }),
   );
 
-  const sorted = selectSortedTasks(store.getState());
+  const sorted = selectSortedTasks(store.getState().tasks);
   expect(sorted[0]?.task.issueNumber).toBe(5);
   expect(sorted[1]?.task.issueNumber).toBe(10);
 });
@@ -1026,7 +1026,7 @@ test('it excludes tasks with an unrecognized status label from the sorted list',
   emit(buildIssueStatusChanged({ issueNumber: 1, newStatus: 'pending' }));
   emit(buildIssueStatusChanged({ issueNumber: 2, newStatus: 'unknown-future-label' }));
 
-  const sorted = selectSortedTasks(store.getState());
+  const sorted = selectSortedTasks(store.getState().tasks);
   expect(sorted).toHaveLength(1);
   expect(sorted[0]?.task.issueNumber).toBe(1);
 });

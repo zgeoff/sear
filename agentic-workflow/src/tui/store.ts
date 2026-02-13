@@ -1,3 +1,4 @@
+import memoizee from 'memoizee';
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { createStore } from 'zustand/vanilla';
@@ -120,6 +121,10 @@ export function createTUIStore(config: CreateTUIStoreConfig): StoreApi<TUIStore>
         .otherwise(() => {
           // No-op for other statuses
         });
+    },
+
+    cancelAgent(issueNumber: number): void {
+      engine.send({ command: 'cancelAgent', issueNumber });
     },
 
     shutdown(): void {
@@ -530,49 +535,54 @@ export function createTUIStore(config: CreateTUIStoreConfig): StoreApi<TUIStore>
 // Selectors
 // ---------------------------------------------------------------------------
 
-export function selectSortedTasks(state: TUIState): SortedTask[] {
-  const actionTasks: SortedTask[] = [];
-  const agentsTasks: SortedTask[] = [];
+export const selectSortedTasks: (tasks: Map<number, Task>) => SortedTask[] = memoizee(
+  function computeSortedTasks(tasks: Map<number, Task>): SortedTask[] {
+    const actionTasks: SortedTask[] = [];
+    const agentsTasks: SortedTask[] = [];
 
-  for (const task of state.tasks.values()) {
-    const derivedStatus = deriveStatus(task);
-    if (derivedStatus !== null) {
-      const section: Section = ACTION_STATUSES.has(derivedStatus) ? 'action' : 'agents';
-      const sortedTask: SortedTask = { task, section };
+    for (const task of tasks.values()) {
+      const derivedStatus = deriveStatus(task);
+      if (derivedStatus !== null) {
+        const section: Section = ACTION_STATUSES.has(derivedStatus) ? 'action' : 'agents';
+        const sortedTask: SortedTask = { task, section };
 
-      if (section === 'action') {
-        actionTasks.push(sortedTask);
-      } else {
-        agentsTasks.push(sortedTask);
+        if (section === 'action') {
+          actionTasks.push(sortedTask);
+        } else {
+          agentsTasks.push(sortedTask);
+        }
       }
     }
-  }
 
-  const sortFn = (a: SortedTask, b: SortedTask): number => {
-    const aStatusWeight = STATUS_WEIGHT[a.task.status] ?? 0;
-    const bStatusWeight = STATUS_WEIGHT[b.task.status] ?? 0;
+    const sortFn = (a: SortedTask, b: SortedTask): number => {
+      const aStatusWeight = STATUS_WEIGHT[a.task.status] ?? 0;
+      const bStatusWeight = STATUS_WEIGHT[b.task.status] ?? 0;
 
-    // Status weight descending
-    if (aStatusWeight !== bStatusWeight) {
-      return bStatusWeight - aStatusWeight;
-    }
+      // Status weight descending
+      if (aStatusWeight !== bStatusWeight) {
+        return bStatusWeight - aStatusWeight;
+      }
 
-    // Priority weight descending
-    const aPriorityWeight = a.task.priority !== null ? (PRIORITY_WEIGHT[a.task.priority] ?? 0) : 0;
-    const bPriorityWeight = b.task.priority !== null ? (PRIORITY_WEIGHT[b.task.priority] ?? 0) : 0;
-    if (aPriorityWeight !== bPriorityWeight) {
-      return bPriorityWeight - aPriorityWeight;
-    }
+      // Priority weight descending
+      const aPriorityWeight =
+        a.task.priority !== null ? (PRIORITY_WEIGHT[a.task.priority] ?? 0) : 0;
+      const bPriorityWeight =
+        b.task.priority !== null ? (PRIORITY_WEIGHT[b.task.priority] ?? 0) : 0;
+      if (aPriorityWeight !== bPriorityWeight) {
+        return bPriorityWeight - aPriorityWeight;
+      }
 
-    // Issue number ascending
-    return a.task.issueNumber - b.task.issueNumber;
-  };
+      // Issue number ascending
+      return a.task.issueNumber - b.task.issueNumber;
+    };
 
-  actionTasks.sort(sortFn);
-  agentsTasks.sort(sortFn);
+    actionTasks.sort(sortFn);
+    agentsTasks.sort(sortFn);
 
-  return [...actionTasks, ...agentsTasks];
-}
+    return [...actionTasks, ...agentsTasks];
+  },
+  { max: 1 },
+);
 
 export function selectActionCount(state: TUIState): number {
   let count = 0;
@@ -624,17 +634,7 @@ function findTaskBySessionID(tasks: Map<number, Task>, sessionID: string): [numb
 
 function findNextSelectedIssue(tasks: Map<number, Task>): number | null {
   // Build sorted list to find "next" task
-  const sorted = selectSortedTasks({
-    tasks,
-    plannerStatus: 'idle',
-    selectedIssue: null,
-    pinnedTask: null,
-    focusedPane: 'taskList',
-    shuttingDown: false,
-    agentStreams: new Map(),
-    issueDetailCache: new Map(),
-    prDetailCache: new Map(),
-  });
+  const sorted = selectSortedTasks(tasks);
 
   if (sorted.length === 0) {
     return null;

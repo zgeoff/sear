@@ -99,6 +99,7 @@ export interface TUIState {
 
 export interface TUIActions {
   dispatch: (issueNumber: number) => void;
+  cancelAgent: (issueNumber: number) => void;
   shutdown: () => void;
   selectIssue: (issueNumber: number) => void;
   pinTask: (issueNumber: number) => void;

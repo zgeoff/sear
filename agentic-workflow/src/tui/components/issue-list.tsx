@@ -4,14 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
-import type { CachedPRDetails, EngineStore, TrackedIssue } from '../types.ts';
+import { selectSortedTasks } from '../store.ts';
+import type { Task, TUIStore } from '../types.ts';
 import { List } from './list/list.tsx';
 import type { ListItemData } from './list/types.ts';
 
 export type IssueListPromptChangeHandler = (message: string | null) => void;
 
 export interface IssueListProps {
-  store: StoreApi<EngineStore>;
+  store: StoreApi<TUIStore>;
   focused: boolean;
   onOpenURL: (url: string) => void;
   repository: string;
@@ -30,12 +31,6 @@ type PromptState =
   | { type: 'dispatch'; issueNumber: number; hasCIFailure: boolean }
   | { type: 'cancel'; issueNumber: number }
   | { type: 'retry'; issueNumber: number; agentType: 'implementor' | 'reviewer' };
-
-const PRIORITY_ORDER: Record<string, number> = {
-  'priority:high': 0,
-  'priority:medium': 1,
-  'priority:low': 2,
-};
 
 const SPINNER_FRAMES: readonly string[] = [
   '\u280B',
@@ -60,13 +55,11 @@ const ERROR_MARKER = '\u2717';
 const CI_MARKER = '\u274C';
 
 export function IssueList(props: IssueListProps): ReactNode {
-  const issues = useStore(props.store, (s) => s.issues);
+  const tasks = useStore(props.store, (s) => s.tasks);
   const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
   const selectIssue = useStore(props.store, (s) => s.selectIssue);
-  const dispatchImplementor = useStore(props.store, (s) => s.dispatchImplementor);
-  const dispatchReviewer = useStore(props.store, (s) => s.dispatchReviewer);
+  const dispatch = useStore(props.store, (s) => s.dispatch);
   const cancelAgent = useStore(props.store, (s) => s.cancelAgent);
-  const prDetails = useStore(props.store, (s) => s.prDetails);
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
   const [spinnerFrame, setSpinnerFrame] = useState(0);
 
@@ -79,8 +72,9 @@ export function IssueList(props: IssueListProps): ReactNode {
     onPromptChange(message);
   }, [prompt, onPromptChange]);
 
-  const sortedIssues = sortIssues(issues);
-  const hasRunningAgent = sortedIssues.some((issue) => issue.agentRunning);
+  const sortedTasks = selectSortedTasks(tasks);
+  const sortedTaskList = sortedTasks.map((st) => st.task);
+  const hasRunningAgent = sortedTaskList.some((task) => task.agent?.running === true);
 
   useEffect(() => {
     if (!hasRunningAgent) {
@@ -94,7 +88,7 @@ export function IssueList(props: IssueListProps): ReactNode {
     };
   }, [hasRunningAgent]);
 
-  const selectedIndex = sortedIssues.findIndex((i) => i.number === selectedIssue);
+  const selectedIndex = sortedTaskList.findIndex((t) => t.issueNumber === selectedIssue);
 
   useInput(
     (input, key) => {
@@ -117,32 +111,33 @@ export function IssueList(props: IssueListProps): ReactNode {
         return;
       }
 
-      if (sortedIssues.length === 0) {
+      if (sortedTaskList.length === 0) {
         return;
       }
 
-      const currentIndex = sortedIssues.findIndex((i) => i.number === selectedIssue);
+      const currentIndex = sortedTaskList.findIndex((t) => t.issueNumber === selectedIssue);
 
       if (input === 'j' || key.downArrow) {
-        const nextIndex = currentIndex < sortedIssues.length - 1 ? currentIndex + 1 : currentIndex;
-        const nextIssue = sortedIssues[nextIndex];
-        if (nextIssue) {
-          selectIssue(nextIssue.number);
+        const nextIndex =
+          currentIndex < sortedTaskList.length - 1 ? currentIndex + 1 : currentIndex;
+        const nextTask = sortedTaskList[nextIndex];
+        if (nextTask) {
+          selectIssue(nextTask.issueNumber);
         }
         return;
       }
 
       if (input === 'k' || key.upArrow) {
         const nextIndex = currentIndex > 0 ? currentIndex - 1 : 0;
-        const nextIssue = sortedIssues[nextIndex];
-        if (nextIssue) {
-          selectIssue(nextIssue.number);
+        const nextTask = sortedTaskList[nextIndex];
+        if (nextTask) {
+          selectIssue(nextTask.issueNumber);
         }
         return;
       }
 
       if (key.return && !props.promptActive) {
-        const selected = sortedIssues.find((i) => i.number === selectedIssue);
+        const selected = sortedTaskList.find((t) => t.issueNumber === selectedIssue);
         if (!selected) {
           return;
         }
@@ -156,17 +151,13 @@ export function IssueList(props: IssueListProps): ReactNode {
   function confirmPrompt(currentPrompt: PromptState): void {
     match(currentPrompt)
       .with({ type: 'dispatch' }, (p) => {
-        dispatchImplementor(p.issueNumber);
+        dispatch(p.issueNumber);
       })
       .with({ type: 'cancel' }, (p) => {
         cancelAgent(p.issueNumber);
       })
       .with({ type: 'retry' }, (p) => {
-        if (p.agentType === 'implementor') {
-          dispatchImplementor(p.issueNumber);
-        } else {
-          dispatchReviewer(p.issueNumber);
-        }
+        dispatch(p.issueNumber);
       })
       .with({ type: 'none' }, () => {
         /* no-op for dismissed prompt */
@@ -174,17 +165,16 @@ export function IssueList(props: IssueListProps): ReactNode {
       .exhaustive();
   }
 
-  function handleEnter(issue: TrackedIssue): void {
-    const action = getEnterAction(issue, prDetails, props.repository);
+  function handleEnter(task: Task): void {
+    const action = getEnterAction(task, props.repository);
 
     match(action)
       .with({ type: 'dispatch' }, (a) => {
+        const hasCIFailure = task.prs.some((pr) => pr.ciStatus === 'failure');
         setPrompt({
           type: 'dispatch',
           issueNumber: a.issueNumber,
-          hasCIFailure:
-            (issue as TrackedIssue & { ciStatus?: 'pending' | 'success' | 'failure' }).ciStatus ===
-            'failure',
+          hasCIFailure,
         });
       })
       .with({ type: 'cancel' }, (a) => {
@@ -199,7 +189,7 @@ export function IssueList(props: IssueListProps): ReactNode {
       .exhaustive();
   }
 
-  if (sortedIssues.length === 0) {
+  if (sortedTaskList.length === 0) {
     return (
       <Box flexDirection="column">
         <Text>No issues tracked</Text>
@@ -208,7 +198,7 @@ export function IssueList(props: IssueListProps): ReactNode {
   }
 
   const currentSpinner = SPINNER_FRAMES[spinnerFrame] ?? '\u280B';
-  const items = buildIssueListItems(sortedIssues, currentSpinner);
+  const items = buildTaskListItems(sortedTaskList, currentSpinner);
 
   return (
     <List
@@ -225,54 +215,36 @@ export function IssueList(props: IssueListProps): ReactNode {
   );
 }
 
-function sortIssues(issues: Map<number, TrackedIssue>): TrackedIssue[] {
-  return Array.from(issues.values()).sort((a, b) => {
-    const aRunning = a.agentRunning ? 0 : 1;
-    const bRunning = b.agentRunning ? 0 : 1;
-    if (aRunning !== bRunning) {
-      return aRunning - bRunning;
-    }
-
-    const aPriority = PRIORITY_ORDER[a.priorityLabel] ?? 1;
-    const bPriority = PRIORITY_ORDER[b.priorityLabel] ?? 1;
-    if (aPriority !== bPriority) {
-      return aPriority - bPriority;
-    }
-
-    return a.createdAt.localeCompare(b.createdAt);
+function buildTaskListItems(sortedTasks: Task[], spinnerChar: string): ListItemData[] {
+  return sortedTasks.map((task) => {
+    const priority = getPriorityIndicator(task.priority);
+    const state = getStateIndicator(task, spinnerChar);
+    const content = `${priority} #${task.issueNumber} ${task.title} ${state}`;
+    const richContent = buildRichTaskContent(task, spinnerChar);
+    return { key: String(task.issueNumber), content, richContent };
   });
 }
 
-function buildIssueListItems(sortedIssues: TrackedIssue[], spinnerChar: string): ListItemData[] {
-  return sortedIssues.map((issue) => {
-    const priority = getPriorityIndicator(issue.priorityLabel);
-    const state = getStateIndicator(issue, spinnerChar);
-    const content = `${priority} #${issue.number} ${issue.title} ${state}`;
-    const richContent = buildRichIssueContent(issue, spinnerChar);
-    return { key: String(issue.number), content, richContent };
-  });
-}
-
-function buildRichIssueContent(issue: TrackedIssue, spinnerChar: string): ReactNode {
-  const priority = getPriorityIndicator(issue.priorityLabel);
-  const stateIndicator = getStateIndicatorElement(issue, spinnerChar);
+function buildRichTaskContent(task: Task, spinnerChar: string): ReactNode {
+  const priority = getPriorityIndicator(task.priority);
+  const stateIndicator = getStateIndicatorElement(task, spinnerChar);
 
   return (
     <>
-      {priority} #{issue.number} {issue.title} {stateIndicator}
+      {priority} #{task.issueNumber} {task.title} {stateIndicator}
     </>
   );
 }
 
-function getStateIndicator(issue: TrackedIssue, spinnerChar: string): string {
+function getStateIndicator(task: Task, spinnerChar: string): string {
   let baseIndicator = '';
 
-  if (issue.lastFailure) {
+  if (task.agent?.crash) {
     baseIndicator = ERROR_MARKER;
-  } else if (issue.agentRunning) {
+  } else if (task.agent?.running === true) {
     baseIndicator = spinnerChar;
   } else {
-    baseIndicator = match(issue.statusLabel)
+    baseIndicator = match(task.statusLabel)
       .with('pending', () => READY_MARKER)
       .with('unblocked', () => READY_MARKER)
       .with('needs-changes', () => READY_MARKER)
@@ -284,23 +256,20 @@ function getStateIndicator(issue: TrackedIssue, spinnerChar: string): string {
       .otherwise(() => '');
   }
 
-  const ciIndicator =
-    (issue as TrackedIssue & { ciStatus?: 'pending' | 'success' | 'failure' }).ciStatus ===
-    'failure'
-      ? ` ${CI_MARKER}`
-      : '';
+  const hasCIFailure = task.prs.some((pr) => pr.ciStatus === 'failure');
+  const ciIndicator = hasCIFailure ? ` ${CI_MARKER}` : '';
   return `${baseIndicator}${ciIndicator}`;
 }
 
-function getStateIndicatorElement(issue: TrackedIssue, spinnerChar: string): ReactNode {
+function getStateIndicatorElement(task: Task, spinnerChar: string): ReactNode {
   let baseIndicator: ReactNode = null;
 
-  if (issue.lastFailure) {
+  if (task.agent?.crash) {
     baseIndicator = <Text color="red">{ERROR_MARKER}</Text>;
-  } else if (issue.agentRunning) {
+  } else if (task.agent?.running === true) {
     baseIndicator = <Text color="cyan">{spinnerChar}</Text>;
   } else {
-    baseIndicator = match(issue.statusLabel)
+    baseIndicator = match(task.statusLabel)
       .with('pending', () => <Text color="green">{READY_MARKER}</Text>)
       .with('unblocked', () => <Text color="green">{READY_MARKER}</Text>)
       .with('needs-changes', () => <Text color="green">{READY_MARKER}</Text>)
@@ -312,11 +281,8 @@ function getStateIndicatorElement(issue: TrackedIssue, spinnerChar: string): Rea
       .otherwise(() => <Text />);
   }
 
-  const ciIndicator =
-    (issue as TrackedIssue & { ciStatus?: 'pending' | 'success' | 'failure' }).ciStatus ===
-    'failure' ? (
-      <Text color="red"> {CI_MARKER}</Text>
-    ) : null;
+  const hasCIFailure = task.prs.some((pr) => pr.ciStatus === 'failure');
+  const ciIndicator = hasCIFailure ? <Text color="red"> {CI_MARKER}</Text> : null;
 
   return (
     <>
@@ -326,11 +292,14 @@ function getStateIndicatorElement(issue: TrackedIssue, spinnerChar: string): Rea
   );
 }
 
-function getPriorityIndicator(priorityLabel: string): string {
-  return match(priorityLabel)
-    .with('priority:high', () => '!!!')
-    .with('priority:medium', () => '!! ')
-    .with('priority:low', () => '!  ')
+function getPriorityIndicator(priority: string | null): string {
+  if (priority === null) {
+    return '   ';
+  }
+  return match(priority)
+    .with('high', () => '!!!')
+    .with('medium', () => '!! ')
+    .with('low', () => '!  ')
     .otherwise(() => '   ');
 }
 
@@ -340,42 +309,38 @@ type EnterAction =
   | { type: 'retry'; issueNumber: number; agentType: 'implementor' | 'reviewer' }
   | { type: 'openURL'; url: string };
 
-function getEnterAction(
-  issue: TrackedIssue,
-  prDetailsMap: Map<number, CachedPRDetails>,
-  repository: string,
-): EnterAction {
-  if (issue.lastFailure) {
-    return { type: 'retry', issueNumber: issue.number, agentType: issue.lastFailure.agentType };
+function getEnterAction(task: Task, repository: string): EnterAction {
+  if (task.agent?.crash && task.agent.type) {
+    return { type: 'retry', issueNumber: task.issueNumber, agentType: task.agent.type };
   }
 
-  if (issue.agentRunning) {
-    return { type: 'cancel', issueNumber: issue.number };
+  if (task.agent?.running === true) {
+    return { type: 'cancel', issueNumber: task.issueNumber };
   }
 
-  return match(issue.statusLabel)
-    .with('pending', () => ({ type: 'dispatch' as const, issueNumber: issue.number }))
-    .with('unblocked', () => ({ type: 'dispatch' as const, issueNumber: issue.number }))
-    .with('needs-changes', () => ({ type: 'dispatch' as const, issueNumber: issue.number }))
+  return match(task.statusLabel)
+    .with('pending', () => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }))
+    .with('unblocked', () => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }))
+    .with('needs-changes', () => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }))
     .with('review', () => {
-      const pr = prDetailsMap.get(issue.number);
-      const url = pr?.url ?? `https://github.com/${repository}/issues/${issue.number}`;
+      const pr = task.prs[0];
+      const url = pr?.url || `https://github.com/${repository}/issues/${task.issueNumber}`;
       return { type: 'openURL' as const, url };
     })
     .with('needs-refinement', () => ({
       type: 'openURL' as const,
-      url: `https://github.com/${repository}/issues/${issue.number}`,
+      url: `https://github.com/${repository}/issues/${task.issueNumber}`,
     }))
     .with('blocked', () => ({
       type: 'openURL' as const,
-      url: `https://github.com/${repository}/issues/${issue.number}`,
+      url: `https://github.com/${repository}/issues/${task.issueNumber}`,
     }))
     .with('approved', () => {
-      const pr = prDetailsMap.get(issue.number);
-      const url = pr?.url ?? `https://github.com/${repository}/issues/${issue.number}`;
+      const pr = task.prs[0];
+      const url = pr?.url || `https://github.com/${repository}/issues/${task.issueNumber}`;
       return { type: 'openURL' as const, url };
     })
-    .otherwise(() => ({ type: 'dispatch' as const, issueNumber: issue.number }));
+    .otherwise(() => ({ type: 'dispatch' as const, issueNumber: task.issueNumber }));
 }
 
 function buildPromptMessage(prompt: PromptState): string {

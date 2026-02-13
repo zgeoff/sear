@@ -1,6 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import { createMockGitHubClient } from '../../test-utils/create-mock-github-client.ts';
-import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types.ts';
+import type { EngineEvent, IssueStatusChangedEvent } from '../../types.ts';
 import { createEventEmitter } from '../event-emitter/create-event-emitter.ts';
 import type { IssueData } from '../github-client/types.ts';
 import { createIssuePoller } from './create-issue-poller.ts';
@@ -56,8 +56,10 @@ function statusChangedEvents(events: EngineEvent[]): IssueStatusChangedEvent[] {
   return events.filter((e): e is IssueStatusChangedEvent => e.type === 'issueStatusChanged');
 }
 
-function removedEvents(events: EngineEvent[]): IssueRemovedEvent[] {
-  return events.filter((e): e is IssueRemovedEvent => e.type === 'issueRemoved');
+function removedEvents(events: EngineEvent[]): IssueStatusChangedEvent[] {
+  return events.filter(
+    (e): e is IssueStatusChangedEvent => e.type === 'issueStatusChanged' && e.newStatus === null,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -215,10 +217,10 @@ test('it updates the snapshot with new title and priority even without emitting 
 });
 
 // ---------------------------------------------------------------------------
-// IssuePoller — removed issue emits issueRemoved
+// IssuePoller — removed issue emits issueStatusChanged with null newStatus
 // ---------------------------------------------------------------------------
 
-test('it emits issueRemoved when an issue disappears from the poll results', async () => {
+test('it emits issueStatusChanged with null newStatus when an issue disappears from the poll results', async () => {
   const issues = [buildIssue({ number: 1 }), buildIssue({ number: 2 })];
   const { octokit, events, poller } = setupTest({ issues });
 
@@ -234,14 +236,14 @@ test('it emits issueRemoved when an issue disappears from the poll results', asy
 
   const removed = removedEvents(events);
   expect(removed).toHaveLength(1);
-  expect(removed[0]).toStrictEqual({ type: 'issueRemoved', issueNumber: 2 });
+  expect(removed[0]).toMatchObject({ type: 'issueStatusChanged', issueNumber: 2, newStatus: null });
 });
 
 // ---------------------------------------------------------------------------
 // IssuePoller — removed issue is cleared from snapshot
 // ---------------------------------------------------------------------------
 
-test('it removes the issue from the snapshot when issueRemoved is emitted', async () => {
+test('it removes the issue from the snapshot when a removal event is emitted', async () => {
   const issues = [buildIssue({ number: 1 }), buildIssue({ number: 2 })];
   const { octokit, poller } = setupTest({ issues });
 
@@ -427,7 +429,9 @@ test('it emits status change events before removal events', async () => {
 
   // Issue #3 status change should come before issue #2 removal
   const statusIdx = events.findIndex((e) => e.type === 'issueStatusChanged');
-  const removedIdx = events.findIndex((e) => e.type === 'issueRemoved');
+  const removedIdx = events.findIndex(
+    (e) => e.type === 'issueStatusChanged' && 'newStatus' in e && e.newStatus === null,
+  );
   expect(statusIdx).toBeLessThan(removedIdx);
 });
 

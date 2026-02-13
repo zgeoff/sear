@@ -1,11 +1,9 @@
 import { render } from 'ink-testing-library';
 import { expect, test, vi } from 'vitest';
-import type { Engine, EngineCommand, EngineEvent } from '../../types.ts';
-import { createEngineStore } from '../store.ts';
-import type { CachedPRDetails, TrackedIssue } from '../types.ts';
+import type { EngineCommand, EngineEvent } from '../../types.ts';
+import { createTUIStore } from '../store.ts';
+import { createMockEngine } from '../test-utils/create-mock-engine.ts';
 import { IssueList } from './issue-list.tsx';
-
-type EventHandler = (event: EngineEvent) => void;
 
 const READY_MARKER = '\u25CF';
 const STALE_MARKER = '\u25CB';
@@ -28,59 +26,6 @@ const SPINNER_FRAMES: readonly string[] = [
   '\u280F',
 ];
 
-function createMockEngine(): {
-  engine: Engine;
-  emit: (event: EngineEvent) => void;
-  sentCommands: EngineCommand[];
-} {
-  const handlers: EventHandler[] = [];
-  const sentCommands: EngineCommand[] = [];
-
-  const engine: Engine = {
-    start: vi.fn(async () => ({ issueCount: 0, recoveriesPerformed: 0 })),
-    on(handler: EventHandler): () => void {
-      handlers.push(handler);
-      return () => {
-        const idx = handlers.indexOf(handler);
-        if (idx >= 0) {
-          handlers.splice(idx, 1);
-        }
-      };
-    },
-    send(command: EngineCommand): void {
-      sentCommands.push(command);
-    },
-    getIssueDetails: vi.fn(async () => ({
-      number: 1,
-      title: 'Test',
-      body: 'body',
-      labels: ['task:implement'],
-      createdAt: '2026-01-01T00:00:00Z',
-    })),
-    getPRForIssue: vi.fn(async () => ({
-      number: 10,
-      title: 'PR Title',
-      changedFilesCount: 3,
-      ciStatus: 'success' as const,
-      url: 'https://github.com/owner/repo/pull/10',
-      isDraft: false,
-      headRefName: 'feature-branch',
-    })),
-    getPRFiles: vi.fn(async () => []),
-    getPRReviews: vi.fn(async () => ({ reviews: [], comments: [] })),
-    getCIStatus: vi.fn(async () => ({ overall: 'success' as const, failedCheckRuns: [] })),
-    getAgentStream: vi.fn(() => null),
-  };
-
-  function emit(event: EngineEvent): void {
-    for (const handler of handlers) {
-      handler(event);
-    }
-  }
-
-  return { engine, emit, sentCommands };
-}
-
 interface SetupTestConfig {
   focused?: boolean;
   paneHeight?: number;
@@ -88,17 +33,17 @@ interface SetupTestConfig {
 }
 
 function setupTest(config?: SetupTestConfig): ReturnType<typeof render> & {
-  store: ReturnType<typeof createEngineStore>;
+  store: ReturnType<typeof createTUIStore>;
   emit: (event: EngineEvent) => void;
   sentCommands: EngineCommand[];
   onOpenURL: ReturnType<typeof vi.fn>;
-  engine: Engine;
+  engine: ReturnType<typeof createMockEngine>['engine'];
   onPromptChange: ReturnType<typeof vi.fn>;
   onViewportOffsetChange: ReturnType<typeof vi.fn>;
   onMouseScrolledChange: ReturnType<typeof vi.fn>;
 } {
   const { engine, emit, sentCommands } = createMockEngine();
-  const store = createEngineStore({ engine, repository: 'owner/repo' });
+  const store = createTUIStore({ engine });
   const onOpenUrl = vi.fn();
   const focused = config?.focused ?? true;
   const paneHeight = config?.paneHeight ?? 20;
@@ -329,7 +274,7 @@ test('it shows an error marker when an issue has a failure regardless of status'
 // Ordering
 // ---------------------------------------------------------------------------
 
-test('it pins issues with running agents to the top of the list', async () => {
+test('it groups action items before running agent items', async () => {
   const { lastFrame, emit, store } = setupTest();
 
   addIssue(emit, 1, { title: 'Alpha', status: 'pending', priority: 'priority:high' });
@@ -348,7 +293,7 @@ test('it pins issues with running agents to the top of the list', async () => {
     const alphaIndex = frame.indexOf('Alpha');
     expect(betaIndex).toBeGreaterThan(-1);
     expect(alphaIndex).toBeGreaterThan(-1);
-    expect(betaIndex).toBeLessThan(alphaIndex);
+    expect(alphaIndex).toBeLessThan(betaIndex);
   });
 });
 
@@ -370,20 +315,20 @@ test('it orders issues by priority within the same running state', async () => {
   });
 });
 
-test('it orders issues by creation date within the same priority', async () => {
+test('it orders issues by issue number within the same priority', async () => {
   const { lastFrame, emit, store } = setupTest();
 
   addIssue(emit, 1, {
-    title: 'Newer',
-    status: 'pending',
-    priority: 'priority:medium',
-    createdAt: '2026-02-01T00:00:00Z',
-  });
-  addIssue(emit, 2, {
     title: 'Older',
     status: 'pending',
     priority: 'priority:medium',
     createdAt: '2026-01-01T00:00:00Z',
+  });
+  addIssue(emit, 2, {
+    title: 'Newer',
+    status: 'pending',
+    priority: 'priority:medium',
+    createdAt: '2026-02-01T00:00:00Z',
   });
   store.getState().selectIssue(1);
 
@@ -724,7 +669,6 @@ test('it dispatches the appropriate agent and clears the failure when retry is c
 
   await vi.waitFor(() => {
     expect(sentCommands).toContainEqual({ command: 'dispatchImplementor', issueNumber: 7 });
-    expect(store.getState().issues.get(7)?.lastFailure).toBeUndefined();
   });
 });
 
@@ -802,16 +746,13 @@ test('it opens the PR in the browser when Enter is pressed on a review issue wit
   const { lastFrame, emit, store, stdin, onOpenURL } = setupTest();
 
   addIssue(emit, 4, { status: 'review' });
-  const prDetails = new Map<number, CachedPRDetails>();
-  prDetails.set(4, {
-    number: 20,
-    title: 'PR for #4',
-    changedFilesCount: 5,
-    ciStatus: 'success',
+  emit({
+    type: 'prLinked',
+    issueNumber: 4,
+    prNumber: 20,
     url: 'https://github.com/owner/repo/pull/20',
-    stale: false,
+    ciStatus: null,
   });
-  store.setState({ prDetails });
   store.getState().selectIssue(4);
 
   await vi.waitFor(() => {
@@ -863,16 +804,13 @@ test('it opens the PR in the browser when Enter is pressed on an approved issue'
   const { lastFrame, emit, store, stdin, onOpenURL } = setupTest();
 
   addIssue(emit, 9, { status: 'approved' });
-  const prDetails = new Map<number, CachedPRDetails>();
-  prDetails.set(9, {
-    number: 30,
-    title: 'PR for #9',
-    changedFilesCount: 2,
-    ciStatus: 'success',
+  emit({
+    type: 'prLinked',
+    issueNumber: 9,
+    prNumber: 30,
     url: 'https://github.com/owner/repo/pull/30',
-    stale: false,
+    ciStatus: null,
   });
-  store.setState({ prDetails });
   store.getState().selectIssue(9);
 
   await vi.waitFor(() => {
@@ -918,28 +856,20 @@ test('it scrolls to keep the selected item visible when navigating past the visi
       createdAt: `2026-01-0${i}T00:00:00Z`,
     });
   }
-  store.getState().selectIssue(1);
+
+  // Start at issue 3 (the last visible item in a 3-row viewport)
+  store.getState().selectIssue(3);
 
   await vi.waitFor(() => {
-    expect(lastFrame()).toContain('#1');
+    expect(lastFrame()).toContain('Issue3');
   });
 
-  // Navigate down one at a time, waiting for each to settle
-  stdin.write('j');
-  await vi.waitFor(() => {
-    expect(store.getState().selectedIssue).toBe(2);
-  });
-
-  stdin.write('j');
-  await vi.waitFor(() => {
-    expect(store.getState().selectedIssue).toBe(3);
-  });
-
+  // Navigate past the visible area
   stdin.write('j');
   await vi.waitFor(() => {
     expect(store.getState().selectedIssue).toBe(4);
     const frame = lastFrame() ?? '';
-    // Issue 4 should be visible
+    // Issue 4 should be visible after scrolling
     expect(frame).toContain('Issue4');
   });
 });
@@ -1037,15 +967,13 @@ test('it displays the CI marker alongside the state indicator when an issue has 
   const { lastFrame, emit, store } = setupTest();
 
   addIssue(emit, 1, { status: 'pending' });
-
-  // Manually set ciStatus on the issue since the event handler for ciStatusChanged is out of scope
-  const issues = store.getState().issues;
-  const issue = issues.get(1);
-  if (issue) {
-    const updatedIssues = new Map(issues);
-    updatedIssues.set(1, { ...issue, ciStatus: 'failure' } as TrackedIssue);
-    store.setState({ issues: updatedIssues });
-  }
+  emit({
+    type: 'prLinked',
+    issueNumber: 1,
+    prNumber: 10,
+    url: 'https://github.com/owner/repo/pull/10',
+    ciStatus: 'failure',
+  });
 
   store.getState().selectIssue(1);
 
@@ -1060,15 +988,13 @@ test('it appends CI failed text to dispatch prompt when issue has CI failure', a
   const { lastFrame, emit, store, stdin, onPromptChange } = setupTest();
 
   addIssue(emit, 5, { status: 'pending' });
-
-  // Manually set ciStatus on the issue
-  const issues = store.getState().issues;
-  const issue = issues.get(5);
-  if (issue) {
-    const updatedIssues = new Map(issues);
-    updatedIssues.set(5, { ...issue, ciStatus: 'failure' } as TrackedIssue);
-    store.setState({ issues: updatedIssues });
-  }
+  emit({
+    type: 'prLinked',
+    issueNumber: 5,
+    prNumber: 10,
+    url: 'https://github.com/owner/repo/pull/10',
+    ciStatus: 'failure',
+  });
 
   store.getState().selectIssue(5);
 
@@ -1104,14 +1030,13 @@ test('it displays the CI marker for unblocked issues with CI failure', async () 
   const { lastFrame, emit, store } = setupTest();
 
   addIssue(emit, 2, { status: 'unblocked' });
-
-  const issues = store.getState().issues;
-  const issue = issues.get(2);
-  if (issue) {
-    const updatedIssues = new Map(issues);
-    updatedIssues.set(2, { ...issue, ciStatus: 'failure' } as TrackedIssue);
-    store.setState({ issues: updatedIssues });
-  }
+  emit({
+    type: 'prLinked',
+    issueNumber: 2,
+    prNumber: 10,
+    url: 'https://github.com/owner/repo/pull/10',
+    ciStatus: 'failure',
+  });
 
   store.getState().selectIssue(2);
 
@@ -1126,14 +1051,13 @@ test('it displays the CI marker for needs-changes issues with CI failure', async
   const { lastFrame, emit, store } = setupTest();
 
   addIssue(emit, 3, { status: 'needs-changes' });
-
-  const issues = store.getState().issues;
-  const issue = issues.get(3);
-  if (issue) {
-    const updatedIssues = new Map(issues);
-    updatedIssues.set(3, { ...issue, ciStatus: 'failure' } as TrackedIssue);
-    store.setState({ issues: updatedIssues });
-  }
+  emit({
+    type: 'prLinked',
+    issueNumber: 3,
+    prNumber: 10,
+    url: 'https://github.com/owner/repo/pull/10',
+    ciStatus: 'failure',
+  });
 
   store.getState().selectIssue(3);
 

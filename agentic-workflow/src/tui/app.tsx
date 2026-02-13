@@ -8,45 +8,40 @@ import type { Engine } from '../types.ts';
 import { ConfirmationPrompt } from './components/confirmation-prompt.tsx';
 import { DetailPane } from './components/detail-pane.tsx';
 import { IssueList } from './components/issue-list.tsx';
-import { handleNotificationsInput, NotificationsPane } from './components/notifications.tsx';
 import { useEngine } from './hooks.ts';
 import { selectRunningAgentCount } from './store.ts';
-import type { FocusedPane } from './types.ts';
 
 export interface AppProps {
   engine: Engine;
   repository: string;
 }
 
+type FocusedPane = 'taskList' | 'detailPane';
+
 type PromptState = { type: 'none' } | { type: 'quit'; previousPane: FocusedPane };
 
 const DEFAULT_TERMINAL_WIDTH = 80;
 const DEFAULT_TERMINAL_HEIGHT = 24;
-const PANE_COUNT = 3;
-const BORDER_COLUMNS = 4;
+const PANE_COUNT = 2;
+const BORDER_COLUMNS = 3;
 const BORDER_ROWS = 2;
 
-const PANE_LABELS: readonly string[] = ['NOTIFICATIONS', 'ISSUES', 'DETAILS'];
+const PANE_LABELS: readonly string[] = ['TASKS', 'DETAILS'];
 
 export function App(props: AppProps): ReactNode {
-  const engineStore = useEngine({ engine: props.engine, repository: props.repository });
+  const engineStore = useEngine({ engine: props.engine });
   const [started, setStarted] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<PromptState>({ type: 'none' });
   const [issueListPromptMessage, setIssueListPromptMessage] = useState<string | null>(null);
-  const [selectedNotificationIndex, setSelectedNotificationIndex] = useState(0);
-  const [notificationViewportOffset, setNotificationViewportOffset] = useState(0);
-  const [notificationMouseScrolled, setNotificationMouseScrolled] = useState(false);
   const [issueListViewportOffset, setIssueListViewportOffset] = useState(0);
   const [issueListMouseScrolled, setIssueListMouseScrolled] = useState(false);
 
   const focusedPane = useStore(engineStore, (s) => s.focusedPane);
   const shuttingDown = useStore(engineStore, (s) => s.shuttingDown);
   const runningAgentCount = useStore(engineStore, selectRunningAgentCount);
-  const notifications = useStore(engineStore, (s) => s.notifications);
   const cycleFocus = useStore(engineStore, (s) => s.cycleFocus);
   const shutdown = useStore(engineStore, (s) => s.shutdown);
-  const handleStartup = useStore(engineStore, (s) => s.handleStartup);
 
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -76,14 +71,13 @@ export function App(props: AppProps): ReactNode {
   useEffect(() => {
     props.engine
       .start()
-      .then((result) => {
-        handleStartup(result);
+      .then(() => {
         setStarted(true);
       })
       .catch((error) => {
         setStartupError(error instanceof Error ? error.message : String(error));
       });
-  }, [props.engine, handleStartup]);
+  }, [props.engine]);
 
   useEffect(() => {
     if (!shuttingDown) {
@@ -93,19 +87,6 @@ export function App(props: AppProps): ReactNode {
       exit();
     }
   }, [shuttingDown, runningAgentCount, exit]);
-
-  const previousNotificationCountRef = useRef(notifications.length);
-  useEffect(() => {
-    const previousCount = previousNotificationCountRef.current;
-    previousNotificationCountRef.current = notifications.length;
-
-    if (notifications.length <= previousCount) {
-      return;
-    }
-
-    const newOffset = computeAutoScrollOffset(notificationViewportOffset, contentHeight);
-    setNotificationViewportOffset(newOffset);
-  }, [notifications.length, notificationViewportOffset, contentHeight]);
 
   const startupErrorRef = useRef(startupError);
   startupErrorRef.current = startupError;
@@ -135,12 +116,8 @@ export function App(props: AppProps): ReactNode {
       return;
     }
 
-    if (key.tab && key.shift) {
-      cycleFocus('backward');
-      return;
-    }
     if (key.tab) {
-      cycleFocus('forward');
+      cycleFocus();
       return;
     }
     if (input === 'q') {
@@ -148,24 +125,6 @@ export function App(props: AppProps): ReactNode {
       return;
     }
   });
-
-  useInput(
-    (input, key) => {
-      if (promptRef.current.type !== 'none' || issueListPromptMessageRef.current !== null) {
-        return;
-      }
-      handleNotificationsInput({
-        input,
-        key,
-        notifications,
-        selectedIndex: selectedNotificationIndex,
-        onSelectIndex: setSelectedNotificationIndex,
-        openUrl,
-        copyToClipboard,
-      });
-    },
-    { isActive: focusedPane === 'notifications' },
-  );
 
   if (startupError) {
     return (
@@ -218,27 +177,12 @@ export function App(props: AppProps): ReactNode {
       <Box flexDirection="row" height={contentHeight}>
         <Text dimColor={!panesFocused[0]}>│</Text>
         <Box width={paneWidths[0]} height={contentHeight} flexDirection="column">
-          <NotificationsPane
-            notifications={notifications}
-            repository={props.repository}
-            focused={focusedPane === 'notifications'}
-            selectedIndex={selectedNotificationIndex}
-            paneWidth={paneWidths[0]}
-            paneHeight={contentHeight}
-            viewportOffset={notificationViewportOffset}
-            onViewportOffsetChange={setNotificationViewportOffset}
-            mouseScrolled={notificationMouseScrolled}
-            onMouseScrolledChange={setNotificationMouseScrolled}
-          />
-        </Box>
-        <Text dimColor={!(panesFocused[0] || panesFocused[1])}>│</Text>
-        <Box width={paneWidths[1]} height={contentHeight} flexDirection="column">
           <IssueList
             store={engineStore}
-            focused={focusedPane === 'issueList'}
+            focused={focusedPane === 'taskList'}
             onOpenURL={openUrl}
             repository={props.repository}
-            paneWidth={paneWidths[1]}
+            paneWidth={paneWidths[0]}
             paneHeight={contentHeight}
             viewportOffset={issueListViewportOffset}
             onViewportOffsetChange={setIssueListViewportOffset}
@@ -248,11 +192,11 @@ export function App(props: AppProps): ReactNode {
             onPromptChange={handleIssueListPromptChange}
           />
         </Box>
-        <Text dimColor={!(panesFocused[1] || panesFocused[2])}>│</Text>
-        <Box width={paneWidths[2]} height={contentHeight} flexDirection="column">
-          <DetailPane store={engineStore} paneWidth={paneWidths[2]} paneHeight={contentHeight} />
+        <Text dimColor={!(panesFocused[0] || panesFocused[1])}>│</Text>
+        <Box width={paneWidths[1]} height={contentHeight} flexDirection="column">
+          <DetailPane store={engineStore} paneWidth={paneWidths[1]} paneHeight={contentHeight} />
         </Box>
-        <Text dimColor={!panesFocused[2]}>│</Text>
+        <Text dimColor={!panesFocused[1]}>│</Text>
       </Box>
       <Box>
         <BottomBorder paneWidths={paneWidths} panesFocused={panesFocused} />
@@ -268,16 +212,16 @@ export function App(props: AppProps): ReactNode {
   );
 }
 
-export function computePaneWidths(terminalWidth: number): readonly [number, number, number] {
+export function computePaneWidths(terminalWidth: number): readonly [number, number] {
   const contentWidth = terminalWidth - BORDER_COLUMNS;
   const baseWidth = Math.floor(contentWidth / PANE_COUNT);
   const remainder = contentWidth - baseWidth * PANE_COUNT;
-  return [baseWidth, baseWidth, baseWidth + remainder];
+  return [baseWidth, baseWidth + remainder];
 }
 
 interface TopBorderProps {
-  paneWidths: readonly [number, number, number];
-  panesFocused: readonly [boolean, boolean, boolean];
+  paneWidths: readonly [number, number];
+  panesFocused: readonly [boolean, boolean];
 }
 
 function TopBorder(props: TopBorderProps): ReactNode {
@@ -288,19 +232,15 @@ function TopBorder(props: TopBorderProps): ReactNode {
       </Text>
       <Text dimColor={!(props.panesFocused[0] || props.panesFocused[1])}>┬</Text>
       <Text dimColor={!props.panesFocused[1]}>
-        {buildTopSegment(PANE_LABELS[1] ?? '', props.paneWidths[1])}
-      </Text>
-      <Text dimColor={!(props.panesFocused[1] || props.panesFocused[2])}>┬</Text>
-      <Text dimColor={!props.panesFocused[2]}>
-        {`${buildTopSegment(PANE_LABELS[2] ?? '', props.paneWidths[2])}\u2510`}
+        {`${buildTopSegment(PANE_LABELS[1] ?? '', props.paneWidths[1])}\u2510`}
       </Text>
     </Text>
   );
 }
 
 interface BottomBorderProps {
-  paneWidths: readonly [number, number, number];
-  panesFocused: readonly [boolean, boolean, boolean];
+  paneWidths: readonly [number, number];
+  panesFocused: readonly [boolean, boolean];
 }
 
 function BottomBorder(props: BottomBorderProps): ReactNode {
@@ -310,10 +250,8 @@ function BottomBorder(props: BottomBorderProps): ReactNode {
         {`\u2514${'\u2500'.repeat(props.paneWidths[0])}`}
       </Text>
       <Text dimColor={!(props.panesFocused[0] || props.panesFocused[1])}>┴</Text>
-      <Text dimColor={!props.panesFocused[1]}>{'\u2500'.repeat(props.paneWidths[1])}</Text>
-      <Text dimColor={!(props.panesFocused[1] || props.panesFocused[2])}>┴</Text>
-      <Text dimColor={!props.panesFocused[2]}>
-        {`${'\u2500'.repeat(props.paneWidths[2])}\u2518`}
+      <Text dimColor={!props.panesFocused[1]}>
+        {`${'\u2500'.repeat(props.paneWidths[1])}\u2518`}
       </Text>
     </Text>
   );
@@ -328,12 +266,8 @@ function buildTopSegment(label: string, width: number): string {
   return prefix + '\u2500'.repeat(fillLength);
 }
 
-function getPaneFocusStates(focusedPane: FocusedPane): readonly [boolean, boolean, boolean] {
-  return [
-    focusedPane === 'notifications',
-    focusedPane === 'issueList',
-    focusedPane === 'detailPane',
-  ];
+function getPaneFocusStates(focusedPane: FocusedPane): readonly [boolean, boolean] {
+  return [focusedPane === 'taskList', focusedPane === 'detailPane'];
 }
 
 function buildQuitMessage(runningAgentCount: number): string {
@@ -354,25 +288,4 @@ function openUrl(url: string): void {
     return;
   }
   spawn('xdg-open', [url], { stdio: 'ignore' });
-}
-
-function copyToClipboard(text: string): void {
-  const platform = process.platform;
-  let proc: ReturnType<typeof spawn>;
-  if (platform === 'darwin') {
-    proc = spawn('pbcopy', { stdio: ['pipe', 'ignore', 'ignore'] });
-  } else if (platform === 'win32') {
-    proc = spawn('clip', { stdio: ['pipe', 'ignore', 'ignore'] });
-  } else {
-    proc = spawn('xclip', ['-selection', 'clipboard'], { stdio: ['pipe', 'ignore', 'ignore'] });
-  }
-  proc.stdin?.write(text);
-  proc.stdin?.end();
-}
-
-export function computeAutoScrollOffset(currentOffset: number, visibleItemCount: number): number {
-  if (currentOffset < visibleItemCount) {
-    return 0;
-  }
-  return currentOffset + 1;
 }

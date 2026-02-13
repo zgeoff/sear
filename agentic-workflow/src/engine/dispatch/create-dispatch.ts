@@ -1,20 +1,6 @@
-import { match, P } from 'ts-pattern';
-import type {
-  EngineEvent,
-  IssueBlockedEvent,
-  IssueNeedsRefinementEvent,
-  IssueStatusChangedEvent,
-  PRApprovedEvent,
-  SpecPollerBatchResult,
-} from '../../types.ts';
+import type { IssueStatusChangedEvent, SpecPollerBatchResult } from '../../types.ts';
 import type { EventEmitter } from '../event-emitter/types.ts';
 import type { AgentManagerDelegate, Dispatch, DispatchConfig } from './types.ts';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const USER_DISPATCH_STATUSES: string[] = ['pending', 'unblocked', 'needs-changes'];
 
 // ---------------------------------------------------------------------------
 // Primary export
@@ -23,10 +9,9 @@ const USER_DISPATCH_STATUSES: string[] = ['pending', 'unblocked', 'needs-changes
 export function createDispatch(
   emitter: EventEmitter,
   agentManager: AgentManagerDelegate,
-  config: DispatchConfig,
+  _config: DispatchConfig,
 ): Dispatch {
   const deferredPaths = new Set<string>();
-  const activeNotifications = new Map<number, string>(); // issueNumber -> statusLabel
   // Tracks the latest frontmatter status for each spec path from the most recent SpecPoller result.
   // Used to filter deferred paths at dispatch time -- paths whose status changed to non-approved
   // since deferral are dropped.
@@ -42,12 +27,10 @@ export function createDispatch(
       });
     },
 
-    async handleIssueStatusChanged(event: IssueStatusChangedEvent): Promise<void> {
-      await handleIssueStatusChanged(event, {
-        emitter,
-        config,
-        activeNotifications,
-      });
+    async handleIssueStatusChanged(_event: IssueStatusChangedEvent): Promise<void> {
+      // Granular dispatch events (dispatchReady, issueBlocked, etc.) have been removed.
+      // The issueStatusChanged event was already emitted by the IssuePoller; the TUI
+      // derives all display state from the core events.
     },
 
     handlePlannerFailed(specPaths: string[]): void {
@@ -81,14 +64,13 @@ async function handleSpecPollerResult(
 
   // Emit specChanged events for each change (for TUI notification history)
   for (const change of result.changes) {
-    const event: EngineEvent = {
+    emitter.emit({
       type: 'specChanged',
       filePath: change.filePath,
       frontmatterStatus: change.frontmatterStatus,
       changeType: change.changeType,
       commitSHA: result.commitSHA,
-    };
-    emitter.emit(event);
+    });
   }
 
   // Collect approved paths from this cycle
@@ -113,13 +95,8 @@ async function handleSpecPollerResult(
     return;
   }
 
-  // Check Planner concurrency guard
+  // Check Planner concurrency guard — skip silently if already running
   if (agentManager.isPlannerRunning()) {
-    emitter.emit({
-      type: 'agentSkipped',
-      agentType: 'planner',
-      specPaths: [...deferredPaths],
-    });
     return;
   }
 
@@ -137,118 +114,4 @@ function filterApprovedPaths(paths: Set<string>, latestStatuses: Map<string, str
     }
   }
   return approved;
-}
-
-// ---------------------------------------------------------------------------
-// Issue status change handling
-// ---------------------------------------------------------------------------
-
-interface HandleIssueStatusChangedDeps {
-  emitter: EventEmitter;
-  config: DispatchConfig;
-  activeNotifications: Map<number, string>;
-}
-
-async function handleIssueStatusChanged(
-  event: IssueStatusChangedEvent,
-  deps: HandleIssueStatusChangedDeps,
-): Promise<void> {
-  const { emitter, config, activeNotifications } = deps;
-  // Dismiss any active notification for this issue if the status changed
-  const activeStatus = activeNotifications.get(event.issueNumber);
-  if (activeStatus !== undefined) {
-    activeNotifications.delete(event.issueNumber);
-    emitter.emit(buildDismissalEvent(event.issueNumber, activeStatus));
-  }
-
-  await match(event.newStatus)
-    .with(
-      P.when((s) => USER_DISPATCH_STATUSES.includes(s)),
-      () => {
-        emitter.emit({
-          type: 'dispatchReady',
-          issueNumber: event.issueNumber,
-          statusLabel: `status:${event.newStatus}`,
-        });
-      },
-    )
-    .with('needs-refinement', () => {
-      activeNotifications.set(event.issueNumber, event.newStatus);
-      emitter.emit(buildIssueNeedsRefinementEvent(event, config));
-    })
-    .with('blocked', () => {
-      activeNotifications.set(event.issueNumber, event.newStatus);
-      emitter.emit(buildIssueBlockedEvent(event, config));
-    })
-    .with('approved', () => {
-      activeNotifications.set(event.issueNumber, event.newStatus);
-      emitter.emit(buildPRApprovedEvent(event, config));
-    })
-    .otherwise(() => {
-      // Fallthrough -- status changes like 'in-progress', 'review' trigger no dispatch action.
-      // The issueStatusChanged event was already emitted by the IssuePoller.
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Granular event builders
-// ---------------------------------------------------------------------------
-
-function buildDismissalEvent(issueNumber: number, activeStatus: string): EngineEvent {
-  return match(activeStatus)
-    .with('needs-refinement', () => ({
-      type: 'issueRefined' as const,
-      issueNumber,
-    }))
-    .with('blocked', () => ({
-      type: 'issueUnblocked' as const,
-      issueNumber,
-    }))
-    .with('approved', () => ({
-      type: 'prUnapproved' as const,
-      issueNumber,
-    }))
-    .otherwise(() => ({
-      type: 'issueUnblocked' as const,
-      issueNumber,
-    }));
-}
-
-function buildIssueNeedsRefinementEvent(
-  event: IssueStatusChangedEvent,
-  config: DispatchConfig,
-): IssueNeedsRefinementEvent {
-  const [owner, repo] = config.repository.split('/');
-  return {
-    type: 'issueNeedsRefinement',
-    issueNumber: event.issueNumber,
-    clipboardCommand: `claude -p "Use /spec-writing to address the spec refinement needed for issue #${event.issueNumber}. See blocker comment: https://github.com/${owner}/${repo}/issues/${event.issueNumber}"`,
-    contextURL: `https://github.com/${owner}/${repo}/issues/${event.issueNumber}`,
-    resolutionGuidance: 'After amending the spec, change the label to status:unblocked.',
-  };
-}
-
-function buildIssueBlockedEvent(
-  event: IssueStatusChangedEvent,
-  config: DispatchConfig,
-): IssueBlockedEvent {
-  const [owner, repo] = config.repository.split('/');
-  return {
-    type: 'issueBlocked',
-    issueNumber: event.issueNumber,
-    contextURL: `https://github.com/${owner}/${repo}/issues/${event.issueNumber}`,
-    resolutionGuidance: 'After resolving the blocker, change the label to status:unblocked.',
-  };
-}
-
-function buildPRApprovedEvent(
-  event: IssueStatusChangedEvent,
-  config: DispatchConfig,
-): PRApprovedEvent {
-  const [owner, repo] = config.repository.split('/');
-  return {
-    type: 'prApproved',
-    issueNumber: event.issueNumber,
-    contextURL: `https://github.com/${owner}/${repo}/issues/${event.issueNumber}`,
-  };
 }

@@ -1,4 +1,4 @@
-import type { EngineEvent, IssueRemovedEvent, IssueStatusChangedEvent } from '../../types.ts';
+import type { EngineEvent, IssueStatusChangedEvent } from '../../types.ts';
 import type { EventEmitter } from '../event-emitter/types.ts';
 import type { GitHubClient } from '../github-client/types.ts';
 import type { IssuePoller, IssueSnapshot } from './types.ts';
@@ -76,10 +76,19 @@ export function createIssuePoller(config: IssuePollerConfig): IssuePoller {
       }
 
       // Detect removed issues (present in snapshot but absent from current results)
-      const removedEvents: IssueRemovedEvent[] = [];
+      const removedEvents: IssueStatusChangedEvent[] = [];
       for (const issueNumber of snapshot.keys()) {
         if (!currentIssueNumbers.has(issueNumber)) {
-          removedEvents.push({ type: 'issueRemoved', issueNumber });
+          const existing = snapshot.get(issueNumber);
+          removedEvents.push({
+            type: 'issueStatusChanged',
+            issueNumber,
+            title: existing?.title ?? '',
+            oldStatus: existing?.statusLabel ?? null,
+            newStatus: null,
+            priorityLabel: existing?.priorityLabel ?? '',
+            createdAt: existing?.createdAt ?? '',
+          });
         }
       }
 

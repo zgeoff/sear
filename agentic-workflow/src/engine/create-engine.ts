@@ -104,10 +104,6 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   // valid cache exists, the specPoller is re-created with the cached snapshot.
   let specPoller = buildSpecPoller(resolved, octokit, logger);
 
-  // Tracks issue numbers for which a ciCheckFailed event was previously emitted.
-  // Used to determine when to emit ciCheckRecovered.
-  const ciFailedIssues = new Set<number>();
-
   // Maps PR numbers to their linked issue numbers. Populated during onCIStatusChanged
   // so that onPRRemoved can resolve the linked issue even after the PR is removed
   // from the PR Poller snapshot.
@@ -148,8 +144,6 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
           prPoller,
           issuePoller,
           emitter,
-          agentManager,
-          ciFailedIssues,
           prToIssueMap,
           logger,
         });
@@ -161,8 +155,6 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       try {
         handlePRRemoved({
           prNumber,
-          emitter,
-          ciFailedIssues,
           prToIssueMap,
           logger,
         });
@@ -191,6 +183,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
     logsDir: resolved.logging.logsDir,
     logError: (message: string, error: unknown): void =>
       logger.error(message, { error: String(error) }),
+    logInfo: (message: string): void => logger.info(message),
     execCommand:
       deps?.execCommand ??
       (async (cwd: string, command: string, args: string[]): Promise<void> => {
@@ -403,8 +396,8 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
       return getCIStatus(queriesConfig, prNumber);
     },
 
-    getAgentStream(issueNumber: number): AgentStream {
-      return agentManager.getAgentStream(issueNumber);
+    getAgentStream(sessionID: string): AgentStream {
+      return agentManager.getAgentStream(sessionID);
     },
   };
 }
@@ -434,7 +427,11 @@ function buildEventHandler(deps: EventHandlerDeps): (event: EngineEvent) => Prom
       await deps.dispatch.handleIssueStatusChanged(event);
     }
 
-    if (event.type === 'issueRemoved' && deps.agentManager.isRunning(event.issueNumber)) {
+    if (
+      event.type === 'issueStatusChanged' &&
+      event.newStatus === null &&
+      deps.agentManager.isRunning(event.issueNumber)
+    ) {
       await deps.agentManager.cancelAgent(event.issueNumber);
     }
 
@@ -1051,20 +1048,9 @@ interface HandleCIStatusChangedParams {
   prPoller: PRPoller;
   issuePoller: IssuePoller;
   emitter: EventEmitter;
-  agentManager: AgentManager;
-  ciFailedIssues: Set<number>;
   prToIssueMap: Map<number, number>;
   logger: Logger;
 }
-
-/**
- * Statuses where a CI failure notification is actionable (user can dispatch Implementor).
- */
-const CI_FAILURE_ACTIONABLE_STATUSES: Set<string> = new Set([
-  'pending',
-  'unblocked',
-  'needs-changes',
-]);
 
 function handleCIStatusChanged(params: HandleCIStatusChangedParams): void {
   const issueNumber = resolveIssueForPR(params.prNumber, params.prPoller, params.issuePoller);
@@ -1083,90 +1069,18 @@ function handleCIStatusChanged(params: HandleCIStatusChangedParams): void {
     newCIStatus: params.newCIStatus,
   });
 
-  if (issueNumber === undefined) {
-    return;
-  }
-
-  params.logger.info('CI status changed', {
-    prNumber: params.prNumber,
-    oldCIStatus: params.oldCIStatus,
-    newCIStatus: params.newCIStatus,
-    issueNumber,
-  });
-
-  if (params.newCIStatus === 'failure') {
-    emitCICheckFailedIfApplicable(params, issueNumber);
-  }
-
-  if (params.newCIStatus === 'success' && params.ciFailedIssues.has(issueNumber)) {
-    params.ciFailedIssues.delete(issueNumber);
-    params.emitter.emit({
-      type: 'ciCheckRecovered',
-      issueNumber,
-    });
-  }
-}
-
-function emitCICheckFailedIfApplicable(
-  params: HandleCIStatusChangedParams,
-  issueNumber: number,
-): void {
-  // If an agent is running for this issue, no notification
-  if (params.agentManager.isRunning(issueNumber)) {
-    return;
-  }
-
-  const issueEntry = params.issuePoller.getSnapshot().get(issueNumber);
-  if (!issueEntry) {
-    return;
-  }
-
-  // review status: no notification
-  if (issueEntry.statusLabel === 'review') {
-    return;
-  }
-
-  const prSnapshot = params.prPoller.getSnapshot().get(params.prNumber);
-  const prURL = prSnapshot?.url ?? '';
-
-  if (CI_FAILURE_ACTIONABLE_STATUSES.has(issueEntry.statusLabel)) {
-    params.ciFailedIssues.add(issueNumber);
-    params.emitter.emit({
-      type: 'ciCheckFailed',
-      issueNumber,
+  if (issueNumber !== undefined) {
+    params.logger.info('CI status changed', {
       prNumber: params.prNumber,
-      contextURL: prURL,
-    });
-    params.logger.info('CI failure notification emitted', {
+      oldCIStatus: params.oldCIStatus,
+      newCIStatus: params.newCIStatus,
       issueNumber,
-      prNumber: params.prNumber,
-      issueStatus: issueEntry.statusLabel,
-    });
-    return;
-  }
-
-  if (issueEntry.statusLabel === 'approved') {
-    params.ciFailedIssues.add(issueNumber);
-    params.emitter.emit({
-      type: 'ciCheckFailed',
-      issueNumber,
-      prNumber: params.prNumber,
-      contextURL: prURL,
-      resolutionGuidance:
-        'CI failed. Change the label to `status:needs-changes` to re-dispatch an Implementor for CI fixes.',
-    });
-    params.logger.info('CI failure notification emitted', {
-      issueNumber,
-      prNumber: params.prNumber,
-      issueStatus: issueEntry.statusLabel,
     });
   }
 }
 
 interface HandlePRRemovedParams {
   prNumber: number;
-  emitter: EventEmitter;
-  ciFailedIssues: Set<number>;
   prToIssueMap: Map<number, number>;
   logger: Logger;
 }
@@ -1178,19 +1092,6 @@ function handlePRRemoved(params: HandlePRRemovedParams): void {
 
   // Clean up the PR→issue mapping
   params.prToIssueMap.delete(params.prNumber);
-
-  if (issueNumber === undefined) {
-    return;
-  }
-
-  // If a ciCheckFailed was previously emitted for this issue, emit ciCheckRecovered
-  if (params.ciFailedIssues.has(issueNumber)) {
-    params.ciFailedIssues.delete(issueNumber);
-    params.emitter.emit({
-      type: 'ciCheckRecovered',
-      issueNumber,
-    });
-  }
 }
 
 /**
