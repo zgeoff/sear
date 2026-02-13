@@ -285,6 +285,7 @@ export function createEngine(config: EngineConfig, deps?: EngineDeps): Engine {
   });
 
   return {
+    // Resolves after planner cache load, startup recovery, and first IssuePoller, SpecPoller, and PR Poller cycles complete
     async start(): Promise<StartupResult> {
       logger.info('Engine starting', {
         repository: resolved.repository,
