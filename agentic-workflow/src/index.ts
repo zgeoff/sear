@@ -1,46 +1,32 @@
 export type { GitHubClient } from './engine/github-client/types.ts';
 export type {
+  // Events
   AgentCompletedEvent,
   AgentFailedEvent,
-  AgentSkippedEvent,
   AgentStartedEvent,
   // Stream
   AgentStream,
   AgentType,
+  // Commands
   CancelAgentCommand,
   CancelPlannerCommand,
-  // CI Events
-  CICheckFailedEvent,
-  CICheckRecoveredEvent,
-  // Query Results — CI
+  // Query Results
   CICheckRun,
   CIStatusChangedEvent,
   CIStatusResult,
-  // Commands
   DispatchImplementorCommand,
-  DispatchReadyEvent,
   DispatchReviewerCommand,
+  // Engine Interface
   Engine,
   EngineCommand,
   // Configuration
   EngineConfig,
   EngineEvent,
-  // Events — Issue
-  IssueBlockedEvent,
-  // Query Results
   IssueDetailsResult,
-  IssueNeedsRefinementEvent,
-  IssueRefinedEvent,
-  IssueRemovedEvent,
-  // Events
   IssueStatusChangedEvent,
-  IssueUnblockedEvent,
-  PRApprovedEvent,
   PRDetailsResult,
-  // Configuration — PR Poller
+  PRLinkedEvent,
   PRPollerConfig,
-  PRUnapprovedEvent,
-  RecoveryPerformedEvent,
   ShutdownCommand,
   // SpecPoller Batch Result
   SpecChange,
@@ -49,6 +35,5 @@ export type {
   // SpecPoller Snapshot
   SpecPollerFileEntry,
   SpecPollerSnapshot,
-  // Engine Interface
   StartupResult,
 } from './types.ts';
