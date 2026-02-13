@@ -1,7 +1,7 @@
 ---
 title: Implementor Agent
-version: 0.10.0
-last_updated: 2026-02-12
+version: 0.11.0
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -31,6 +31,10 @@ assigning multiple tasks to one agent.
 - The agent definition body must include the permitted bash command list from
   [agent-hook-bash-validator.md: Allowlist Prefixes](./agent-hook-bash-validator.md#allowlist-prefixes)
   to prevent wasted turns on blocked commands.
+- When debugging a test or validation failure, re-reading a file the agent has already read in the
+  current session indicates the failure exceeds the agent's ability to resolve efficiently. The
+  agent must escalate as a blocker (type: `debugging-limit`) rather than re-reading files to trace a
+  failure.
 
 ## Agent Profile
 
@@ -131,10 +135,10 @@ explaining the scope constraint and continues with in-scope fixes.
 
 ### Pre-submit Validation
 
-In all scenarios, the agent runs CI validation checks (lint, format, typecheck, tests) locally
-before completing. If validation fails due to the agent's changes, it fixes and re-runs. If
-validation fails due to something outside the agent's scope (pre-existing failure, broken
-dependency), it treats the failure as a blocker.
+In all scenarios, the agent runs pre-submit validation (lint, format, typecheck, tests) before
+completing. If validation fails due to the agent's changes, it fixes and re-runs. If validation
+fails due to something outside the agent's scope (pre-existing failure, broken dependency), it
+treats the failure as a blocker.
 
 ## Blocker Handling
 
@@ -146,7 +150,8 @@ When the agent encounters something that prevents continued progress:
    [workflow-contracts.md: Blocker Comment Format](./workflow-contracts.md#blocker-comment-format)).
 4. Transition the label from `status:in-progress` to:
    - `status:needs-refinement` for spec blockers (ambiguity, contradiction, gap)
-   - `status:blocked` for non-spec blockers (external dependency, technical constraint)
+   - `status:blocked` for non-spec blockers (external dependency, technical constraint, debugging
+     limit)
 
 ### Escalations
 
@@ -216,8 +221,8 @@ as its final text output to the invoking process.
       handles the condition through scope enforcement rules or blocker handling instead.
 - [ ] Given a satisfiable task, when the agent completes work, then a ready-for-review PR exists
       linked to the task issue via `Closes #<issue-number>`.
-- [ ] Given a satisfiable task, when the agent completes work, then all CI validation checks (lint,
-      format, typecheck, tests) pass locally before the session ends.
+- [ ] Given a satisfiable task, when the agent completes work, then all pre-submit validation checks
+      (lint, format, typecheck, tests) pass before the session ends.
 - [ ] Given a spec ambiguity during implementation, when the agent stops work, then a draft PR
       preserves progress, a blocker comment is posted, and the label is `status:needs-refinement`.
 - [ ] Given a non-spec blocker during implementation, when the agent stops work, then a draft PR
@@ -236,6 +241,9 @@ as its final text output to the invoking process.
       escalation comment and continues with in-scope fixes.
 - [ ] Given a non-blocking issue (scope conflict, priority conflict), when the agent posts an
       escalation, then it continues working and does not change the status label.
+- [ ] Given a test or validation failure during debugging, when the agent has already read the
+      relevant files in the current session, then it escalates as a blocker (type:
+      `debugging-limit`) rather than re-reading files to trace the failure.
 - [ ] Given the agent finishes execution (any outcome), then it returns a completion summary
       matching the Implementor Completion Output format.
 

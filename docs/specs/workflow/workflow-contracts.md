@@ -1,6 +1,6 @@
 ---
 title: Workflow Contracts
-version: 0.5.0
+version: 0.6.0
 last_updated: 2026-02-13
 status: approved
 ---
@@ -132,13 +132,14 @@ Requirements:
 - At least two options must be provided.
 - A recommendation is required.
 - The "Spec Reference" section is required for spec blockers (types: `spec-ambiguity`,
-  `spec-contradiction`, `spec-gap`). For non-spec blockers it may be omitted.
+  `spec-contradiction`, `spec-gap`). For non-spec blockers (`external-dependency`,
+  `technical-constraint`, `debugging-limit`) it may be omitted.
 
 ```markdown
 ## Blocker: <Short Title>
 
 **Type:** spec-ambiguity | spec-contradiction | spec-gap | external-dependency |
-technical-constraint
+technical-constraint | debugging-limit
 
 **Description:** Clear explanation of what is blocking progress.
 
@@ -380,8 +381,8 @@ When a file outside scope needs non-incidental changes:
       `spec-contradiction`, `spec-gap`), then the Spec Reference section is present with File,
       Section, and Quote fields.
 - [ ] Given a blocker comment, when the type is a non-spec blocker (`external-dependency`,
-      `technical-constraint`), then the Spec Reference section may be omitted without invalidating
-      the comment.
+      `technical-constraint`, `debugging-limit`), then the Spec Reference section may be omitted
+      without invalidating the comment.
 - [ ] Given a blocker comment, when inspected, then it contains at least two options and a
       recommendation.
 - [ ] Given a review rejection comment, when inspected, then every finding includes all three fields
