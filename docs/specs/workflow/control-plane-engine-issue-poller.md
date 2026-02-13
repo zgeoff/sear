@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine — Issue Poller
 version: 0.4.0
-last_updated: 2026-02-12
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -54,7 +54,7 @@ have been closed or had their `task:implement` label removed. For each removed i
 IssuePoller removes it from the snapshot and reports the removal to the Engine Core. The Engine Core
 handles the orchestration response — see
 [control-plane-engine.md: Dispatch Logic](./control-plane-engine.md#dispatch-logic) for the agent
-cancellation and `issueRemoved` emission sequence.
+cancellation and `issueStatusChanged(newStatus: null)` emission sequence.
 
 **Initial poll cycle:** On the first cycle, the snapshot is empty. All detected issues are treated
 as new — each emits an `issueStatusChanged` event with `oldStatus: null`. This is how the engine
@@ -62,8 +62,8 @@ populates the initial issue set. The dispatch logic treats `oldStatus: null` the
 status change for tier classification.
 
 **Startup burst:** This means the first poll cycle may trigger dispatch actions for all existing
-issues simultaneously: emitting `dispatchReady` for all `status:pending` issues, and emitting
-notifications for all `status:needs-refinement`/`status:blocked` issues. This is intentional — if
+issues simultaneously: `issueStatusChanged` events for all issues, surfacing `status:pending` issues
+to the TUI for user-dispatch and notifying the TUI of all other statuses. This is intentional — if
 the control plane starts (or restarts), it should bring the system to the correct state. Startup
 recovery completes before the first poll cycle, so `status:in-progress` issues will already be reset
 to `status:pending`. Note: `status:review` issues do not trigger Reviewer dispatch on startup —

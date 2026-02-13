@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine — Agent Manager
-version: 0.13.0
-last_updated: 2026-02-12
+version: 0.13.1
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -32,8 +32,8 @@ rest of the engine.
 
 When the engine dispatches an agent:
 
-1. **Guard** — Check if an agent is already running for this issue. If so, emit `agentSkipped` and
-   return.
+1. **Guard** — Check if an agent is already running for this issue. If so, log the skip at `info`
+   level and return.
 2. **Worktree** (Implementor and Reviewer) — Create a worktree using the appropriate strategy. The
    Engine Core provides a `branchName` and optionally `branchBase` to the Agent Manager at dispatch
    time:
@@ -67,7 +67,9 @@ When the engine dispatches an agent:
    the session handle.
 5. **Track** — Record the agent session as running for this issue/spec, including the session
    handle, session ID, and branch name (if Implementor or Reviewer).
-6. **Emit** — Emit `agentStarted` with the session ID.
+6. **Emit** — Emit `agentStarted` with the session ID, `branchName` (Implementor and Reviewer —
+   known from step 2), and `logFilePath` (when logging is enabled — the path is computed before the
+   session starts from the logging module's naming convention).
 7. **Start duration timer** — Begin a timer for `maxAgentDuration` seconds. If the timer fires
    before the session completes, cancel the session (treated as failure).
 8. **Monitor** — Non-blocking. When the session completes:
@@ -349,9 +351,9 @@ spawning real agent processes.
 The engine exposes live agent output streams, separate from the event emitter. Streaming output is
 high-frequency data that should not flow through the discrete event channel.
 
-| Method           | Parameters   | Returns                                                                                                                                |
-| ---------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `getAgentStream` | Issue number | An `AsyncIterable<string>` of plain text output chunks for the running agent session, or `null` if no agent is running for this issue. |
+| Method           | Parameters | Returns                                                                                                                                  |
+| ---------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `getAgentStream` | Session ID | An `AsyncIterable<string>` of plain text output chunks for the running agent session, or `null` if no agent is running for this session. |
 
 Each chunk is a plain text string extracted from the SDK session's message stream. The engine
 subscribes to the SDK session internally, extracts text content from assistant messages, and
@@ -363,10 +365,9 @@ the agent session completes (success, failure, or cancellation). Cancelling an a
 `cancelAgent` causes the stream's async iterable to complete. The Agent Manager subscribes to the
 SDK session's output internally and exposes it through this method.
 
-Planner streams are not exposed through this interface. The Planner operates on specs (not task
-issues), and `getAgentStream` is keyed by issue number. Planner activity is visible only through
-notification events (`agentStarted`, `agentCompleted`, `agentFailed`). This is intentional — Planner
-output (issue creation/updates) is observable via the IssuePoller.
+Planner streams are accessible through this interface — the session ID is provided in the
+`agentStarted` event. Planner output (issue creation/updates) is also observable via the
+IssuePoller.
 
 ### Agent Session Logging
 
@@ -427,7 +428,7 @@ type AgentManagerConfig = {
 // HookCallback is from @anthropic-ai/claude-agent-sdk
 // The engine constructs the bash validator hook and passes it to buildQueryFactory.
 
-// getAgentStream returns null if no agent is running for the issue
+// getAgentStream returns null if no agent is running for the session
 type AgentStream = AsyncIterable<string> | null;
 ```
 
@@ -436,9 +437,9 @@ type AgentStream = AsyncIterable<string> | null;
 ### Agent Lifecycle
 
 - [ ] Given the `dispatchImplementor` command is received for issue N, when an agent is already
-      running for issue N, then `agentSkipped` is emitted and no new session is created.
+      running for issue N, then the skip is logged at `info` level and no new session is created.
 - [ ] Given an agent is already running for issue N, when `dispatchReviewer` is received for issue
-      N, then `agentSkipped` is emitted and no new session is created.
+      N, then the skip is logged at `info` level and no new session is created.
 - [ ] Given the `dispatchImplementor` command is received for an issue not in the IssuePoller
       snapshot, when the command is processed, then it is a no-op.
 - [ ] Given the `dispatchImplementor` command is received for an issue whose status is not in the
@@ -480,10 +481,12 @@ type AgentStream = AsyncIterable<string> | null;
       reason.
 - [ ] Given the bash validator hook receives a Bash command with all segments having allowlisted
       prefixes, when the hook evaluates the command, then it returns an approve decision.
-- [ ] Given `getAgentStream` is called for an issue with a running agent, when the agent produces
-      output, then the returned async iterable yields output chunks.
-- [ ] Given `getAgentStream` is called for an issue with no running agent, when called, then it
-      returns `null`.
+- [ ] Given `getAgentStream` is called with a session ID for a running agent, when the agent
+      produces output, then the returned async iterable yields output chunks.
+- [ ] Given `getAgentStream` is called with a session ID for which no agent is running, when called,
+      then it returns `null`.
+- [ ] Given a Planner session is running, when `getAgentStream` is called with the Planner's session
+      ID, then the returned async iterable yields output chunks.
 
 ### Context Pre-computation
 

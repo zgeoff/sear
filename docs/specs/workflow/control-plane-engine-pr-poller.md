@@ -1,6 +1,6 @@
 ---
 title: Control Plane Engine — PR Poller
-version: 0.1.0
+version: 0.1.1
 last_updated: 2026-02-13
 status: approved
 ---
@@ -37,11 +37,11 @@ The PR Poller runs on its own interval (default 30s). Interval-based polling beg
 
 1. Fetch all open PRs via `GitHubClient.pulls.list({ owner, repo, state: 'open', per_page: 100 })`.
    The response includes draft PRs — the PR Poller tracks all open PRs regardless of draft status.
-2. Update the snapshot: add new PRs (with all fields from the response, `ciStatus: null`), update
-   non-CI metadata for existing PRs (title, url, author, body), remove PRs no longer in the response
-   (closed or merged). For existing PRs, `headSHA` is NOT updated in this step — it is updated
-   alongside `ciStatus` in step 6 to keep the skip optimization consistent. New PRs receive
-   `headSHA` from the response at insertion time.
+2. Update the snapshot: add new PRs (with all fields from the response, `ciStatus: null`) and call
+   `onPRDetected` for each new PR, update non-CI metadata for existing PRs (title, url, author,
+   body), remove PRs no longer in the response (closed or merged). For existing PRs, `headSHA` is
+   NOT updated in this step — it is updated alongside `ciStatus` in step 6 to keep the skip
+   optimization consistent. New PRs receive `headSHA` from the response at insertion time.
 3. For each PR in the snapshot, determine whether a CI status fetch is needed by comparing the
    current `head.sha` from the response against the stored `headSHA` (see
    [CI Status Monitoring](#ci-status-monitoring) for the skip optimization).
@@ -112,18 +112,23 @@ normative definition.
 
 The PR Poller reports changes to the Engine Core via callbacks.
 
-| Callback            | Parameters                                                          | When                                  |
-| ------------------- | ------------------------------------------------------------------- | ------------------------------------- |
-| `onCIStatusChanged` | PR number, old CI status (`null` on first detection), new CI status | CI status transitioned for a PR       |
-| `onPRRemoved`       | PR number                                                           | PR no longer in `pulls.list` response |
+| Callback            | Parameters                                                          | When                                       |
+| ------------------- | ------------------------------------------------------------------- | ------------------------------------------ |
+| `onCIStatusChanged` | PR number, old CI status (`null` on first detection), new CI status | CI status transitioned for a PR            |
+| `onPRDetected`      | PR number                                                           | New PR detected (not in previous snapshot) |
+| `onPRRemoved`       | PR number                                                           | PR no longer in `pulls.list` response      |
 
 **`onCIStatusChanged`** is called for every CI status transition, including first detection
-(`oldCIStatus: null`). The Engine Core decides whether to emit events or notifications based on
-issue linkage and agent state.
+(`oldCIStatus: null`). The Engine Core decides whether to emit events based on issue linkage.
+
+**`onPRDetected`** is called when a PR appears in the `pulls.list` response that was not in the
+previous snapshot. The Engine Core uses this to perform closing-keyword matching and emit `prLinked`
+events when appropriate. See
+[control-plane-engine.md: PR linkage detection](./control-plane-engine.md#ci-failure-handling).
 
 **`onPRRemoved`** is called when a PR that was in the snapshot is absent from the current
 `pulls.list` response (closed or merged). The Engine Core handles cleanup (clearing CI state from
-the TUI store, emitting `ciCheckRecovered` if needed).
+the linked issue, if any).
 
 > **Rationale:** Callbacks (push model) enable real-time event delivery to the Engine Core without
 > requiring the caller to poll for results.
@@ -159,6 +164,7 @@ type PRPollerConfig = {
     oldCIStatus: "pending" | "success" | "failure" | null,
     newCIStatus: "pending" | "success" | "failure",
   ) => void;
+  onPRDetected: (prNumber: number) => void;
   onPRRemoved: (prNumber: number) => void;
 };
 
@@ -216,6 +222,8 @@ type PRPollerConfig = {
       change, then `onCIStatusChanged` is called with the old and new values.
 - [ ] Given a PR's CI status is `'pending'` and transitions to `'success'`, when the PR Poller
       detects the change, then `onCIStatusChanged` is called.
+- [ ] Given a PR appears in the `pulls.list` response that was not in the previous snapshot, when
+      the PR Poller processes the cycle, then `onPRDetected` is called with the PR number.
 - [ ] Given a PR is removed from the `pulls.list` response, when the PR Poller processes the cycle,
       then `onPRRemoved` is called with the PR number and no `onCIStatusChanged` is called.
 

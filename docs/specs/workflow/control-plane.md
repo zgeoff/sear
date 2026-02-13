@@ -1,7 +1,7 @@
 ---
 title: Agentic Workflow Control Plane
 version: 0.6.0
-last_updated: 2026-02-12
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -54,10 +54,10 @@ The engine exposes four interfaces:
 3. **Query interface** — The engine provides on-demand data fetching (issue details, PR summaries).
    The TUI calls these when the user selects an issue that needs additional data not tracked by
    pollers.
-4. **Stream accessor** — The engine exposes live agent output streams, keyed by issue number.
-   Planner sessions are not exposed through this interface (the Planner operates on specs, not task
-   issues; its activity is visible only through notification events). The TUI subscribes to these
-   directly for streaming agent output in the detail pane, separate from the event emitter.
+4. **Stream accessor** — The engine exposes live agent output streams, keyed by session ID. All
+   agent types (Implementor, Reviewer, Planner) are accessible — the session ID is provided in the
+   `agentStarted` event. The TUI subscribes to these directly for streaming agent output in the
+   detail pane, separate from the event emitter.
 
 The TUI bridges these interfaces to React via a Zustand store initialized by a `useEngine()` hook:
 
@@ -93,12 +93,12 @@ flowchart LR
 
 The control plane categorizes state changes into three tiers that determine how they are handled:
 
-| Tier                    | Behavior                                                      | Triggers                                                                                                            |
-| ----------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Auto-dispatch**       | Agent invoked automatically, no user action needed            | Spec changes (approved only) → Planner                                                                              |
-| **Completion-dispatch** | Agent invoked automatically after a preceding agent completes | Implementor completes + linked non-draft PR exists → Reviewer (engine sets `status:review`)                         |
-| **User-dispatch**       | Surfaced in TUI, user chooses when to invoke                  | Issues with `status:pending`, `status:unblocked`, `status:needs-changes` → Implementor                              |
-| **Notify-only**         | User notified for action outside the control plane            | `status:needs-refinement` (with clipboard command), `status:blocked` (URL only), `status:approved` (ready to merge) |
+| Tier                    | Behavior                                                      | Triggers                                                                                    |
+| ----------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **Auto-dispatch**       | Agent invoked automatically, no user action needed            | Spec changes (approved only) → Planner                                                      |
+| **Completion-dispatch** | Agent invoked automatically after a preceding agent completes | Implementor completes + linked non-draft PR exists → Reviewer (engine sets `status:review`) |
+| **User-dispatch**       | Surfaced in TUI, user chooses when to invoke                  | Issues with `status:pending`, `status:unblocked`, `status:needs-changes` → Implementor      |
+| **Notify-only**         | Surfaced in TUI as informational, no agent dispatch           | `status:needs-refinement`, `status:blocked`, `status:approved` (ready to merge)             |
 
 Dispatch decisions are based on status labels, dispatch tier classification, and agent completion
 signals. The engine does not enforce task dependencies (e.g., "Blocked by #X" references in issue
@@ -107,9 +107,7 @@ to invoke.
 
 The engine determines the tier. The TUI renders accordingly — auto-dispatched and
 completion-dispatched agents appear as running, user-dispatch items appear as actionable, and
-notifications appear with copy-to-clipboard commands.
-
-Notifications are dismissed automatically when the underlying issue status changes.
+no-dispatch statuses are reflected in-place on task rows.
 
 ### Agent Invocation
 
@@ -213,10 +211,8 @@ for worktree creation, fetch, cleanup procedures, and per-strategy git commands.
       resets to `status:pending`).
 - [ ] Given a task issue is `status:pending`, when the TUI displays it, then the user can dispatch
       an Implementor for it on demand.
-- [ ] Given a task issue moves to `status:needs-refinement`, when the TUI displays the notification,
-      then a clipboard-ready CLI command is provided.
-- [ ] Given a notification's underlying issue status changes, when the next poll cycle runs, then
-      the notification is dismissed.
+- [ ] Given a task issue moves to `status:needs-refinement`, when the TUI displays it, then the task
+      row shows `REFINE` status and the detail pane shows the issue body on pin.
 - [ ] Given an agent is running, when the user presses a key, then the TUI processes the keypress
       and re-renders within one render cycle (no blocking on agent I/O).
 - [ ] Given the engine emits an event, when the TUI is subscribed, then the TUI re-renders to
@@ -234,7 +230,7 @@ spec's own Known Limitations section.
 | No dependency graph enforcement — dispatch is label-driven            | [workflow.md](./workflow.md)                                                     | Known Limitations |
 | `settingSources` SDK workaround (worktree `.git` file issue)          | [control-plane-engine-agent-manager.md](./control-plane-engine-agent-manager.md) | Known Limitations |
 | SpecPoller commit SHA is HEAD, not per-file                           | [control-plane-engine-spec-poller.md](./control-plane-engine-spec-poller.md)     | Known Limitations |
-| Null PR results not cached (re-fetched each view)                     | [control-plane-tui-detail-pane.md](./control-plane-tui-detail-pane.md)           | Known Limitations |
+| Null PR results not cached (re-fetched each view)                     | [control-plane-tui.md](./control-plane-tui.md)                                   | Known Limitations |
 
 ## Dependencies
 

@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine — Recovery
-version: 0.3.0
-last_updated: 2026-02-12
+version: 0.3.1
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -36,15 +36,14 @@ On initialization, after planner cache load and before pollers start:
 4. Reset each to `status:pending` via `GitHubClient`. If the label reset fails for an issue (API
    error), log the error and skip that issue — continue with remaining issues. The skipped issue
    remains `status:in-progress` and will be detected as stale on the first IssuePoller cycle.
-5. Emit `recoveryPerformed` for each.
-6. Emit a synthetic `issueStatusChanged` for each (oldStatus: `in-progress`, newStatus: `pending`,
+5. Emit a synthetic `issueStatusChanged` for each (oldStatus: `in-progress`, newStatus: `pending`,
    `isRecovery: true`), populated from the GitHub API response (title, priority label, creation
    date) — the IssuePoller snapshot is not yet available at startup. Synthetic events pass through
    the dispatch logic like any other `issueStatusChanged` — so recovered issues with
-   `newStatus: 'pending'` will emit `dispatchReady`.
+   `newStatus: 'pending'` are surfaced to the TUI as ready for dispatch.
    > **Rationale:** This ensures the TUI store populates recovered issues immediately and surfaces
    > them as ready for dispatch.
-7. The Engine Core seeds the IssuePoller snapshot with each recovered issue via `updateEntry()`
+6. The Engine Core seeds the IssuePoller snapshot with each recovered issue via `updateEntry()`
    (status: `pending`) to prevent duplicate `issueStatusChanged` events on the first poll cycle.
 
 ### Crash Recovery
@@ -55,22 +54,22 @@ Manager reports completion to the Engine Core; the Engine Core calls Recovery. T
 `agentFailed` (or `agentCompleted`) before calling crash recovery.
 
 > **Rationale:** This avoids a circular dependency between the Agent Manager and Recovery modules,
-> and ensures `lastFailure` is recorded in the TUI store before the recovery's synthetic
+> and ensures the agent's crash state is recorded in the TUI store before the recovery's synthetic
 > `issueStatusChanged` arrives.
 
 1. Check if the issue still has `status:in-progress`.
 2. If yes, reset to `status:pending` via `GitHubClient`. If the reset fails (API error), log the
    error and return `false` — the issue remains `status:in-progress` and will be retried on the next
    agent completion or detected on the next IssuePoller cycle.
-3. Emit `recoveryPerformed`.
-4. Emit a synthetic `issueStatusChanged` (oldStatus: `in-progress`, newStatus: `pending`,
+3. Emit a synthetic `issueStatusChanged` (oldStatus: `in-progress`, newStatus: `pending`,
    `isRecovery: true`) so the TUI store updates immediately rather than waiting for the next poll
    cycle. Populate all standard fields (title, priority label, creation date) from the IssuePoller
    snapshot (available during normal operation — avoids an extra API call). Synthetic events pass
-   through the dispatch logic, so this will also emit `dispatchReady`. The `isRecovery` flag is set
-   to `true` on the synthetic `issueStatusChanged` event. See
-   [control-plane-tui-failure-overlay.md: Failure Clearing](./control-plane-tui-failure-overlay.md#failure-clearing)
-   for how the TUI handles this flag. Update the IssuePoller snapshot to match.
+   through the dispatch logic, so recovered issues are surfaced to the TUI. The `isRecovery` flag is
+   set to `true` on the synthetic `issueStatusChanged` event. See
+   [control-plane-tui.md: issueStatusChanged](./control-plane-tui.md#issuestatuschanged) for how the
+   TUI handles this flag (`isRecovery` preserves agent crash state). Update the IssuePoller snapshot
+   to match.
 
 > **Rationale:** This ensures no issue is permanently stuck in `status:in-progress` due to agent
 > failure or an agent that succeeds without updating the label.
@@ -79,10 +78,11 @@ Manager reports completion to the Engine Core; the Engine Core calls Recovery. T
 
 Crash recovery only applies to `status:in-progress`. When a Reviewer fails, the issue remains
 `status:review` (Reviewers do not change the status to `in-progress`). No recovery is performed —
-the issue stays in `status:review` with no running agent. The TUI surfaces the failure via
-`lastFailure` (see `control-plane-tui-failure-overlay.md`), and the user can retry via the
-`dispatchReviewer` command. The IssuePoller will not re-trigger auto-dispatch because the status
-hasn't changed since the last poll.
+the issue stays in `status:review` with no running agent. The TUI surfaces the failure via the crash
+detail view (see
+[control-plane-tui.md: Crash Detail View](./control-plane-tui.md#crash-detail-view)), and the user
+can retry via the `dispatchReviewer` command. The IssuePoller will not re-trigger auto-dispatch
+because the status hasn't changed since the last poll.
 
 ### Module Location
 
@@ -105,7 +105,7 @@ type RecoveryConfig = {
 };
 
 // One entry per issue recovered during startup recovery. The Engine Core
-// uses these to emit recoveryPerformed and synthetic issueStatusChanged events.
+// uses these to emit synthetic issueStatusChanged events.
 // RecoveredIssue carries the same issue metadata as IssueSnapshotEntry (see control-plane-engine-issue-poller.md).
 // The Engine Core maps issueNumber → number and sets statusLabel: 'pending' when
 // seeding the IssuePoller snapshot.
@@ -132,30 +132,29 @@ type Recovery = {
 // createRecovery(config: RecoveryConfig): Recovery
 ```
 
-Event emission (`recoveryPerformed`, synthetic `issueStatusChanged`) and IssuePoller snapshot
-updates are the Engine Core's responsibility after calling these methods. Recovery handles the
-GitHub API interaction (status checking and label resets).
+Event emission (synthetic `issueStatusChanged`) and IssuePoller snapshot updates are the Engine
+Core's responsibility after calling these methods. Recovery handles the GitHub API interaction
+(status checking and label resets).
 
 ## Acceptance Criteria
 
 - [ ] Given the engine starts and an issue has `status:in-progress`, when no agent is tracked for
       it, then the issue is reset to `status:pending`.
 - [ ] Given an agent session completes and the issue is still `status:in-progress`, when the
-      completion is detected, then the issue is reset to `status:pending` and `recoveryPerformed` is
-      emitted.
-- [ ] Given recovery resets an issue to `status:pending`, when the recovery completes, then both
-      `recoveryPerformed` and a synthetic `issueStatusChanged` (with `isRecovery: true`) are emitted
-      so the TUI updates immediately.
+      completion is detected, then the issue is reset to `status:pending`.
+- [ ] Given recovery resets an issue to `status:pending`, when the recovery completes, then a
+      synthetic `issueStatusChanged` (with `isRecovery: true`) is emitted so the TUI updates
+      immediately.
 - [ ] Given a Reviewer fails, when the failure is detected, then no recovery is performed and the
       issue remains `status:review`.
 - [ ] Given crash recovery resets an issue to `status:pending`, when the IssuePoller snapshot is
       updated to match, then the next IssuePoller cycle does not emit a duplicate
       `issueStatusChanged` for that issue.
-- [ ] Given startup recovery resets an issue to `status:pending`, then a `dispatchReady` event is
-      emitted for that issue (via the synthetic `issueStatusChanged` passing through dispatch
+- [ ] Given startup recovery resets an issue to `status:pending`, then the issue is surfaced to the
+      TUI as ready for dispatch (via the synthetic `issueStatusChanged` passing through dispatch
       logic).
 - [ ] Given an Implementor fails and crash recovery runs, when events are emitted, then
-      `agentFailed` is emitted before `recoveryPerformed` and the synthetic `issueStatusChanged`.
+      `agentFailed` is emitted before the synthetic `issueStatusChanged(isRecovery: true)`.
 
 ## Dependencies
 
@@ -172,5 +171,5 @@ GitHub API interaction (status checking and label resets).
   events pass through dispatch logic
 - [control-plane-engine-agent-manager.md: Agent Lifecycle](./control-plane-engine-agent-manager.md#agent-lifecycle)
   — Crash recovery triggered after agent completion
-- `control-plane-tui-failure-overlay.md` — Failure overlay behavior (consumes `isRecovery` flag to
-  preserve overlay during recovery)
+- [control-plane-tui.md: issueStatusChanged](./control-plane-tui.md#issuestatuschanged) — TUI
+  handling of `isRecovery` flag (preserves agent crash state during recovery)

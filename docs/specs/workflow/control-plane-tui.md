@@ -1,7 +1,7 @@
 ---
 title: Control Plane TUI
-version: 0.10.0
-last_updated: 2026-02-12
+version: 0.11.2
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -9,607 +9,949 @@ status: approved
 
 ## Overview
 
-The TUI is the user-facing module of the control plane. It renders a three-pane dashboard that
-surfaces workflow state, provides on-demand agent dispatch, streams agent output, and presents an
-interactive notification history. Built with Ink (React for the terminal), the TUI consumes all four
-engine interfaces (events, commands, queries, streams) via a `useEngine()` hook.
+The TUI is the user-facing module of the control plane. It renders a two-pane dashboard that
+surfaces workflow state as a unified task list, provides on-demand agent dispatch, and streams live
+agent output. Built with Ink (React for the terminal), the TUI consumes engine events, commands,
+queries, and streams via a Zustand store.
+
+The TUI is fully event-driven for task list data — no polling or on-demand fetching is required to
+render the list. Detail pane content is fetched on demand when the user pins a task.
 
 ## Constraints
 
-- Must not import or be imported by the engine module. The `useEngine()` hook is the only coupling
-  point.
-- Must remain responsive while agents are running. No blocking operations on the main render loop.
-- Must not make GitHub API calls or invoke agents directly. All state changes flow through engine
-  commands.
-- Must render correctly in terminals with a minimum width of 120 columns and 30 rows.
-- Must fill the terminal viewport exactly — no terminal scrolling. The dashboard height is bounded
-  to `stdout.rows` and width to `stdout.columns`. Pane heights are derived from terminal dimensions
-  and update on resize.
+- The TUI has no notification system. State changes are reflected in-place on task rows.
+- The TUI does not duplicate engine state. Tasks are the sole representation of tracked issues.
+- The engine event interface (see [Dependencies](#engine-spec-changes-required)) defines 7 event
+  types. The TUI handles all of them. There are no ignored or filtered events.
+- The TUI never writes to GitHub. All writes flow through engine commands or agent sessions.
+- PRs with no linked issue (no closing keyword in the PR body) are not tracked. This is a known
+  limitation.
+- The TUI is a consumer of the engine — the engine has no knowledge of the TUI. The dependency is
+  strictly one-directional.
 
 ## Specification
 
-### Layout
+### Task Model
 
-The dashboard is a three-pane horizontal layout:
-
-```mermaid
-flowchart LR
-    subgraph Dashboard
-        direction LR
-        N["Notifications"]
-        I["Issue List"]
-        D["Detail Pane"]
-    end
-
-    N --- I --- D
-```
-
-```
-┌ NOTIFICATIONS ───┬ ISSUES ──────────┬ DETAILS ─────────┐
-│                   │                  │                   │
-│  Scrollable       │  All tracked     │  Context-aware    │
-│  event history    │  issues,         │  content based    │
-│                   │  ordered by      │  on selected      │
-│  Interactive:     │  state +         │  issue            │
-│  Enter opens      │  priority        │                   │
-│  context in       │                  │                   │
-│  browser          │  Enter to act    │                   │
-│                   │  (dispatch,      │                   │
-│                   │  open, retry)    │                   │
-└───────────────────┴──────────────────┴───────────────────┘
-```
-
-The dashboard fills the terminal viewport exactly — its height is `stdout.rows` and its width is
-`stdout.columns`. The dashboard is enclosed in a single-line box border using Unicode box-drawing
-characters (`┌`, `─`, `┬`, `┐`, `│`, `└`, `┴`, `┘`). Vertical dividers (`│`) separate adjacent
-panes. Each pane's label renders in full caps, embedded in the top border line (e.g.,
-`┌ NOTIFICATIONS ───┬ ISSUES ───...`). The focused pane's border segments (top, bottom, and side
-edges belonging to that pane) render with standard intensity; unfocused pane borders render dim. The
-border consumes 2 rows (top line + bottom line) and 4 columns (left edge + 2 dividers + right edge).
-No content extends beyond the viewport (no terminal scrolling). On terminal resize, the layout
-reflows to the new dimensions. Each pane's scrollable area is computed from `stdout.rows - 2` (top
-and bottom border rows). The three panes divide the available content width — `stdout.columns - 4`
-(total width minus border columns) — equally, with any remainder allocated to the rightmost pane.
-
-The issue list pane has focus by default on startup. The user navigates between panes and interacts
-with items using keyboard controls.
-
-### Panes
-
-#### Shared List Primitives
-
-All list-based panes (notifications, issue list) share a common visual foundation implemented as
-reusable `List` and `ListItem` components.
-
-**Pane header:** Each pane's label is embedded in the top border line, rendered in full caps with a
-1-character gap after the corner or junction character (e.g., `┌ NOTIFICATIONS ───`). The remaining
-width is filled with `─` to complete the border segment. The label is visually distinct from the
-scrollable content below it.
-
-**Item padding:** Each list item has 1-character horizontal padding on each side, aligning with the
-label inset in the top border.
-
-> **Rationale:** This keeps content visually inset from the pane's vertical border edges.
-
-**Alternating row backgrounds:** Odd-indexed visible rows render with a dimmed background to
-visually distinguish adjacent items. Even-indexed rows use the terminal's default background. The
-index is based on visible position (after scroll windowing), not the item's index in the underlying
-data.
-
-**Selection highlighting:** The currently selected item renders with inverse video (foreground and
-background colors swapped). Only the focused pane shows a selection highlight.
-
-**Single-line truncation:** Each list item occupies exactly one terminal line. Content exceeding the
-available pane width is truncated with a trailing ellipsis (`…`).
-
-**Scroll windowing:** Chrome for list-based panes is exactly 2 rows (top border line + bottom border
-line). The visible item count is `stdout.rows - 2`. The top and bottom borders are fixed — they
-never scroll off-screen. The scrollable area begins below the top border and displays up to
-`visible item count` items. When items exceed visible rows, the list scrolls within this area via
-keyboard navigation (`↑`/`↓`/`j`/`k`) or mouse scroll wheel. The viewport uses scroll-by-one: it
-shifts by exactly one row when the selection moves outside the currently visible window. Mouse
-scroll moves the viewport without changing the selected item. If the user mouse-scrolls away from
-the selected item then presses a navigation key, the viewport snaps back to keep the selection
-visible before applying the navigation. On terminal resize, the visible item count is recomputed
-from the new `stdout.rows`.
-
-**Terminal hyperlinks:** Specific text elements render as clickable terminal hyperlinks via the OSC
-8 protocol (`ink-link`). In terminals that do not support OSC 8, text renders normally without click
-behavior — no URL suffix is appended, since all linked resources are also accessible via keyboard
-actions (`Enter` to open in browser). Fallback is disabled (`fallback={false}`).
-
-#### Notifications Pane
-
-A scrollable, chronological event history that surfaces all engine events as user-readable entries.
-Newest notifications appear at the top, with auto-scroll pinning the viewport to the top unless the
-user has scrolled past one page (see
-[control-plane-tui-notifications.md: Auto-Scroll Behavior](./control-plane-tui-notifications.md#auto-scroll-behavior)).
-Uses the shared list primitives for header, alternating rows, selection highlighting, single-line
-truncation, and scroll windowing. See
-[control-plane-tui-notifications.md](./control-plane-tui-notifications.md) for notification
-indicators, text formatting, semantic highlighting, context URL assignment, interaction, and type
-definitions.
-
-#### Issue List Pane
-
-A prioritized list of all open issues with the `task:implement` label. This is the primary
-interaction point — the user dispatches agents, monitors progress, and navigates to external
-resources from this pane. Uses the shared list primitives for header, alternating rows, selection
-highlighting, single-line truncation, and scroll windowing.
-
-**Planner visibility:** Planner sessions do not appear in the issue list (they operate on specs, not
-task issues). Planner activity is visible only through notifications — `agentStarted`,
-`agentCompleted`, and `agentFailed` events for the Planner are surfaced in the notifications pane.
-
-**Ordering:**
-
-1. **Active agents pinned to top** — Issues with a running agent session (any status, active agent —
-   includes both Implementors in `in-progress` and Reviewers in `review`) are pinned above all other
-   issues.
-2. **By priority** — `priority:high` → `priority:medium` → `priority:low`.
-3. **By creation date** — Oldest first within the same priority (longest-waiting issues surface
-   first).
-
-**Issue display:** Each issue is a single line showing: priority indicator, issue number, title
-(truncated to fit), and a state indicator.
-
-**State indicators:**
-
-| Issue State                             | Indicator      | Meaning                                                    |
-| --------------------------------------- | -------------- | ---------------------------------------------------------- |
-| `pending`, `unblocked`, `needs-changes` | Ready marker   | Dispatchable — user can start an Implementor               |
-| `in-progress` (agent running)           | Spinner        | Active Implementor session — pinned to top                 |
-| `in-progress` (no agent)                | Stale marker   | Should not persist — engine recovery will reset to pending |
-| `review` (Reviewer running)             | Spinner        | Active Reviewer session — pinned to top                    |
-| `review` (no agent)                     | Review marker  | PR awaiting human review                                   |
-| `needs-refinement`                      | Blocked marker | Spec issue — needs Human attention                         |
-| `blocked`                               | Blocked marker | Non-spec blocker — needs Human attention                   |
-| `approved`                              | Done marker    | Ready for Human to merge                                   |
-| Failed (agent error)                    | Error marker   | Agent session failed — retryable                           |
-| CI failed (`ciStatus: 'failure'`)       | CI marker      | CI pipeline failed — overlay alongside existing indicator  |
-
-**Interaction:** Arrow keys navigate the list. Enter performs a context-aware action:
-
-| Issue State                             | Enter Action                                                                                                                                                                                                                                                                                                                      |
-| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pending`, `unblocked`, `needs-changes` | Show dispatch confirmation: "Dispatch Implementor for #N? [y/n]". When the issue has `ciStatus: 'failure'`, append " (CI failed)" to the prompt text. On `y`, send `dispatchImplementor` command. On `n`/`Escape`, dismiss.                                                                                                       |
-| `in-progress` (agent running)           | Show cancel confirmation: "Cancel agent for #N? [y/n]". On `y`, send `cancelAgent` command. On `n`/`Escape`, dismiss.                                                                                                                                                                                                             |
-| `in-progress` (no agent)                | Show dispatch confirmation (same as `pending`). The engine accepts `dispatchImplementor` for `in-progress` issues with no running agent (see engine spec, Command Interface). This is a transient state — engine recovery will reset it to `pending` shortly, but the user can dispatch immediately without waiting for recovery. |
-| `review` (Reviewer running)             | Show cancel confirmation: "Cancel Reviewer for #N? [y/n]". On `y`, send `cancelAgent` command. On `n`/`Escape`, dismiss.                                                                                                                                                                                                          |
-| `review` (no agent)                     | Open PR in browser (if PR exists). If no PR found, show "No PR found" in detail pane.                                                                                                                                                                                                                                             |
-| `needs-refinement`                      | Open issue in browser                                                                                                                                                                                                                                                                                                             |
-| `blocked`                               | Open issue in browser                                                                                                                                                                                                                                                                                                             |
-| `approved`                              | Open PR in browser                                                                                                                                                                                                                                                                                                                |
-| Failed                                  | Show retry confirmation: "Retry {agentType} for #N? [y/n]" (agent type from `lastFailure`). On `y`, clear `lastFailure` and dispatch the appropriate agent (`dispatchImplementor` for Implementor failures, `dispatchReviewer` for Reviewer failures). On `n`/`Escape`, dismiss.                                                  |
-
-**Empty state:** When the issue list is empty (no `task:implement` issues exist), the pane displays
-"No issues tracked". Arrow keys and Enter are no-ops. `selectedIssue` remains `null`.
-
-#### Detail Pane
-
-Displays context-aware content based on the currently selected issue in the issue list. Content
-changes automatically as the user navigates the issue list. The pane supports issue details, live
-agent output streaming, PR summaries, failure overlays, and an empty state — all within a
-scroll-windowed view. See `control-plane-tui-detail-pane.md` for pane header, scroll windowing, line
-truncation, content by issue state, on-demand fetching, agent output streaming, agent stream
-lifecycle, stream buffer limit, stale-while-revalidate caching, and type definitions.
-
-### State Management
-
-The TUI uses Zustand for state management. A single store holds all TUI state derived from engine
-events.
-
-> **Rationale:** This keeps state outside the React tree, avoids prop drilling, and allows any
-> component to subscribe to exactly the slices it needs.
-
-#### Store
-
-The engine store is created once at startup and subscribes to all engine events. It exposes:
-
-**State** (see `EngineStoreState` in Type Definitions):
-
-- `repository` — `{ owner: string; repo: string }`. Set once at initialization from the engine
-  config. Used to construct issue, PR, and commit URLs for hyperlinks and `contextURL`.
-- `issues` — Map of issue number → `TrackedIssue`. Populated from `issueStatusChanged` events.
-  Includes agent status (`agentRunning`, `agentType`) and optional `lastFailure` (error, session ID,
-  branch name, log file path).
-- `notifications` — `Notification[]` (discriminated union on `eventType`). New notifications are
-  prepended (index 0 is the newest). Each variant carries typed fields for its event — see Type
-  Definitions.
-- `agentStreams` — Map of issue number → `string[]` buffer. Populated by subscribing to the engine's
-  `getAgentStream` on `agentStarted`.
-- `issueDetails` — Cache of `CachedIssueDetails`. Populated via `getIssueDetails` when the user
-  selects an issue. Invalidated on `issueStatusChanged`.
-- `prDetails` — Cache of `CachedPRDetails`. Populated via `getPRForIssue` when the user selects a
-  review/approved issue. Invalidated on `issueStatusChanged`.
-- `focusedPane` — Currently focused pane (`'issueList'`, `'detailPane'`, `'notifications'`).
-- `selectedIssue` — Currently selected issue number, or `null`.
-- `plannerRunning` — Whether a Planner session is currently running. Set to `true` on Planner
-  `agentStarted`, `false` on Planner `agentCompleted`/`agentFailed`.
-- `shuttingDown` — Whether the shutdown sequence is active.
-- `runningAgentCount` — Count of currently running agent sessions. Computed as a Zustand selector
-  (not a stored field): count of issues where `agentRunning` is true, plus 1 if `plannerRunning` is
-  true. Used in the quit confirmation prompt.
-
-**Actions** (see `EngineStoreActions` in Type Definitions):
-
-- `dispatchImplementor(issueNumber)` — Sends the dispatch command to the engine. Clears
-  `lastFailure` for this issue.
-- `dispatchReviewer(issueNumber)` — Sends the dispatch reviewer command to the engine. Clears
-  `lastFailure` for this issue. Used for retrying failed Reviewers.
-- `cancelAgent(issueNumber)` — Sends the cancel command to the engine for a task agent.
-- `shutdown()` — Sets `shuttingDown` to `true`, then sends the shutdown command to the engine.
-  Planner cancellation is handled by the engine internally during the shutdown sequence (see engine
-  spec, Graceful Shutdown) — the TUI does not need a separate `cancelPlanner` action.
-- `cycleFocus(direction)` — Moves focus to the next/previous pane.
-- `selectIssue(issueNumber)` — Updates the selected issue and triggers on-demand data fetching
-  (issue details, PR data) if not already cached. `selectedIssue` is set to `null` only
-  programmatically (via `issueRemoved` handler or when the issue list becomes empty), never by
-  direct user action.
-
-**Failure tracking:** When the engine emits `agentFailed`, the store records `lastFailure` on the
-affected issue. The engine's crash recovery resets the GitHub status to `pending`, but the TUI
-overlays the failure state until the user retries or a non-recovery poll clears it. See
-`control-plane-tui-failure-overlay.md` for the full failure recording, clearing, rendering, and
-retry semantics.
-
-**Agent stream lifecycle:** See
-[control-plane-tui-detail-pane.md: Agent Stream Lifecycle](./control-plane-tui-detail-pane.md#agent-stream-lifecycle)
-for the full stream subscription, chunk splitting, buffer management, and Planner skip behavior.
-
-**Stream buffer limit:** Each issue's stream buffer is capped at 10,000 lines (ring buffer). See
-[control-plane-tui-detail-pane.md: Stream Buffer Limit](./control-plane-tui-detail-pane.md#stream-buffer-limit)
-for drop behavior and viewport offset adjustment.
-
-**Event handling:** The store subscribes to all engine events in its initializer. Event-to-state
-mapping:
-
-| Event                  | Store Update                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `issueStatusChanged`   | Add notification ("#{N}: {oldStatus} → {newStatus}"). Upsert issue in `issues` (creates entry on first detection with `oldStatus: null`). Clears `lastFailure` and `resolutionGuidance` if status changed — **unless `isRecovery` is true or `isEngineTransition` is true** (recovery and engine-initiated transitions such as completion-dispatch must not clear the failure overlay; only user-initiated retry or a subsequent non-recovery poll clears it). Marks `issueDetails`/`prDetails` cache for this issue as stale (see stale-while-revalidate below).                                                                                                        |
-| `agentStarted`         | **Planner:** set `plannerRunning: true`, add notification (derive `specCount` from `event.specPaths.length` — `specPaths` is guaranteed present when `agentType` is `'planner'`), skip issue state and stream subscription. **Implementor/Reviewer:** set `agentRunning: true` and `agentType` on the issue. Stream subscription and buffer management: see [control-plane-tui-detail-pane.md: Agent Stream Lifecycle](./control-plane-tui-detail-pane.md#agent-stream-lifecycle).                                                                                                                                                                                       |
-| `agentCompleted`       | **Planner:** set `plannerRunning: false`, add notification (derive `specCount` from `event.specPaths.length`; include `logFilePath` if present on the engine event). **Implementor:** set `agentRunning: false` on the issue, add notification with issue URL as `contextURL` (see [control-plane-tui-notifications.md: Context URL Assignment](./control-plane-tui-notifications.md#context-url-assignment) for async PR URL update). Include `logFilePath` if present. **Reviewer:** set `agentRunning: false` on the issue, mark `prDetails` as stale (Reviewer may have added approval or posted review comments), add notification (with `logFilePath` if present). |
-| `agentFailed`          | **Planner:** set `plannerRunning: false`, add notification (with `logFilePath` if present on the engine event), no `lastFailure`. **Implementor/Reviewer:** set `agentRunning: false` on the issue, record `lastFailure` (see [control-plane-tui-failure-overlay.md: Failure Recording](./control-plane-tui-failure-overlay.md#failure-recording)).                                                                                                                                                                                                                                                                                                                      |
-| `agentSkipped`         | **Task agents (Implementor/Reviewer):** no issue state change. Notification added (includes `issueNumber`). **Planner:** no issue state change (`plannerRunning` remains `true` — the existing Planner is still running). Notification added (includes deferred `specPaths`).                                                                                                                                                                                                                                                                                                                                                                                            |
-| `dispatchReady`        | No issue state change (the issue's status was already updated by `issueStatusChanged`). Notification added ("#{N} ready for dispatch").                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `issueBlocked`         | Add notification ("#{N} blocked — {resolutionGuidance}"). Set `resolutionGuidance` on the issue's `TrackedIssue`. Set `contextURL` from the event.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `issueUnblocked`       | Add dismissal notification ("#{N} unblocked"). Clear `resolutionGuidance` on the issue's `TrackedIssue`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `issueNeedsRefinement` | Add notification ("#{N} needs refinement — {resolutionGuidance}"). Set `resolutionGuidance` on the issue's `TrackedIssue`. Set `contextURL` from the event. Set `clipboardCommand` on the notification for `c` keybinding.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| `issueRefined`         | Add dismissal notification ("#{N} refined"). Clear `resolutionGuidance` on the issue's `TrackedIssue`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `prApproved`           | Add notification ("#{N} approved — ready to merge"). Set `contextURL` to issue URL initially, then update asynchronously to PR URL via `getPRForIssue` (see [control-plane-tui-notifications.md: Context URL Assignment](./control-plane-tui-notifications.md#context-url-assignment)).                                                                                                                                                                                                                                                                                                                                                                                  |
-| `prUnapproved`         | Add dismissal notification ("#{N} unapproved"). Clear `resolutionGuidance` on the issue's `TrackedIssue`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `issueRemoved`         | Add notification ("#{N} removed"). Remove issue from `issues` map. Clear associated `agentStreams`, `issueDetails`, and `prDetails` caches. If the removed issue is the currently `selectedIssue`, reset `selectedIssue` to `null`. Note: the engine guarantees `agentFailed` is emitted before `issueRemoved` for the same issue (if an agent was running). Handlers should be defensive — check issue existence before updating.                                                                                                                                                                                                                                       |
-| `recoveryPerformed`    | Notification added. Issue state updated via the accompanying synthetic `issueStatusChanged` (emitted by the engine alongside `recoveryPerformed`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `ciStatusChanged`      | Update `ciStatus` on the `TrackedIssue` linked to the event's `issueNumber` (if present). If `issueNumber` is absent (PR not linked to a tracked issue), no issue state change. When `ciStatus` transitions away from `'failure'`, clear `failedCheckNames` on the issue's `CachedPRDetails` (if cached). No notification added (CI status changes are not surfaced in the notifications pane — only CI failure notifications are).                                                                                                                                                                                                                                      |
-| `ciCheckFailed`        | Add notification ("CI failed on PR #{prNumber}"). Set `contextURL` to the event's `contextURL` (PR URL). If the event includes `resolutionGuidance`, set `TrackedIssue.resolutionGuidance` on the linked issue (used by the detail pane for `approved` issues with CI failure). Append ` — {resolutionGuidance}` to the notification text.                                                                                                                                                                                                                                                                                                                               |
-| `ciCheckRecovered`     | Clear `ciStatus` and `resolutionGuidance` on the linked `TrackedIssue`. Clear `failedCheckNames` on the issue's `CachedPRDetails` (if cached). Add dismissal notification ("CI recovered for #{N}").                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `specChanged`          | Notification added (`specFileName` is derived from `event.filePath` by extracting the last path segment). No issue state change.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-
-**Stale-while-revalidate caching:** Caches (`issueDetails`, `prDetails`) are marked stale on
-`issueStatusChanged` but not cleared — stale data is shown immediately while a background re-fetch
-updates it. See
-[control-plane-tui-detail-pane.md: Stale-While-Revalidate Caching](./control-plane-tui-detail-pane.md#stale-while-revalidate-caching)
-for full behavior, including failure retention and retry semantics.
-
-> **Rationale:** No TUI component interacts with the engine directly — all reads go through store
-> selectors; all writes go through store actions.
-
-#### useEngine() Hook
-
-The `useEngine()` hook initializes the store with an engine instance and returns it. Components use
-Zustand's `useStore()` with selectors to subscribe to specific state slices, minimizing re-renders.
-
-```
-const issues = useStore(engineStore, (s) => s.issues);
-const dispatch = useStore(engineStore, (s) => s.dispatchImplementor);
-```
-
-This hook is the sole bridge between the engine and the TUI. It is called once at the top level; the
-store it returns is shared by all components.
-
-#### Type Definitions
-
-Reference types for the Zustand store.
-
-> **Rationale:** `Map` types must be replaced with new instances (not mutated in place) on every
-> update so Zustand's equality check detects changes and triggers React re-renders.
+The TUI represents each tracked issue as a **Task** — a single unit that bundles issue metadata, PR
+linkage, CI status, and agent state. Tasks are the sole data model for the task list; there is no
+separate notification or issue type.
 
 ```ts
-// agentType excludes 'planner' because Planner sessions are tracked via
-// plannerRunning, not via the issues map. The TUI narrows the engine's
-// AgentType ('planner' | 'implementor' | 'reviewer') to just task agents.
-type TrackedIssue = {
+type TaskStatus =
+  | "ready-to-implement"
+  | "agent-implementing"
+  | "agent-reviewing"
+  | "needs-refinement"
+  | "blocked"
+  | "ready-to-merge"
+  | "agent-crashed";
+
+type Priority = "high" | "medium" | "low";
+
+type CIStatus = "pending" | "success" | "failure";
+
+type AgentType = "implementor" | "reviewer";
+```
+
+```ts
+interface TaskPR {
   number: number;
+  url: string;
+  ciStatus: CIStatus | null;
+}
+
+interface AgentCrash {
+  error: string;
+}
+
+interface TaskAgent {
+  type: AgentType;
+  running: boolean;
+  sessionID: string;
+  branchName?: string;
+  logFilePath?: string;
+  crash?: AgentCrash;
+}
+```
+
+```ts
+interface Task {
+  issueNumber: number;
   title: string;
+  status: TaskStatus;
   statusLabel: string;
-  priorityLabel: string;
-  createdAt: string; // ISO 8601
-  agentRunning: boolean;
-  agentType?: "implementor" | "reviewer"; // only meaningful when agentRunning is true — consumers must check agentRunning before reading
-  lastFailure?: {
-    agentType: "implementor" | "reviewer";
-    error: string;
-    sessionID: string;
-    branchName?: string; // present for Implementor and Reviewer failures — the branch persists after worktree cleanup for inspection
-    logFilePath?: string; // present when engine logging.agentSessions is enabled
-  };
-  ciStatus?: "pending" | "success" | "failure"; // set by ciStatusChanged event, cleared on issueRemoved or ciCheckRecovered
-  resolutionGuidance?: string; // set by issueBlocked, issueNeedsRefinement, or ciCheckFailed events; cleared by issueStatusChanged (non-recovery, non-engine-transition), issueUnblocked, issueRefined, prUnapproved, or ciCheckRecovered
-};
+  priority: Priority | null;
+  agentCount: number;
+  createdAt: string;
+  prs: TaskPR[];
+  agent: TaskAgent | null;
+}
+```
 
-// Notification types: See [control-plane-tui-notifications.md: Type Definitions](./control-plane-tui-notifications.md#type-definitions)
-// for BaseNotification, all notification variants, and the Notification union.
-// Imported from the notifications module.
+| Field         | Source                                          | Description                                                                                                                                                                                                                      |
+| ------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issueNumber` | `issueStatusChanged`                            | GitHub issue number. Immutable after creation.                                                                                                                                                                                   |
+| `title`       | `issueStatusChanged`                            | Issue title. Updated on every `issueStatusChanged`.                                                                                                                                                                              |
+| `status`      | Derived                                         | The active `TaskStatus`. Recomputed after every mutation (see [Status Derivation](#status-derivation)).                                                                                                                          |
+| `statusLabel` | `issueStatusChanged`                            | Raw engine status label (e.g., `'pending'`, `'review'`). Input to status derivation. Updated on every `issueStatusChanged`.                                                                                                      |
+| `priority`    | `issueStatusChanged`                            | Parsed from the engine's `priorityLabel`: `'priority:high'` → `'high'`, etc. `null` if no priority label.                                                                                                                        |
+| `agentCount`  | `agentStarted`                                  | Total agent dispatches for this task (implementor + reviewer). Incremented on every `agentStarted`. Starts at `0`. Session-local — not persisted across restarts.                                                                |
+| `createdAt`   | `issueStatusChanged`                            | ISO 8601 timestamp from the engine.                                                                                                                                                                                              |
+| `prs`         | `prLinked`, `ciStatusChanged`                   | Linked PRs. Empty array until `prLinked` events are received. CI status updated by `ciStatusChanged`. A `ciStatusChanged` for an unknown PR creates a partial entry (empty URL) — see [Event-to-Task Mapping](#cistatuschanged). |
+| `agent`       | `agentStarted`, `agentCompleted`, `agentFailed` | Last/current agent for this task. Set on `agentStarted` with full metadata. Updated (not cleared) on `agentCompleted`/`agentFailed`. Set to `null` on human-initiated status change.                                             |
 
-type FocusedPane = "issueList" | "detailPane" | "notifications";
+### Status Derivation
 
-// Detail pane cache types: See [control-plane-tui-detail-pane.md: Type Definitions](./control-plane-tui-detail-pane.md#type-definitions)
-// for CachedIssueDetails and CachedPRDetails.
+`status` is a derived field, recomputed after every task mutation. The derivation evaluates three
+inputs in priority order:
 
-type Repository = { owner: string; repo: string };
+**Step 1 — Crash override:** If `agent` is not `null` and `agent.crash` is set, status is
+`agent-crashed`.
 
-type EngineStoreState = {
-  // Configuration (set once at initialization)
-  repository: Repository;
-  // Derived from engine events
-  issues: Map<number, TrackedIssue>;
-  notifications: Notification[];
-  agentStreams: Map<number, string[]>; // issue number → buffered lines (one string per terminal row)
-  plannerRunning: boolean;
-  // On-demand caches (populated via engine queries)
-  issueDetails: Map<number, CachedIssueDetails>;
-  prDetails: Map<number, CachedPRDetails>;
-  // UI state
-  focusedPane: FocusedPane;
+**Step 2 — Running agent override:** If `agent` is not `null` and `agent.running` is `true`:
+
+- `agent.type === 'implementor'` → `agent-implementing`
+- `agent.type === 'reviewer'` → `agent-reviewing`
+
+**Step 3 — Status label mapping:** Derive from `statusLabel`:
+
+| `statusLabel`      | `TaskStatus`         |
+| ------------------ | -------------------- |
+| `pending`          | `ready-to-implement` |
+| `unblocked`        | `ready-to-implement` |
+| `needs-changes`    | `ready-to-implement` |
+| `in-progress`      | `agent-implementing` |
+| `review`           | `agent-reviewing`    |
+| `needs-refinement` | `needs-refinement`   |
+| `blocked`          | `blocked`            |
+| `approved`         | `ready-to-merge`     |
+
+> **Rationale:** The three-step priority ensures crash state is never hidden by a recovery label
+> change, and a running agent always overrides the (potentially stale) label from the poller. The
+> `statusLabel` mapping is the steady-state path when no agent is active and no crash is recorded.
+
+If `statusLabel` does not match any row in the table, the task is excluded from rendering. This
+handles future label additions gracefully without a TUI update.
+
+### Event-to-Task Mapping
+
+The TUI subscribes to all 7 engine event types via `engine.on()`.
+
+After every event that mutates a task, the store recomputes `status` via the derivation rules in
+[Status Derivation](#status-derivation).
+
+#### `issueStatusChanged`
+
+Creates, updates, or removes a task by `issueNumber`.
+
+**When `newStatus` is `null` — task removal:**
+
+| Field           | Update                                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Task            | Remove from `tasks` map.                                                                                              |
+| Caches          | Clear `issueDetailCache` entry for this issue number. Clear `prDetailCache` entries for each PR number in `task.prs`. |
+| Stream          | Clear `agentStreams` entry for the task's `agent.sessionID` (if any).                                                 |
+| `pinnedTask`    | Set to `null` if this was the pinned task.                                                                            |
+| `selectedIssue` | If this was the selected task, set to the next task in sort order. If no tasks remain, set to `null`.                 |
+
+**When `newStatus` is a string — task create/update:**
+
+| Field         | Update                                                                                                        |
+| ------------- | ------------------------------------------------------------------------------------------------------------- |
+| `title`       | Set to event's `title`.                                                                                       |
+| `statusLabel` | Set to event's `newStatus`.                                                                                   |
+| `priority`    | Parsed from event's `priorityLabel`.                                                                          |
+| `createdAt`   | Set to event's `createdAt`.                                                                                   |
+| `agent`       | Set to `null` **only when** `isRecovery` is `false` AND `isEngineTransition` is `false`. Preserved otherwise. |
+
+If no task exists for the `issueNumber`, one is created with `agentCount: 0`, `prs: []`,
+`agent: null`.
+
+> **Rationale:** `isRecovery` fires after `agentFailed` + crash recovery. Clearing `agent` would
+> discard the crash details, hiding the failure from the user. `isEngineTransition` fires on
+> engine-initiated label changes (e.g., `status:review` after Implementor completion). In neither
+> case has the user taken action, so the agent state is preserved. A human-initiated status change
+> (both flags false) signals that the user addressed the situation externally, so stale agent state
+> is cleared.
+
+#### `prLinked`
+
+Adds or updates a PR on an existing task. Lookup by `issueNumber`.
+
+| Field | Update                                                                                                                                       |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prs` | If a PR with matching `prNumber` exists, update it. Otherwise append `{ number: event.prNumber, url: event.url, ciStatus: event.ciStatus }`. |
+
+If no task exists for the event's `issueNumber`, the event is ignored.
+
+> **Rationale:** `prLinked` is a new engine event (see [Dependencies](#dependencies)). The engine
+> emits it when the PRPoller detects a PR linked to a tracked issue via closing-keyword matching on
+> the PR body. This replaces the on-demand `getPRForIssue` pattern for list data — the TUI is fully
+> event-driven for task list rendering.
+
+#### `ciStatusChanged`
+
+Updates CI status on a task's linked PR. Lookup by `issueNumber`.
+
+| Field                    | Update                                                                                   |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `prs[matching].ciStatus` | Find the PR entry with matching `prNumber`. Set its `ciStatus` to event's `newCIStatus`. |
+
+If the event has no `issueNumber`, or no task exists for it, the event is ignored. If no matching PR
+exists in `prs`, append a partial entry:
+`{ number: event.prNumber, url: '', ciStatus: event.newCIStatus }`.
+
+> **Rationale:** The partial PR (empty URL) ensures CI status is tracked even if `prLinked` hasn't
+> fired yet due to poller timing. The URL is populated when `prLinked` arrives or when the user
+> fetches PR details on demand.
+
+#### Agent Event Lookup
+
+All three agent events (`agentStarted`, `agentCompleted`, `agentFailed`) carry `sessionID`.
+
+- **Planner events** (`agentType === 'planner'`): toggle `plannerStatus`. No task lookup.
+- **`agentStarted`** (Implementor / Reviewer): lookup by `issueNumber` — this is the only agent
+  event that uses `issueNumber`, because it establishes the session-to-task binding.
+- **`agentCompleted` / `agentFailed`** (Implementor / Reviewer): lookup by `sessionID` — find the
+  task where `task.agent?.sessionID === event.sessionID`.
+
+> **Rationale:** `sessionID` is the natural identity for agent work. Using it for lookup decouples
+> the session from the issue — the `agentStarted` event establishes the binding, and subsequent
+> events reference it by session. If no task matches the `sessionID`, the event is logged and
+> skipped.
+
+#### `agentStarted` — Planner
+
+Set `plannerStatus` to `'running'`. No task update.
+
+#### `agentStarted` — Implementor / Reviewer
+
+Lookup by `issueNumber`. Replaces the task's agent with a new instance carrying full metadata.
+
+| Field        | Update                                                                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent`      | Set to `{ type: event.agentType, running: true, sessionID: event.sessionID, branchName: event.branchName, logFilePath: event.logFilePath }`. |
+| `agentCount` | Increment by 1.                                                                                                                              |
+| Stream       | Subscribe to `getAgentStream(event.sessionID)`. Clear existing stream buffer.                                                                |
+
+Task must already exist (created by a prior `issueStatusChanged`). If no task exists, log a warning
+and skip.
+
+#### `agentCompleted` — Planner
+
+Set `plannerStatus` to `'idle'`. No task update.
+
+#### `agentCompleted` — Implementor / Reviewer
+
+Lookup by `sessionID`.
+
+| Field           | Update                                                                   |
+| --------------- | ------------------------------------------------------------------------ |
+| `agent.running` | Set to `false`. Agent object is preserved (metadata remains accessible). |
+
+`status` is not explicitly set — the subsequent `issueStatusChanged` (engine transition or next poll
+cycle) will update `statusLabel`, and the derivation will produce the correct status.
+
+#### `agentFailed` — Planner
+
+Set `plannerStatus` to `'idle'`. No task update.
+
+#### `agentFailed` — Implementor / Reviewer
+
+Lookup by `sessionID`.
+
+| Field           | Update                           |
+| --------------- | -------------------------------- |
+| `agent.running` | Set to `false`.                  |
+| `agent.crash`   | Set to `{ error: event.error }`. |
+
+The subsequent `issueStatusChanged(isRecovery: true)` will update `statusLabel` but preserve `agent`
+(including its crash state), so status remains `agent-crashed`.
+
+#### `specChanged`
+
+No task update. The Planner handles spec changes autonomously. The TUI does not surface spec
+activity in the task list.
+
+### Store
+
+The TUI uses a single Zustand vanilla store. Components read via `useStore(store, selector)`. All
+engine event subscriptions and command dispatching go through the store.
+
+#### State
+
+```ts
+interface TUIState {
+  tasks: Map<number, Task>;
+  plannerStatus: "idle" | "running";
+
   selectedIssue: number | null;
+  pinnedTask: number | null;
+  focusedPane: "taskList" | "detailPane";
   shuttingDown: boolean;
-  // runningAgentCount is a computed selector, not a stored field:
-  // count of issues where agentRunning is true, plus 1 if plannerRunning is true
-};
 
-type EngineStoreActions = {
-  dispatchImplementor: (issueNumber: number) => void;
-  dispatchReviewer: (issueNumber: number) => void;
-  cancelAgent: (issueNumber: number) => void;
+  agentStreams: Map<string, string[]>;
+
+  issueDetailCache: Map<number, CachedIssueDetail>;
+  prDetailCache: Map<number, CachedPRDetail>;
+}
+```
+
+| Field              | Description                                                                                                                                                                                     |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tasks`            | All tracked tasks, keyed by issue number. Populated by engine events.                                                                                                                           |
+| `plannerStatus`    | Current planner state. Toggled by planner `agentStarted` / `agentCompleted` / `agentFailed`.                                                                                                    |
+| `selectedIssue`    | Issue number of the highlighted task in the list. `null` when the list is empty.                                                                                                                |
+| `pinnedTask`       | Issue number shown in the detail pane. `null` until the user presses Enter. Independent of `selectedIssue` — pinning locks the detail pane while the user navigates the list.                   |
+| `focusedPane`      | Which pane receives keyboard input. Toggled by Tab.                                                                                                                                             |
+| `shuttingDown`     | Set to `true` when the user confirms quit. Drives the shutdown overlay.                                                                                                                         |
+| `agentStreams`     | Live agent output buffers, keyed by `sessionID`. Each entry is an array of strings (one per terminal row). Capped at 10,000 lines per session (ring buffer — oldest lines dropped on overflow). |
+| `issueDetailCache` | On-demand cache for issue body and labels, keyed by issue number. Used by the detail pane.                                                                                                      |
+| `prDetailCache`    | On-demand cache for detailed PR data (changed files, reviews, CI checks), keyed by PR number. Used by the detail pane.                                                                          |
+
+```ts
+interface CachedIssueDetail {
+  body: string;
+  labels: string[];
+  stale: boolean;
+}
+
+interface CachedPRDetail {
+  title: string;
+  changedFilesCount: number;
+  failedCheckNames?: string[];
+  stale: boolean;
+}
+```
+
+Caches use a stale-while-revalidate strategy. Stale data is rendered immediately while a background
+re-fetch runs. If no cached data exists, a loading indicator is shown. If the re-fetch fails, stale
+data is retained and the entry remains stale for the next attempt.
+
+Stale-marking triggers:
+
+| Cache              | Trigger Event        | Lookup           |
+| ------------------ | -------------------- | ---------------- |
+| `issueDetailCache` | `issueStatusChanged` | By `issueNumber` |
+| `prDetailCache`    | `prLinked`           | By `prNumber`    |
+| `prDetailCache`    | `ciStatusChanged`    | By `prNumber`    |
+
+#### Actions
+
+```ts
+interface TUIActions {
+  dispatch: (issueNumber: number) => void;
   shutdown: () => void;
-  cycleFocus: (direction: "forward" | "backward") => void;
   selectIssue: (issueNumber: number) => void;
-};
-
-type EngineStore = EngineStoreState & EngineStoreActions;
-
-// Zustand selector (not a stored field):
-// selectRunningAgentCount(state: EngineStoreState): number
-// Returns count of issues where agentRunning is true, plus 1 if plannerRunning is true.
+  pinTask: (issueNumber: number) => void;
+  cycleFocus: () => void;
+}
 ```
 
-### Keyboard Controls
+| Action        | Behavior                                                                                                                                                                                                                                                                                                                          |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dispatch`    | Sends a command to the engine based on the task's status. `ready-to-implement` → calls `engine.dispatchImplementor(issueNumber)`. `agent-crashed` → calls `engine.dispatchImplementor(issueNumber)` if `task.agent.type` is `'implementor'`, or `engine.dispatchReviewer(issueNumber)` if `'reviewer'`. No-op for other statuses. |
+| `shutdown`    | Sets `shuttingDown: true`. Sends `shutdown` command to the engine.                                                                                                                                                                                                                                                                |
+| `selectIssue` | Updates `selectedIssue`. No effect on the detail pane.                                                                                                                                                                                                                                                                            |
+| `pinTask`     | Sets `pinnedTask` to the given issue number. Triggers on-demand fetch of issue details and PR details if not cached.                                                                                                                                                                                                              |
+| `cycleFocus`  | Toggles `focusedPane` between `'taskList'` and `'detailPane'`.                                                                                                                                                                                                                                                                    |
 
-**Prompt rendering:** All confirmation prompts render as a centered overlay with a single-line
-border, positioned in the middle of the terminal viewport. Implemented as a reusable `Confirm`
-component.
+#### Selectors
 
+```ts
+type Section = "action" | "agents";
+
+interface SortedTask {
+  task: Task;
+  section: Section;
+}
 ```
-┌───────────────────────────────┐
-│  Dispatch Implementor for #39? │
-│             [y/n]              │
-└───────────────────────────────┘
-```
 
-**Prompt exclusivity:** Only one confirmation prompt can be active at a time. While a confirmation
-prompt is visible (dispatch, cancel, retry, or quit), other prompt-triggering keys (`Enter`, `q`)
-are ignored until the active prompt is dismissed via `y`, `n`, or `Escape`.
-
-#### Global
-
-| Key                             | Action                                                             |
-| ------------------------------- | ------------------------------------------------------------------ |
-| `Tab`                           | Cycle focus: Issue List → Detail Pane → Notifications → Issue List |
-| `Shift+Tab`                     | Cycle focus in reverse                                             |
-| `q`                             | Show quit confirmation prompt                                      |
-| `y` (in quit prompt)            | Confirm shutdown — sends `shutdown` command to engine              |
-| `n` / `Escape` (in quit prompt) | Cancel quit — return to previous focus                             |
-
-#### Issue List (when focused)
-
-| Key       | Action                                                                    |
-| --------- | ------------------------------------------------------------------------- |
-| `↑` / `k` | Move selection up                                                         |
-| `↓` / `j` | Move selection down                                                       |
-| `Enter`   | Context-aware action on selected issue (dispatch, open in browser, retry) |
-
-#### Notifications (when focused)
-
-| Key       | Action                                                                                                                                                            |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `↑` / `k` | Move selection up                                                                                                                                                 |
-| `↓` / `j` | Move selection down                                                                                                                                               |
-| `Enter`   | Open notification context in browser                                                                                                                              |
-| `c`       | Copy clipboard command to system clipboard (only for notifications that have one — e.g., `needs-refinement`). No-op if the notification has no clipboard command. |
-
-#### Detail Pane (when focused)
-
-| Key       | Action      |
-| --------- | ----------- |
-| `↑` / `k` | Scroll up   |
-| `↓` / `j` | Scroll down |
-
-### Opening External Resources
-
-Several interactions open resources in the user's default browser. The TUI uses the system's `open`
-command (or equivalent) to launch URLs:
-
-| Resource     | URL Pattern                                         |
-| ------------ | --------------------------------------------------- |
-| Issue        | `https://github.com/{owner}/{repo}/issues/{number}` |
-| Pull Request | `https://github.com/{owner}/{repo}/pull/{number}`   |
-| Spec diff    | `https://github.com/{owner}/{repo}/commit/{sha}`    |
-
-The `{owner}/{repo}` values come from the engine's `repository` config.
-
-### Startup
-
-On startup, the TUI:
-
-1. Initializes the `useEngine()` hook with the engine instance. The store subscribes to all engine
-   events (via `engine.on()`) in its initializer — this must happen before `start()` is called so
-   that startup recovery events are not lost (see engine spec, Engine Interface, startup contract).
-2. Calls `engine.start()`, which returns a `Promise<StartupResult>` that resolves after planner
-   cache load, startup recovery, and all first poller cycles (IssuePoller, SpecPoller, PR Poller)
-   complete. The TUI shows a centered loading spinner with "Starting…" text until the Promise
-   resolves. The three-pane layout is not rendered during startup.
-3. Renders the three-pane layout with the issue list focused. If issues exist, the first issue in
-   sort order is auto-selected (`selectedIssue` is set). If no issues exist, `selectedIssue` remains
-   `null`.
-4. Displays a startup summary notification using the `StartupResult`: "Startup complete:
-   {issueCount} issues tracked, {recoveriesPerformed} recoveries performed" (recoveries clause
-   omitted if zero).
-
-### Shutdown
-
-When the user presses `q`:
-
-1. The TUI displays a confirmation prompt: "Quit? N agent(s) running. [y/n]". If no agents are
-   running, the prompt reads: "Quit? [y/n]".
-2. If the user presses `n` or `Escape`, the prompt is dismissed and focus returns to the previous
-   pane.
-3. If the user presses `y`, the TUI sends the `shutdown` command to the engine.
-4. The TUI displays a shutdown status: "Shutting down... waiting for N agent(s)".
-5. As agents complete, the count updates.
-6. When all agents are done (or timeout reached), the TUI exits.
-
-## Acceptance Criteria
+| Selector            | Returns                                                                                                                                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sortedTasks`       | Flattened, sorted array of `SortedTask`. ACTION items first, then AGENTS items. Each section sorted by status weight → priority weight → issue number ascending. See [Task List — Sorting](#sorting). |
+| `actionCount`       | Count of tasks in the ACTION section.                                                                                                                                                                 |
+| `agentSectionCount` | Count of tasks in the AGENTS section.                                                                                                                                                                 |
+| `runningAgentCount` | Count of tasks with `agent?.running === true`, plus 1 if `plannerStatus === 'running'`. Used in the quit confirmation prompt.                                                                         |
 
 ### Layout
 
-- [ ] Given the TUI starts, when the dashboard renders, then three panes are visible: notifications,
-      issue list, and detail pane.
-- [ ] Given the TUI starts, when the dashboard renders, then the issue list pane has focus.
-- [ ] Given the terminal is at least 120 columns wide and 30 rows tall, when the TUI renders, then
-      all three panes are visible without overlap or truncation.
-- [ ] Given the TUI is running, when the terminal is resized, then the layout reflows to fill the
-      new dimensions without terminal scrolling.
-- [ ] Given the TUI is running, when content exceeds the available pane height, then the content
-      scrolls within the pane — the overall dashboard never exceeds the terminal viewport.
-- [ ] Given the TUI renders, when the dashboard is displayed, then each pane is enclosed in a
-      single-line box border using Unicode box-drawing characters with vertical dividers between
-      panes.
-- [ ] Given a pane has focus, when the dashboard renders, then the focused pane's border segments
-      render with standard intensity and unfocused pane borders render dim.
+The TUI renders a fixed-frame terminal UI using Ink (React for the terminal).
 
-### Issue List
+#### Structure
 
-- [ ] Given issues exist with different priorities, when the issue list renders, then issues are
-      ordered by active agents first, then priority (high → medium → low), then creation date
-      (oldest first).
-- [ ] Given an Implementor is dispatched for an issue, when the agent starts, then the issue is
-      pinned to the top of the list with a spinner indicator.
-- [ ] Given a pending issue is selected, when the user presses Enter, then a dispatch confirmation
-      prompt is shown. On `y`, the `dispatchImplementor` command is sent to the engine.
-- [ ] Given an issue in `review` with no running Reviewer is selected, when the user presses Enter,
-      then the PR is opened in the user's browser (if PR exists).
-- [ ] Given a failed issue is selected, when the user presses Enter, then a retry confirmation
-      prompt is shown. On `y`, `lastFailure` is cleared and the appropriate agent is dispatched
-      (matching `lastFailure.agentType`).
-- [ ] Given an issue with a running agent is selected, when the user presses Enter, then a cancel
-      confirmation prompt is shown. On `y`, the `cancelAgent` command is sent to the engine.
-- [ ] Given more issues exist than visible rows, when the user navigates past the visible area, then
-      the list scrolls to keep the selected item in view.
-- [ ] Given no `task:implement` issues exist, when the issue list renders, then the pane displays
-      "No issues tracked" and `selectedIssue` remains `null`.
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Header                                                           planner 💤 │
+├──────────────────────────────────┬───────────────────────────────────────────┤
+│ Task List (left pane)            │ Detail Pane (right pane)                  │
+│                                  │                                           │
+│ ACTION (N)                       │                                           │
+│ ...items...                      │                                           │
+│ ─────────────────────────────────│                                           │
+│ AGENTS (N)                       │                                           │
+│ ...items...                      │                                           │
+├──────────────────────────────────┴───────────────────────────────────────────┤
+│ Footer: keybinding hints                                                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Header Bar
+
+Single row. Right-aligned planner status: the text `planner` followed by a status indicator.
+
+| `plannerStatus` | Indicator          |
+| --------------- | ------------------ |
+| `'running'`     | Spinner (animated) |
+| `'idle'`        | 💤                 |
+
+#### Footer Bar
+
+Single row. Keybinding hints rendered as a horizontal list. Content depends on `focusedPane`:
+
+- **Task list focused:** `↑↓jk select    <enter> pin    [d]ispatch    [o]pen    [c]opy    [q]uit`
+- **Detail pane focused:** `↑↓jk scroll    <tab> back    [o]pen    [c]opy    [q]uit`
+
+The `[d]ispatch` hint is **dimmed** when the selected task's status is not `ready-to-implement` or
+`agent-crashed`. This signals that the key is contextually unavailable without hiding it from the
+layout.
+
+#### Pane Layout
+
+Two vertical panes separated by a box-drawing border.
+
+- **Left pane (task list):** 40% of terminal width, minimum 30 columns.
+- **Right pane (detail):** Remainder of terminal width.
+- Both panes span the full height between header and footer bars.
+- Recomputed on terminal resize.
+
+#### Section Sub-Panes
+
+The left pane is split vertically into two borderless sub-panes of equal height:
+
+- **ACTION** (top) — tasks requiring human intervention.
+- **AGENTS** (bottom) — tasks owned by the automated workflow.
+
+Each sub-pane has a header row and an item area:
+
+- **Sub-pane height:** `floor(pane_height / 2)` rows each. When `pane_height` is odd, the extra row
+  goes to the ACTION sub-pane (`ceil(pane_height / 2)` for ACTION, `floor(pane_height / 2)` for
+  AGENTS).
+- **Item capacity:** sub-pane height − 1 (the header row). Items beyond capacity are not rendered.
+- **Header format:** `ACTION (N)` or `AGENTS (N)` when all items fit. When items are truncated:
+  `ACTION (V/N)` or `AGENTS (V/N)` where V is visible items and N is total.
+
+Both section headers are always rendered, even when the section has zero items (displayed as `(0)`).
+This keeps the layout stable.
+
+Section headers are not selectable — keyboard navigation skips them.
+
+There is no scroll mechanism within sections. If the terminal is too short to display all items, the
+overflow indicator `(V/N)` signals that items are cut off.
+
+### Task List
+
+#### Row Format
+
+Each task renders as a single terminal row:
+
+```
+{issue} {pr} {status} {icon} {title}
+```
+
+| Column | Width     | Content                                                             |
+| ------ | --------- | ------------------------------------------------------------------- |
+| Issue  | 6 chars   | `#` + zero-padded issue number (e.g., `#311`). Colored by priority. |
+| PR     | 8 chars   | PR reference or `—`. Colored by CI status.                          |
+| Status | 10 chars  | Display label from the status mapping table. `WIP` appends `(N)`.   |
+| Icon   | 2 chars   | Status icon.                                                        |
+| Title  | Remainder | Issue title, truncated with `…` if it exceeds available width.      |
+
+##### Issue Column — Priority Color
+
+| Priority | Color   |
+| -------- | ------- |
+| `high`   | Red     |
+| `medium` | Yellow  |
+| `low`    | Dim     |
+| `null`   | Default |
+
+##### PR Column
+
+When `prs` is empty: `—` in dim.
+
+When `prs` has one entry: `PR#` + PR number (e.g., `PR#482`).
+
+When `prs` has multiple entries: `PRx` + count (e.g., `PRx3`).
+
+Color is determined by the **worst CI status** across all entries in `prs`:
+
+| Worst CI Status | Color |
+| --------------- | ----- |
+| `failure`       | Red   |
+| `pending`       | Dim   |
+| `success`       | Green |
+| all `null`      | Dim   |
+
+Priority order for "worst": `failure` > `pending` > `success` > `null`.
+
+##### Status Column — Display Labels
+
+| `TaskStatus`         | Display    | Icon |
+| -------------------- | ---------- | ---- |
+| `ready-to-merge`     | `APPROVED` | ✔    |
+| `agent-crashed`      | `FAILED`   | 💥   |
+| `blocked`            | `BLOCKED`  | ⛔   |
+| `needs-refinement`   | `REFINE`   | 📝   |
+| `ready-to-implement` | `DISPATCH` | ●    |
+| `agent-implementing` | `WIP(N)`   | 🤖   |
+| `agent-reviewing`    | `REVIEW`   | 🔎   |
+
+`WIP(N)` renders the task's `agentCount` as a parenthetical suffix.
+
+#### Sorting
+
+Each section is sorted independently using a three-level sort chain:
+
+**Level 1 — Status weight** (descending):
+
+| `TaskStatus`         | Weight |
+| -------------------- | ------ |
+| `ready-to-merge`     | 100    |
+| `agent-crashed`      | 90     |
+| `blocked`            | 80     |
+| `needs-refinement`   | 70     |
+| `ready-to-implement` | 50     |
+| `agent-implementing` | 50     |
+| `agent-reviewing`    | 50     |
+
+**Level 2 — Priority weight** (descending):
+
+| Priority | Weight |
+| -------- | ------ |
+| `high`   | 3      |
+| `medium` | 2      |
+| `low`    | 1      |
+| `null`   | 0      |
+
+**Level 3 — Issue number** (ascending): lowest issue number first (oldest issues surface).
+
+#### Section Assignment
+
+A task's section is derived from its status:
+
+| Section | Statuses                                                                               |
+| ------- | -------------------------------------------------------------------------------------- |
+| ACTION  | `ready-to-merge`, `agent-crashed`, `blocked`, `needs-refinement`, `ready-to-implement` |
+| AGENTS  | `agent-implementing`, `agent-reviewing`                                                |
+
+#### Selection and Navigation
+
+`selectedIssue` tracks the highlighted task by issue number. This is stable across re-renders — if
+the list order changes due to a status update, the selection stays on the same task. If a re-render
+causes the selected task to fall beyond its section's visible capacity, the selection snaps to the
+last visible item in that section.
+
+Navigation moves through **visible items only** (items beyond capacity are not reachable). The
+selection crosses sections seamlessly:
+
+- ↓ from the last visible ACTION item → first visible AGENTS item. No-op if AGENTS has zero visible
+  items.
+- ↑ from the first visible AGENTS item → last visible ACTION item. No-op if ACTION has zero visible
+  items.
+- ↓ from the last visible AGENTS item → no-op.
+- ↑ from the first visible ACTION item → no-op.
+
+When `selectedIssue` is `null` (empty list or selected task was removed), the first navigation
+keypress selects the first visible task in sort order.
+
+#### Empty States
+
+When a section has zero items, the section header renders with `(0)`. No placeholder text.
+
+When both sections are empty: `selectedIssue` is `null`. Keyboard navigation is a no-op.
 
 ### Detail Pane
 
-See `control-plane-tui-detail-pane.md` for all detail pane acceptance criteria.
+The right pane displays contextual information for the pinned task. Content is determined by the
+pinned task's current `status` — when the status changes, the detail pane switches content
+automatically. On any status change, the detail pane's scroll position resets to the top (offset 0).
+For agent stream views, this means auto-scroll resumes from the tail.
 
-### Shared List Primitives
+When `pinnedTask` is `null`, the detail pane renders `No task selected`.
 
-- [ ] Given any list-based pane renders, when the pane header is displayed, then the label is in
-      full caps embedded in the top border line.
-- [ ] Given a list has multiple items, when the list renders, then odd-indexed visible rows have a
-      dimmed background and even-indexed rows have the default background.
-- [ ] Given a list item is selected in the focused pane, when the list renders, then the selected
-      item is displayed with inverse video.
-- [ ] Given a list item's content exceeds the pane width, when the item renders, then the content is
-      truncated with a trailing ellipsis (`…`).
-- [ ] Given more items exist than the pane height allows, when the user navigates past the visible
-      window, then the list scrolls by one row to keep the selected item visible while the pane
-      header remains fixed.
-- [ ] Given more items exist than the pane height allows, when the user scrolls with the mouse
-      wheel, then the viewport moves without changing the selected item and the pane header remains
-      fixed.
-- [ ] Given the user has mouse-scrolled away from the selected item, when they press a navigation
-      key, then the viewport snaps back to the selection before applying the navigation.
-- [ ] Given a text element is a terminal hyperlink, when rendered in a supported terminal, then it
-      is clickable. In unsupported terminals, no URL suffix is appended.
+#### Content by Status
 
-### Notifications
+| `TaskStatus`         | Content                          | Data Source                                         |
+| -------------------- | -------------------------------- | --------------------------------------------------- |
+| `ready-to-implement` | Issue body and labels            | `getIssueDetails(issueNumber)` → `issueDetailCache` |
+| `agent-implementing` | Live agent output stream         | `agentStreams[agent.sessionID]`                     |
+| `agent-reviewing`    | Live agent output stream         | `agentStreams[agent.sessionID]`                     |
+| `needs-refinement`   | Issue body and labels            | `getIssueDetails(issueNumber)` → `issueDetailCache` |
+| `blocked`            | Issue body and labels            | `getIssueDetails(issueNumber)` → `issueDetailCache` |
+| `ready-to-merge`     | PR summary for each linked PR    | `prDetailCache` per PR, fetched on demand           |
+| `agent-crashed`      | Crash details and agent metadata | `task.agent` (no fetch needed)                      |
 
-See `control-plane-tui-notifications.md` for all notifications pane acceptance criteria.
+#### Issue Detail View
 
-### Keyboard Navigation
+Displayed for `ready-to-implement`, `needs-refinement`, and `blocked` statuses.
 
-- [ ] Given the issue list is focused, when the user presses Tab, then focus moves to the detail
-      pane.
-- [ ] Given any pane is focused, when the user presses Shift+Tab, then focus moves to the previous
-      pane.
-- [ ] Given any pane is focused, when the user presses `q`, then a quit confirmation prompt is
-      displayed.
-- [ ] Given the quit confirmation prompt is displayed, when the user presses `y`, then the shutdown
-      sequence begins.
-- [ ] Given the quit confirmation prompt is displayed, when the user presses `n` or `Escape`, then
-      the prompt is dismissed and focus returns to the previous pane.
-- [ ] Given a confirmation prompt is displayed, then it renders as a centered bordered overlay.
-- [ ] Given the issue list is focused, when the user presses `j` or `↓`, then the selection moves
-      down one item.
-- [ ] Given any confirmation prompt is displayed, when the user presses `Escape`, then the prompt is
-      dismissed (equivalent to pressing `n`).
+Content:
 
-### Failure Overlay
+1. Issue number and title (header).
+2. Labels rendered as a comma-separated list.
+3. Issue body (markdown rendered as plain text, line-wrapped to pane width).
 
-See `control-plane-tui-failure-overlay.md` for all failure overlay acceptance criteria (recording,
-clearing, rendering, retry flow).
+Data is fetched on demand via `getIssueDetails(issueNumber)` and stored in `issueDetailCache`. While
+loading, display the issue number and title with `Loading...` below. Stale-while-revalidate: stale
+data is shown immediately while a background re-fetch runs.
 
-### Integration
+#### Agent Stream View
 
-Event-to-state mapping for individual events is specified normatively in the event handler table
-(see [State Management: Store](#store), "Event handling"). Criteria below test cross-subsystem
-interaction effects, edge cases, and negative cases not captured by the table alone. On-demand
-fetching, streaming, caching, and buffer management criteria are in the detail pane sub-spec.
-Failure recording and clearing criteria are in the failure overlay sub-spec.
+Displayed for `agent-implementing` and `agent-reviewing` statuses.
 
-- [ ] Given the engine emits `issueRemoved`, when the TUI processes it, then the issue is removed
-      from the issue list and all associated caches are cleared. If the removed issue is the
-      currently selected issue, `selectedIssue` is reset to `null`.
-- [ ] Given two Implementors and one Planner are running, when `runningAgentCount` is computed, then
-      it returns 3.
-- [ ] Given an issue has `resolutionGuidance` set, when a non-recovery `issueStatusChanged` fires
-      for that issue, then `resolutionGuidance` is cleared.
-- [ ] Given an issue has `resolutionGuidance` set, when a recovery `issueStatusChanged`
-      (`isRecovery: true`) fires for that issue, then `resolutionGuidance` is not cleared.
-- [ ] Given an issue has `resolutionGuidance` set, when an engine-transition `issueStatusChanged`
-      (`isEngineTransition: true`) fires for that issue, then `resolutionGuidance` is not cleared.
+The stream buffer is read from `agentStreams[task.agent.sessionID]`. Each buffer entry is one
+terminal row, rendered 1:1.
+
+**Auto-scroll:** Viewport is pinned to the tail of the buffer (last N lines displayed, where N =
+pane height). New lines push the viewport forward.
+
+**Scroll pause:** When the user scrolls up (j/k or mouse), auto-scroll pauses. The viewport stays at
+the user's position while new lines continue appending to the buffer.
+
+**Scroll resume:** Auto-scroll resumes when the user scrolls the viewport back to the bottom (offset
+≥ buffer length − visible line count).
+
+**Buffer cap:** 10,000 lines per session (ring buffer). When the cap is reached, the oldest line is
+dropped. If auto-scroll is paused and a line is dropped from the front, the viewport offset
+decrements by 1 to keep the same content visible. If the offset reaches 0, auto-scroll resumes.
+
+**Stream end:** When the agent completes or fails, the stream stops producing new lines. The buffer
+is retained and viewable until the status changes away from `agent-implementing` / `agent-reviewing`
+or a new agent starts for the same task (which clears the buffer).
+
+#### PR Summary View
+
+Displayed for `ready-to-merge` status.
+
+For each PR in `task.prs`:
+
+1. PR number and title.
+2. Changed files count.
+3. CI status. If `ciStatus` is `'failure'`, list failed check names (fetched on demand via
+   `getCIStatus(prNumber)` and stored in `prDetailCache`).
+
+Data is fetched on demand per PR and stored in `prDetailCache`. While loading, display the PR number
+(available from `task.prs`) with `Loading...`.
+
+#### Crash Detail View
+
+Displayed for `agent-crashed` status.
+
+Content read directly from `task.agent`:
+
+1. **Agent type** — `Implementor` or `Reviewer`.
+2. **Error message** — from `agent.crash.error`. Rendered in red.
+3. **Session ID** — from `agent.sessionID`.
+4. **Branch name** — from `agent.branchName` (if present).
+5. **Log file** — from `agent.logFilePath` (if present). Rendered as an OSC 8 terminal hyperlink
+   (`file://{logFilePath}`).
+6. **Retry hint** — `Press [d] to retry`.
+
+No fetch needed — all data is on the task.
+
+#### Detail Pane Scrolling
+
+When the detail pane is focused (via Tab), `j`/`k` and `↑`/`↓` scroll the content vertically.
+
+For static content views (issue detail, PR summary, crash detail): scroll moves the viewport by one
+row per keypress. Lines exceeding pane width are truncated (no line wrapping at the viewport level).
+
+For the agent stream view: scroll behaves as described in [Agent Stream View](#agent-stream-view)
+(pauses/resumes auto-scroll).
+
+### Keybindings
+
+#### Focus Model
+
+The TUI has two focusable panes: **task list** and **detail pane**. `focusedPane` determines which
+pane receives keyboard input. Tab toggles between them.
+
+The task list is focused on startup.
+
+#### Global Keys
+
+These keys are active regardless of which pane is focused.
+
+| Key   | Action                                                                               |
+| ----- | ------------------------------------------------------------------------------------ |
+| `Tab` | Toggle `focusedPane` between `taskList` and `detailPane`.                            |
+| `o`   | Open the relevant URL in the system browser (see [URL Resolution](#url-resolution)). |
+| `c`   | Copy the relevant URL to the system clipboard.                                       |
+| `q`   | Show quit confirmation prompt.                                                       |
+
+#### Task List Keys
+
+Active when `focusedPane` is `taskList`.
+
+| Key       | Action                                                                                                                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `↑` / `k` | Move selection to previous visible item. No-op at top of ACTION.                                                                                        |
+| `↓` / `j` | Move selection to next visible item. No-op at bottom of AGENTS.                                                                                         |
+| `Enter`   | Pin the selected task to the detail pane. Sets `pinnedTask` to `selectedIssue`. No-op when `selectedIssue` is `null`.                                   |
+| `d`       | Dispatch — show confirmation prompt for the selected task. Only active for `ready-to-implement` and `agent-crashed` statuses. No-op for other statuses. |
+
+#### Detail Pane Keys
+
+Active when `focusedPane` is `detailPane`.
+
+| Key       | Action                          |
+| --------- | ------------------------------- |
+| `↑` / `k` | Scroll content up by one row.   |
+| `↓` / `j` | Scroll content down by one row. |
+
+#### URL Resolution
+
+The `o` and `c` keys resolve a URL from the **target task**: `selectedIssue` when the task list is
+focused, `pinnedTask` when the detail pane is focused. If the target is `null`, both keys are
+no-ops.
+
+| `TaskStatus`         | URL                                               |
+| -------------------- | ------------------------------------------------- |
+| `ready-to-implement` | Issue URL                                         |
+| `needs-refinement`   | Issue URL                                         |
+| `blocked`            | Issue URL                                         |
+| `agent-implementing` | Issue URL (or first PR URL if `prs` is non-empty) |
+| `agent-reviewing`    | First PR URL (or issue URL if `prs` is empty)     |
+| `ready-to-merge`     | First PR URL (or issue URL if `prs` is empty)     |
+| `agent-crashed`      | Issue URL                                         |
+
+Issue URL format: `https://github.com/{owner}/{repo}/issues/{issueNumber}`. PR URL format:
+`https://github.com/{owner}/{repo}/pull/{prNumber}`.
+
+#### Confirmation Prompts
+
+Confirmation prompts render as a centered overlay. Only one prompt can be active at a time. While a
+prompt is visible, all other key handlers are suspended — only `y`, `n`, and `Escape` are active.
+
+##### Dispatch Prompt
+
+Triggered by `d` on a `ready-to-implement` task.
+
+```
+Dispatch Implementor for #N? [y/n]
+```
+
+On `y`: call `store.dispatch(issueNumber)`. On `n` / `Escape`: dismiss.
+
+##### Retry Prompt
+
+Triggered by `d` on an `agent-crashed` task.
+
+```
+Retry {AgentType} for #N? [y/n]
+```
+
+`{AgentType}` is `Implementor` or `Reviewer`, read from `task.agent.type`.
+
+On `y`: call `store.dispatch(issueNumber)`. On `n` / `Escape`: dismiss.
+
+##### Quit Prompt
+
+Triggered by `q`.
+
+When agents are running: `Quit? {N} agent(s) running. [y/n]` where N is `runningAgentCount`.
+
+When no agents are running: `Quit? [y/n]`.
+
+On `y`: call `store.shutdown()`. On `n` / `Escape`: dismiss.
+
+### Startup and Shutdown
+
+#### Startup Sequence
+
+1. Initialize the Zustand store.
+2. Subscribe to all engine events via `engine.on()` — subscriptions must be registered **before**
+   `engine.start()` to avoid missing startup events.
+3. Call `engine.start()`. Display a centered loading spinner with `Starting...` text. The two-pane
+   layout is not rendered during this phase.
+4. On resolution: render the two-pane layout. `focusedPane` is set to `taskList`. `selectedIssue` is
+   set to the first task in sort order (or `null` if no tasks). `pinnedTask` is `null`.
+
+#### Shutdown Sequence
+
+1. User presses `q` — quit confirmation shows `runningAgentCount`.
+2. On `y`: `shuttingDown` set to `true`. `shutdown` command sent to engine.
+3. Display `Shutting down...` overlay. If agents are running, show
+   `Shutting down... waiting for {N} agent(s)`. Count updates as agents complete.
+4. Process exits when all agents have completed or the engine's shutdown timeout is reached.
+
+## Acceptance Criteria
+
+### Task Lifecycle
+
+- [ ] Given the engine emits `issueStatusChanged` for a new issue, when the TUI receives it, then a
+      Task is created with `agentCount: 0`, `prs: []`, `agent: null`
+- [ ] Given a task exists and the engine emits `issueStatusChanged` with `newStatus: null`, when the
+      TUI receives it, then the task is removed from the store, caches are cleared, and `pinnedTask`
+      is nulled if it was the removed task
+- [ ] Given a task has `agent.crash` set and the engine emits `issueStatusChanged` with
+      `isRecovery: true`, when the TUI processes it, then `agent` is preserved (crash state is not
+      cleared) and `status` remains `agent-crashed`
+- [ ] Given a task has a running agent and the engine emits `issueStatusChanged` with
+      `isRecovery: false` and `isEngineTransition: true`, when the TUI processes it, then `agent` is
+      preserved (engine-initiated transition does not clear agent state)
+- [ ] Given a task has `agent.crash` set and the engine emits `issueStatusChanged` with both
+      `isRecovery` and `isEngineTransition` as `false`, when the TUI processes it, then `agent` is
+      set to `null` and status is derived from the new `statusLabel`
+- [ ] Given a task is removed via `issueStatusChanged` with `newStatus: null` and it is the
+      `selectedIssue`, when the removal is processed, then `selectedIssue` moves to the next task in
+      sort order (or `null` if no tasks remain)
+
+### Status Derivation
+
+- [ ] Given a task with `agent.crash` set and `statusLabel: 'pending'`, when status is derived, then
+      the result is `agent-crashed` (crash overrides label)
+- [ ] Given a task with `agent.running: true` and `agent.type: 'implementor'` and
+      `statusLabel: 'pending'`, when status is derived, then the result is `agent-implementing`
+      (running agent overrides label)
+- [ ] Given a task with `statusLabel` set to an unrecognized value, when the task list renders, then
+      the task is excluded from both sections
+
+### Agent Lifecycle
+
+- [ ] Given the engine emits `agentStarted` for a planner, when the TUI receives it, then
+      `plannerStatus` is set to `'running'` and no task is created or updated
+- [ ] Given the engine emits `agentCompleted` or `agentFailed` for a planner, when the TUI receives
+      it, then `plannerStatus` is set to `'idle'`
+- [ ] Given the engine emits `agentStarted` for an implementor, when the TUI receives it, then the
+      task's `agent` is set with full metadata (`sessionID`, `branchName`, `logFilePath`),
+      `agentCount` is incremented, and a stream subscription is started
+- [ ] Given the engine emits `agentCompleted`, when the TUI receives it, then the task is found by
+      matching `sessionID` on `task.agent`, and `agent.running` is set to `false` (agent object is
+      preserved)
+- [ ] Given the engine emits `agentFailed`, when the TUI receives it, then the task is found by
+      `sessionID`, `agent.running` is set to `false`, and `agent.crash` is set with the error
+
+### Engine Events
+
+- [ ] Given the engine emits `specChanged`, when the TUI receives it, then no task or store state is
+      updated
+
+### PR Tracking
+
+- [ ] Given the engine emits `prLinked` for a tracked issue, when the TUI receives it, then the PR
+      is appended to `task.prs` (or updated if a matching `prNumber` already exists)
+- [ ] Given the engine emits `ciStatusChanged` with an `issueNumber`, when a matching task exists
+      but no matching PR exists in `prs`, then a partial PR entry is created with an empty URL
+- [ ] Given a task has multiple PRs with mixed CI statuses (one `failure`, one `success`), when the
+      task list renders, then the PR column color reflects the worst status (`failure` → red)
+
+### Section Assignment and Sorting
+
+- [ ] Given tasks with statuses `ready-to-merge`, `agent-crashed`, `blocked`, `needs-refinement`,
+      and `ready-to-implement`, when the task list renders, then all appear in the ACTION section
+- [ ] Given tasks with statuses `agent-implementing` and `agent-reviewing`, when the task list
+      renders, then all appear in the AGENTS section
+- [ ] Given two ACTION tasks with the same status weight but different priorities, when sorted, then
+      the higher-priority task appears first
+- [ ] Given two tasks with the same status weight and priority, when sorted, then the lower issue
+      number appears first
+
+### Section Sub-Panes
+
+- [ ] Given the ACTION section has more items than its sub-pane capacity, when rendered, then the
+      header displays `ACTION (V/N)` where V is visible items and N is total, and excess items are
+      not rendered
+- [ ] Given the ACTION section has zero items, when rendered, then the header displays `ACTION (0)`
+      and the sub-pane is otherwise empty
+- [ ] Given the user presses ↓ on the last visible ACTION item, when AGENTS has visible items, then
+      the selection moves to the first AGENTS item
+- [ ] Given the user presses ↓ on the last visible AGENTS item, when at the bottom edge, then
+      nothing happens (no wrap)
+
+### Detail Pane
+
+- [ ] Given no task is pinned, when the detail pane renders, then it displays `No task selected`
+- [ ] Given a pinned task with status `agent-implementing`, when the agent completes and status
+      changes to `ready-to-merge`, then the detail pane switches from stream view to PR summary view
+- [ ] Given a pinned task with status `agent-crashed`, when the detail pane renders, then it
+      displays the error message, session ID, branch name, log file link, and retry hint
+- [ ] Given a pinned task is removed by `issueStatusChanged` with `newStatus: null`, when the
+      removal is processed, then `pinnedTask` is set to `null` and the detail pane shows
+      `No task selected`
+
+### Keybindings
+
+- [ ] Given the task list is focused and the selected task has status `ready-to-implement`, when `d`
+      is pressed, then a dispatch confirmation prompt is shown
+- [ ] Given the task list is focused and the selected task has status `blocked`, when `d` is
+      pressed, then nothing happens (no-op)
+- [ ] Given a confirmation prompt is visible, when any key other than `y`, `n`, or `Escape` is
+      pressed, then the key is ignored
+- [ ] Given the `[d]ispatch` footer hint, when the selected task's status is not
+      `ready-to-implement` or `agent-crashed`, then the hint is rendered in dim
+- [ ] Given the task list is focused, when Tab is pressed, then `focusedPane` changes to
+      `detailPane` and the footer hints update accordingly
+- [ ] Given the task list is focused and the selected task has status `agent-reviewing`, when `o` is
+      pressed, then the first PR URL is opened (or issue URL if `prs` is empty)
+- [ ] Given the detail pane is focused and a task is pinned, when `o` is pressed, then the URL is
+      resolved from the pinned task (not the selected task)
+- [ ] Given `selectedIssue` is `null` (empty list), when `Enter` is pressed, then nothing happens
+- [ ] Given both sections have zero tasks, when navigation keys are pressed, then nothing happens
+      and `selectedIssue` remains `null`
+
+### Startup and Shutdown
+
+- [ ] Given the TUI starts, when engine event subscriptions are registered, then they are registered
+      before `engine.start()` is called
+- [ ] Given the user confirms quit with running agents, when `shutdown` is sent to the engine, then
+      the overlay displays a countdown that updates as agents complete
+
+## Known Limitations
+
+- PRs with no closing keyword in the body (no linked issue) are not tracked by the TUI. They do not
+  appear in any task's `prs` array.
+- `agentCount` is session-local. It resets to 0 on restart because the control plane uses ephemeral
+  state.
+- Items beyond section sub-pane capacity are not reachable via keyboard navigation. The `(V/N)`
+  overflow indicator signals truncation, but the user cannot scroll to hidden items.
 
 ## Dependencies
 
-- `control-plane.md` — Parent architecture spec (data flow, `useEngine()` hook contract)
-- `control-plane-engine.md` — Engine specification (events, commands, queries, streams, agent
-  lifecycle)
-- `control-plane-tui-notifications.md` — Notifications pane sub-spec (indicators, text,
-  highlighting, interaction, notification types)
-- `control-plane-tui-detail-pane.md` — Detail pane sub-spec (content by state, streaming, caching,
-  scroll windowing, cached types)
-- `control-plane-tui-failure-overlay.md` — Failure overlay sub-spec (recording, clearing, rendering,
-  retry)
-- `workflow.md` — Status labels, issue structure
+### Engine Spec Changes Required
+
+This spec depends on changes to the engine event interface (see
+[Control Plane Engine](./control-plane-engine.md)):
+
+1. **Simplified event set.** The engine emits 7 event types: `issueStatusChanged` (with
+   `newStatus: null` for removal), `ciStatusChanged`, `prLinked`, `agentStarted`, `agentCompleted`,
+   `agentFailed`, `specChanged`. All convenience/semantic events (`issueBlocked`, `prApproved`,
+   `dispatchReady`, etc.) are removed.
+2. **New `prLinked` event.** Emitted when the PRPoller detects a PR linked to a tracked issue via
+   closing-keyword matching on the PR body. Carries `issueNumber`, `prNumber`, `url`, `ciStatus`.
+3. **`sessionID` on all agent events.** `agentCompleted` must include `sessionID` (currently only on
+   `agentStarted` and `agentFailed`).
+4. **`branchName` and `logFilePath` on `agentStarted`.** These are known at dispatch time and should
+   be included in the start event rather than only on completion/failure.
+5. **`issueRemoved` folded into `issueStatusChanged`.** Removal is signaled by `newStatus: null`.
+6. **Removed event fields.** `resolutionGuidance`, `clipboardCommand`, and `contextURL` are removed
+   from all event payloads.
+7. **`getAgentStream` keyed by `sessionID`.** The stream accessor accepts `sessionID` instead of
+   `issueNumber`.
+8. **PRPoller closing-keyword parsing.** The PRPoller must parse PR bodies for closing keywords
+   (`closes #N`, `fixes #N`, etc.) to establish issue-PR linkage and emit `prLinked` events.
+
+### Existing Dependencies
+
+- [Control Plane Engine](./control-plane-engine.md) — event emitter, command interface, query
+  interface, stream accessor.
+- [Control Plane](./control-plane.md) — parent spec defining architecture and dispatch tiers.
+- Ink — React for the terminal.
+- Zustand — state management.
 
 ## References
 
-- `control-plane-tui-notifications.md` — Notifications pane rendering, indicators, semantic
-  highlighting, type definitions
-- `control-plane-tui-detail-pane.md` — Detail pane content, scroll windowing, streaming, caching,
-  type definitions
-- `control-plane-tui-failure-overlay.md` — Failure overlay behavior (recording, clearing, rendering,
-  retry)
-- [Ink](https://github.com/vadimdemedes/ink) — React for the terminal (TUI framework)
-- [ink-link](https://github.com/sindresorhus/ink-link) — Terminal hyperlinks (OSC 8) for Ink
+- [Control Plane Engine](./control-plane-engine.md) — engine spec (v0.17.0).
+- [Control Plane](./control-plane.md) — parent spec.

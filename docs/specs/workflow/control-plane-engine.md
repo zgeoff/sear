@@ -1,7 +1,7 @@
 ---
 title: Control Plane Engine
-version: 0.16.0
-last_updated: 2026-02-12
+version: 0.17.0
+last_updated: 2026-02-13
 status: approved
 ---
 
@@ -60,13 +60,13 @@ flowchart TD
         SA["Stream Accessor"]
     end
 
-    IP -- "issueStatusChanged\nremoved issues" --> Dispatch
+    IP -- "issueStatusChanged" --> Dispatch
     SP -- "batch results" --> Core
-    PP -- "ciStatusChanged\nPR removed" --> Core
+    PP -- "ciStatusChanged\nprLinked\nPR removed" --> Core
     Dispatch -- "dispatch decisions" --> AM
     AM -- "agent events" --> EE
     AM -- "agent streams" --> SA
-    Dispatch -- "dispatch / notification events" --> EE
+    Dispatch -- "issueStatusChanged" --> EE
     CI -- "dispatch / cancel / shutdown" --> Core
     QI -- "getIssueDetails / getPRForIssue\ngetPRFiles / getPRReviews / getCIStatus" --> Core
 ```
@@ -172,8 +172,8 @@ issues, and commit SHAs for diff support. See
 for the prompt format and data sources.
 
 **Planner concurrency guard:** Only one Planner session may run at a time. If a SpecPoller cycle
-detects changes while a Planner is already running, the engine emits `agentSkipped` for the Planner
-and defers the batch. The Engine Core maintains a deferred paths buffer (a set of file paths,
+detects changes while a Planner is already running, the engine logs the skip at `info` level and
+defers the batch. The Engine Core maintains a deferred paths buffer (a set of file paths,
 deduplicated) for this purpose. On each subsequent SpecPoller cycle, the Engine Core merges the
 deferred buffer with the new cycle's results (union, deduplicated). The approval filter
 (`status: approved`) is applied to the merged set at dispatch time — paths whose frontmatter status
@@ -224,8 +224,9 @@ linked PR.
 
 #### User-dispatch
 
-The engine emits a `dispatchReady` event surfacing the issue to the TUI. The user decides when (or
-whether) to dispatch.
+The following statuses require user confirmation before dispatch. The `issueStatusChanged` event
+alone surfaces the issue to the TUI — no separate dispatch event is emitted. The user decides when
+(or whether) to dispatch.
 
 | Poller Event                                   | Agent       |
 | ---------------------------------------------- | ----------- |
@@ -236,48 +237,32 @@ whether) to dispatch.
 User-dispatch items are surfaced on first detection (status differs from snapshot). They are not
 re-surfaced on subsequent polls if the status has not changed again.
 
-#### Notify-only
+#### No-dispatch statuses
 
-The engine emits a notification event. No agent is dispatched.
+The following statuses trigger no agent dispatch. The `issueStatusChanged` event is sufficient — the
+TUI derives the task's display state from the status value directly.
 
-| Poller Event                                      | Notification                                                                                                                                                                                        |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `issueStatusChanged` to `status:needs-refinement` | Clipboard-ready CLI command for the Human to address the spec issue. Includes resolution guidance: "After amending the spec, change the label to `status:unblocked`." `contextURL`: issue URL.      |
-| `issueStatusChanged` to `status:blocked`          | Notification with issue URL for the Human to investigate the blocker. Includes resolution guidance: "After resolving the blocker, change the label to `status:unblocked`." `contextURL`: issue URL. |
-| `issueStatusChanged` to `status:approved`         | Notification that the issue is ready for Human to merge. `contextURL`: issue URL. The TUI is responsible for asynchronous PR URL lookup (see `control-plane-tui.md`).                               |
-
-**Clipboard command format** for `status:needs-refinement`:
-
-```
-claude -p "Use /spec-writing to address the spec refinement needed for issue #<N>. See blocker comment: https://github.com/<owner>/<repo>/issues/<N>"
-```
-
-> **Rationale:** This gives the Human a ready-to-paste command to kick off a spec amendment workflow
-> outside the control plane. The `/spec-writing` skill handles the structured spec authoring
-> process.
-
-Notifications are dismissed automatically when the underlying issue's status changes to a different
-value on a subsequent poll.
-
-**Event ordering:** For each status change, the Engine Core emits `issueStatusChanged` before any
-dispatch-tier event (`dispatchReady`, `issueBlocked`, `issueNeedsRefinement`, `prApproved`, or
-auto-dispatch trigger).
-
-> **Rationale:** This ensures the TUI's store has the updated issue state before processing dispatch
-> events that reference it.
+| Status                    | TUI Behavior                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------- |
+| `status:needs-refinement` | Task displayed with `REFINE` status; issue detail view on pin (see `control-plane-tui.md`)  |
+| `status:blocked`          | Task displayed with `BLOCKED` status; issue detail view on pin (see `control-plane-tui.md`) |
+| `status:approved`         | Task displayed with `APPROVED` status; PR summary view on pin (see `control-plane-tui.md`)  |
 
 **Dispatch fallthrough:** Status changes to values not listed in any dispatch tier (e.g.,
-`in-progress`, `review`) trigger no dispatch action. The `issueStatusChanged` event is still emitted
-so the TUI can update the issue's state indicator.
+`in-progress`, `review`, `blocked`, `needs-refinement`, `approved`) trigger no dispatch action. The
+`issueStatusChanged` event is still emitted so the TUI can update the issue's state indicator.
 
 > **Rationale:** `status:review` falls through because Reviewer dispatch is completion-driven (see
-> [Completion-dispatch](#completion-dispatch)), not label-driven.
+> [Completion-dispatch](#completion-dispatch)), not label-driven. Notification statuses (`blocked`,
+> `needs-refinement`, `approved`) fall through because the TUI handles display logic — the engine
+> does not emit separate notification events for these.
 
 **Removed issue orchestration:** When the IssuePoller reports that an issue has been removed (closed
 or `task:implement` label removed), the Engine Core handles the response: (1) if an agent is running
 for the issue, cancel the agent session and emit `agentFailed` (treated as cancellation — worktree
-cleaned up, branch preserved); then (2) emit `issueRemoved`. This ordering guarantees `agentFailed`
-is emitted before `issueRemoved` for the same issue.
+cleaned up, branch preserved); then (2) emit `issueStatusChanged` with `newStatus: null`. This
+ordering guarantees `agentFailed` is emitted before `issueStatusChanged(newStatus: null)` for the
+same issue.
 
 > **Rationale:** This ordering lets the TUI process the failure before the issue is removed from its
 > store.
@@ -285,8 +270,8 @@ is emitted before `issueRemoved` for the same issue.
 #### CI Failure Handling
 
 The Engine Core processes PR Poller callbacks to correlate CI status changes with tracked issues and
-emit appropriate events and notifications. The PR Poller is a pure sensor — all correlation and
-notification logic lives in the Engine Core.
+emit `ciStatusChanged` events. The PR Poller is a pure sensor — all correlation logic lives in the
+Engine Core. The TUI handles CI failure display (see `control-plane-tui.md`).
 
 **Issue↔PR correlation:** When the PR Poller reports a CI status change (via `onCIStatusChanged`),
 the Engine Core resolves the affected PR to a tracked issue. It reads the PR's `body` field from the
@@ -296,63 +281,33 @@ snapshot, the CI status change is associated with that issue. If no match is fou
 a tracked issue, or linked to an untracked issue), the Engine Core emits `ciStatusChanged` with no
 `issueNumber` (for TUI display only — no dispatch or notification action).
 
-**CI failure notification rules:** When a CI status change is associated with a tracked issue and
-the new status is `'failure'`, the Engine Core evaluates the issue's current state to determine the
-notification action:
-
-| Issue Status    | Agent Running? | Action                                                                                                                                                                        |
-| --------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pending`       | No             | Emit `ciCheckFailed` with `contextURL` (PR URL). Actionable — user can dispatch Implementor.                                                                                  |
-| `unblocked`     | No             | Emit `ciCheckFailed` with `contextURL` (PR URL). Actionable — user can dispatch Implementor.                                                                                  |
-| `needs-changes` | No             | Emit `ciCheckFailed` with `contextURL` (PR URL). Actionable — user can dispatch Implementor.                                                                                  |
-| `approved`      | No             | Emit `ciCheckFailed` with `contextURL` (PR URL) and `resolutionGuidance`: "CI failed. Change the label to `status:needs-changes` to re-dispatch an Implementor for CI fixes." |
-| `review`        | —              | No notification. CI failure persists in tracking; gets surfaced at whatever status the issue lands on after review.                                                           |
-| `in-progress`   | Yes            | No notification. The running agent may fix the issue.                                                                                                                         |
-| Any             | Yes            | No notification. The running agent may fix the issue.                                                                                                                         |
-
-> **Rationale:** `approved` is near-terminal — going backward to re-dispatch an Implementor requires
-> human judgment. The resolution guidance tells the user how to enable re-dispatch without the
-> engine making that decision automatically. `review` status means a Reviewer is evaluating the PR —
-> CI failure will be surfaced when the issue transitions to its post-review status.
-
 **CI status events:** The Engine Core emits `ciStatusChanged` for every CI status transition
-reported by the PR Poller, regardless of issue linkage or notification action. This ensures the TUI
-can update CI indicators on all tracked issues. When a CI transition also triggers a dispatch-tier
-event (`ciCheckFailed` or `ciCheckRecovered`), `ciStatusChanged` is emitted first.
-
-**CI recovery:** When the PR Poller reports a CI status change to `'success'` for a PR linked to a
-tracked issue that previously had a `ciCheckFailed` event, the Engine Core emits `ciCheckRecovered`
-for that issue.
+reported by the PR Poller, regardless of issue linkage. This ensures the TUI can update CI
+indicators on all tracked issues.
 
 **PR removal:** When the PR Poller reports a PR removal (via `onPRRemoved`), the Engine Core clears
-any CI state associated with the PR's linked issue (if any) and emits `ciCheckRecovered` if a
-`ciCheckFailed` event was previously emitted for that issue.
+any CI state associated with the PR's linked issue (if any).
+
+**PR linkage detection:** When the PR Poller reports a new PR via `onPRDetected`, the Engine Core
+reads the PR's `body` field from the PR Poller snapshot and applies closing-keyword matching against
+the IssuePoller snapshot. If a match is found, the Engine Core emits `prLinked` with the issue
+number, PR number, PR URL, and current CI status from the PR Poller snapshot. If no match is found
+(PR not linked to any tracked issue), no event is emitted.
 
 ### Event Emitter
 
 The engine emits typed events for discrete state changes. Events drive reactive updates in the TUI's
 Zustand store. Streaming agent output is handled separately via the stream accessor (see below).
 
-| Event                  | Payload                                                                                                                                                                                                                                                                                          | Emitted By                                                                       |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| `issueStatusChanged`   | Issue number, title, old status, new status, priority label, creation date, `isRecovery` flag (true for synthetic events from recovery), `isEngineTransition` flag (true only for the synthetic event from completion-dispatch — when the engine sets `status:review` on Implementor completion) | IssuePoller (or Engine Core for synthetic events: recovery, completion-dispatch) |
-| `specChanged`          | File path, frontmatter status, change type (added/modified), commit SHA                                                                                                                                                                                                                          | Engine Core (from SpecPoller results)                                            |
-| `agentStarted`         | Agent type, issue number or spec paths, session ID                                                                                                                                                                                                                                               | Agent Manager                                                                    |
-| `agentCompleted`       | Agent type, issue number or spec paths, session ID, log file path (when logging enabled)                                                                                                                                                                                                         | Agent Manager                                                                    |
-| `agentFailed`          | Agent type, issue number or spec paths, error details, session ID, branch name (Implementor and Reviewer — the branch persists after worktree cleanup for inspection), log file path (when logging enabled)                                                                                      | Agent Manager                                                                    |
-| `agentSkipped`         | Agent type, issue number or spec paths (deferred)                                                                                                                                                                                                                                                | Agent Manager (per-issue guard) or Engine Core (Planner concurrency guard)       |
-| `dispatchReady`        | Issue number, status label                                                                                                                                                                                                                                                                       | Dispatch Logic                                                                   |
-| `issueBlocked`         | Issue number, context URL (issue URL), resolution guidance                                                                                                                                                                                                                                       | Dispatch Logic                                                                   |
-| `issueUnblocked`       | Issue number                                                                                                                                                                                                                                                                                     | Dispatch Logic                                                                   |
-| `issueNeedsRefinement` | Issue number, context URL (issue URL), resolution guidance, clipboard command                                                                                                                                                                                                                    | Dispatch Logic                                                                   |
-| `issueRefined`         | Issue number                                                                                                                                                                                                                                                                                     | Dispatch Logic                                                                   |
-| `prApproved`           | Issue number, context URL (issue URL — TUI async-updates to PR URL)                                                                                                                                                                                                                              | Dispatch Logic                                                                   |
-| `prUnapproved`         | Issue number                                                                                                                                                                                                                                                                                     | Dispatch Logic                                                                   |
-| `issueRemoved`         | Issue number                                                                                                                                                                                                                                                                                     | Engine Core (in response to IssuePoller reporting a removed issue)               |
-| `ciStatusChanged`      | PR number, issue number (if linked to a tracked issue, otherwise absent), old CI status, new CI status                                                                                                                                                                                           | Engine Core (from PR Poller callback)                                            |
-| `ciCheckFailed`        | Issue number, PR number, PR URL, resolution guidance (present for `approved` status)                                                                                                                                                                                                             | Engine Core (CI failure notification rules)                                      |
-| `ciCheckRecovered`     | Issue number                                                                                                                                                                                                                                                                                     | Engine Core (CI recovery or PR removal)                                          |
-| `recoveryPerformed`    | Issue number, old status, new status                                                                                                                                                                                                                                                             | Engine Core (startup recovery and crash recovery)                                |
+| Event                | Payload                                                                                                                                                                                                                                                                                                                    | Emitted By                                                                                |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `issueStatusChanged` | Issue number, title, old status, new status (`null` when the issue is removed), priority label, creation date, `isRecovery` flag (true for synthetic events from recovery), `isEngineTransition` flag (true only for the synthetic event from completion-dispatch — engine sets `status:review` on Implementor completion) | IssuePoller (or Engine Core for synthetic events: recovery, completion-dispatch, removal) |
+| `specChanged`        | File path, frontmatter status, change type (added/modified), commit SHA                                                                                                                                                                                                                                                    | Engine Core (from SpecPoller results)                                                     |
+| `agentStarted`       | Agent type, issue number or spec paths, session ID, branch name (Implementor and Reviewer), log file path (when logging enabled)                                                                                                                                                                                           | Agent Manager                                                                             |
+| `agentCompleted`     | Agent type, issue number or spec paths, session ID, log file path (when logging enabled)                                                                                                                                                                                                                                   | Agent Manager                                                                             |
+| `agentFailed`        | Agent type, issue number or spec paths, error details, session ID, branch name (Implementor and Reviewer — the branch persists after worktree cleanup for inspection), log file path (when logging enabled)                                                                                                                | Agent Manager                                                                             |
+| `prLinked`           | Issue number, PR number, PR URL, CI status at detection time                                                                                                                                                                                                                                                               | Engine Core (from PR Poller callback)                                                     |
+| `ciStatusChanged`    | PR number, issue number (if linked to a tracked issue, otherwise absent), old CI status, new CI status                                                                                                                                                                                                                     | Engine Core (from PR Poller callback)                                                     |
 
 ### Command Interface
 
@@ -553,7 +508,6 @@ The engine logs structured events at the following levels:
 | No changes detected             | `debug` | Poller name, cycle number                                                                                                                                   |
 | GitHub API error                | `error` | Poller name, error details                                                                                                                                  |
 | CI status changed               | `info`  | PR number, old CI status, new CI status, linked issue number (if any)                                                                                       |
-| CI failure notification emitted | `info`  | Issue number, PR number, issue status                                                                                                                       |
 | Recovery performed              | `info`  | Issue number, old status, new status                                                                                                                        |
 | Shutdown initiated              | `info`  | Reason                                                                                                                                                      |
 | Shutdown complete               | `info`  | Agents terminated count                                                                                                                                     |
@@ -653,7 +607,7 @@ type IssueStatusChangedEvent = {
   issueNumber: number;
   title: string;
   oldStatus: string | null; // null on first detection
-  newStatus: string;
+  newStatus: string | null; // null when the issue is removed (closed or task:implement label removed)
   priorityLabel: string;
   createdAt: string; // ISO 8601
   isRecovery?: boolean; // true when emitted as synthetic event from crash recovery
@@ -677,6 +631,8 @@ type AgentStartedEvent = {
   issueNumber?: number; // present for Implementor, Reviewer
   specPaths?: string[]; // guaranteed present when agentType is 'planner'
   sessionID: string;
+  branchName?: string; // present for Implementor and Reviewer
+  logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
 type AgentCompletedEvent = {
@@ -699,58 +655,12 @@ type AgentFailedEvent = {
   logFilePath?: string; // present when logging.agentSessions is enabled
 };
 
-type AgentSkippedEvent = {
-  type: "agentSkipped";
-  agentType: AgentType;
-  issueNumber?: number; // present for Implementor, Reviewer
-  specPaths?: string[]; // present for Planner (deferred paths)
-};
-
-type DispatchReadyEvent = {
-  type: "dispatchReady";
+type PRLinkedEvent = {
+  type: "prLinked";
   issueNumber: number;
-  statusLabel: string;
-};
-
-type IssueBlockedEvent = {
-  type: "issueBlocked";
-  issueNumber: number;
-  contextURL: string; // issue URL
-  resolutionGuidance: string; // "After resolving the blocker, change the label to status:unblocked."
-};
-
-type IssueUnblockedEvent = {
-  type: "issueUnblocked";
-  issueNumber: number;
-};
-
-type IssueNeedsRefinementEvent = {
-  type: "issueNeedsRefinement";
-  issueNumber: number;
-  contextURL: string; // issue URL
-  resolutionGuidance: string; // "After amending the spec, change the label to status:unblocked."
-  clipboardCommand: string;
-};
-
-type IssueRefinedEvent = {
-  type: "issueRefined";
-  issueNumber: number;
-};
-
-type PRApprovedEvent = {
-  type: "prApproved";
-  issueNumber: number;
-  contextURL: string; // issue URL (TUI async-updates to PR URL)
-};
-
-type PRUnapprovedEvent = {
-  type: "prUnapproved";
-  issueNumber: number;
-};
-
-type IssueRemovedEvent = {
-  type: "issueRemoved";
-  issueNumber: number;
+  prNumber: number;
+  url: string; // PR URL
+  ciStatus: "pending" | "success" | "failure" | null; // current CI status at detection time
 };
 
 type CIStatusChangedEvent = {
@@ -761,45 +671,14 @@ type CIStatusChangedEvent = {
   newCIStatus: "pending" | "success" | "failure";
 };
 
-type CICheckFailedEvent = {
-  type: "ciCheckFailed";
-  issueNumber: number;
-  prNumber: number;
-  contextURL: string; // PR URL
-  resolutionGuidance?: string; // present when issue status is 'approved'
-};
-
-type CICheckRecoveredEvent = {
-  type: "ciCheckRecovered";
-  issueNumber: number;
-};
-
-type RecoveryPerformedEvent = {
-  type: "recoveryPerformed";
-  issueNumber: number;
-  oldStatus: string;
-  newStatus: string;
-};
-
 type EngineEvent =
   | IssueStatusChangedEvent
   | SpecChangedEvent
   | AgentStartedEvent
   | AgentCompletedEvent
   | AgentFailedEvent
-  | AgentSkippedEvent
-  | DispatchReadyEvent
-  | IssueBlockedEvent
-  | IssueUnblockedEvent
-  | IssueNeedsRefinementEvent
-  | IssueRefinedEvent
-  | PRApprovedEvent
-  | PRUnapprovedEvent
-  | IssueRemovedEvent
-  | CIStatusChangedEvent
-  | CICheckFailedEvent
-  | CICheckRecoveredEvent
-  | RecoveryPerformedEvent;
+  | PRLinkedEvent
+  | CIStatusChangedEvent;
 ```
 
 #### Commands
@@ -987,7 +866,7 @@ type Engine = {
   getPRFiles(prNumber: number): Promise<PRFileEntry[]>;
   getPRReviews(prNumber: number): Promise<PRReviewsResult>;
   getCIStatus(prNumber: number): Promise<CIStatusResult>;
-  getAgentStream(issueNumber: number): AgentStream;
+  getAgentStream(sessionID: string): AgentStream;
 };
 
 // Startup contract: Callers MUST subscribe to the event emitter (via `on()`)
@@ -1035,30 +914,23 @@ See `control-plane-engine-issue-poller.md`, `control-plane-engine-spec-poller.md
 - [ ] Given the `dispatchReviewer` command is received for an issue not in the IssuePoller snapshot,
       when the command is processed, then it is a no-op.
 
-### CI Failure Handling
+### CI and PR Linkage
 
-- [ ] Given the PR Poller reports a CI status change for a PR linked to a tracked issue with
-      `status:pending` and no agent running, when the new CI status is `'failure'`, then the Engine
-      Core emits `ciCheckFailed` with the PR URL.
-- [ ] Given the PR Poller reports a CI status change for a PR linked to a tracked issue with
-      `status:approved`, when the new CI status is `'failure'`, then the Engine Core emits
-      `ciCheckFailed` with `resolutionGuidance`.
-- [ ] Given the PR Poller reports a CI status change for a PR linked to a tracked issue with
-      `status:review`, when the new CI status is `'failure'`, then no `ciCheckFailed` is emitted.
-- [ ] Given the PR Poller reports a CI status change for a PR linked to a tracked issue with an
-      agent running, when the new CI status is `'failure'`, then no `ciCheckFailed` is emitted.
-- [ ] Given the PR Poller reports a CI status change to `'success'` for a PR linked to an issue that
-      previously had `ciCheckFailed` emitted, when the Engine Core processes the callback, then
-      `ciCheckRecovered` is emitted for that issue.
-- [ ] Given the PR Poller reports a PR removal for a PR linked to an issue that previously had
-      `ciCheckFailed` emitted, when the Engine Core processes the callback, then `ciCheckRecovered`
-      is emitted for that issue.
+- [ ] Given the PR Poller reports a CI status change for a PR linked to a tracked issue, when the
+      Engine Core processes the callback, then `ciStatusChanged` is emitted with the `issueNumber`.
 - [ ] Given the PR Poller reports a CI status change for a PR not linked to any tracked issue, when
       the Engine Core processes the callback, then `ciStatusChanged` is emitted with no
       `issueNumber`.
 - [ ] Given a PR body contains a closing keyword matching a tracked issue, when the Engine Core
       resolves the PR→issue correlation, then the same closing-keyword matching logic used by
       `getPRForIssue` is applied.
+- [ ] Given the PR Poller reports a new PR via `onPRDetected` whose body matches a tracked issue,
+      when the Engine Core processes the callback, then `prLinked` is emitted with the issue number,
+      PR number, PR URL, and current CI status.
+- [ ] Given the PR Poller reports a new PR via `onPRDetected` whose body does not match any tracked
+      issue, when the Engine Core processes the callback, then no `prLinked` event is emitted.
+- [ ] Given the PR Poller reports a PR removal, when the Engine Core processes the callback, then
+      any CI state associated with the PR's linked issue is cleared.
 
 ### Agent Lifecycle
 
@@ -1124,9 +996,7 @@ criteria.
       the batch.
 - [ ] Given an agent is running for issue N, when issue N is removed from the poll results (closed
       or label removed), then the agent session is cancelled, `agentFailed` is emitted before
-      `issueRemoved`.
-- [ ] Given an issue status changes to a user-dispatch status, when the Engine Core processes the
-      change, then `issueStatusChanged` is emitted before `dispatchReady`.
+      `issueStatusChanged(newStatus: null)`.
 - [ ] Given a Planner session fails, when the failure is detected, then the dispatched spec paths
       are re-added to the deferred buffer for the next dispatch attempt.
 
