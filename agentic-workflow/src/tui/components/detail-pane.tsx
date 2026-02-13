@@ -1,10 +1,17 @@
 import { Box, Text, useInput } from 'ink';
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { match, P } from 'ts-pattern';
+import { match } from 'ts-pattern';
 import type { StoreApi } from 'zustand';
 import { useStore } from 'zustand';
-import type { AgentCrash, CachedIssueDetail, CachedPRDetail, Task, TUIStore } from '../types.ts';
+import type {
+  CachedIssueDetail,
+  CachedPRDetail,
+  Task,
+  TaskAgent,
+  TaskStatus,
+  TUIStore,
+} from '../types.ts';
 
 export interface DetailPaneProps {
   store: StoreApi<TUIStore>;
@@ -12,23 +19,17 @@ export interface DetailPaneProps {
   paneHeight: number;
 }
 
-type IssueState =
+type ContentView =
   | { view: 'none' }
-  | { view: 'loading'; issue: Task }
-  | { view: 'failure'; issue: Task; crash: AgentCrash }
-  | { view: 'streaming'; issue: Task; chunks: string[] }
-  | { view: 'issueDetails'; issue: Task; details: CachedIssueDetail }
-  | { view: 'issueDetailsWithGuidance'; issue: Task; details: CachedIssueDetail }
-  | { view: 'prSummary'; issue: Task; pr: CachedPRDetail }
-  | { view: 'prApproved'; issue: Task; pr: CachedPRDetail }
-  | { view: 'noPR'; issue: Task };
+  | { view: 'issueDetail'; task: Task; detail: CachedIssueDetail | null }
+  | { view: 'agentStream'; task: Task; lines: string[] }
+  | { view: 'prSummary'; task: Task; prDetails: PrSummaryEntry[] }
+  | { view: 'crashDetail'; task: Task; agent: TaskAgent };
 
-interface ResolveIssueStateParams {
-  issue: Task | null;
-  selectedIssue: number | null;
-  agentStreams: Map<string, string[]>;
-  issueDetailCache: Map<number, CachedIssueDetail>;
-  prDetailCache: Map<number, CachedPRDetail>;
+interface PrSummaryEntry {
+  prNumber: number;
+  detail: CachedPRDetail | null;
+  ciStatus: 'pending' | 'success' | 'failure' | null;
 }
 
 const SCROLL_STEP = 1;
@@ -37,7 +38,7 @@ const ELLIPSIS = '\u2026';
 const ANSI_REGEX = /\x1b\[[0-9;]*m|\x1b\]8;;[^\x07]*\x07/g;
 
 export function DetailPane(props: DetailPaneProps): ReactNode {
-  const selectedIssue = useStore(props.store, (s) => s.selectedIssue);
+  const pinnedTask = useStore(props.store, (s) => s.pinnedTask);
   const tasks = useStore(props.store, (s) => s.tasks);
   const agentStreams = useStore(props.store, (s) => s.agentStreams);
   const issueDetailCache = useStore(props.store, (s) => s.issueDetailCache);
@@ -50,29 +51,33 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
 
   const visibleRowCount = props.paneHeight;
 
-  const issue = selectedIssue !== null ? (tasks.get(selectedIssue) ?? null) : null;
-  const issueState = resolveIssueState({
-    issue,
-    selectedIssue,
+  const task = pinnedTask !== null ? (tasks.get(pinnedTask) ?? null) : null;
+  const contentView = resolveContentView({
+    task,
     agentStreams,
     issueDetailCache,
     prDetailCache,
   });
 
-  const allLines = buildContentLines(issueState);
+  const allLines = buildContentLines(contentView);
   const lineCount = allLines.length;
 
-  const isStreaming = issueState.view === 'streaming';
-  const chunks = isStreaming ? issueState.chunks : undefined;
-  const chunkCount = chunks?.length ?? 0;
+  const isStreaming = contentView.view === 'agentStream';
+  const streamLines = isStreaming ? contentView.lines : undefined;
+  const chunkCount = streamLines?.length ?? 0;
 
-  const prevSelectedIssueRef = useRef(selectedIssue);
+  const prevPinnedTaskRef = useRef(pinnedTask);
+  const prevStatusRef = useRef<TaskStatus | null>(task?.status ?? null);
 
   useEffect(() => {
-    const issueChanged = selectedIssue !== prevSelectedIssueRef.current;
-    prevSelectedIssueRef.current = selectedIssue;
+    const pinnedChanged = pinnedTask !== prevPinnedTaskRef.current;
+    const currentStatus = task?.status ?? null;
+    const statusChanged = currentStatus !== prevStatusRef.current;
 
-    if (issueChanged) {
+    prevPinnedTaskRef.current = pinnedTask;
+    prevStatusRef.current = currentStatus;
+
+    if (pinnedChanged || statusChanged) {
       setAutoScroll(true);
       prevChunkCountRef.current = 0;
 
@@ -88,7 +93,7 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
       setScrollOffset(Math.max(0, lineCount - visibleRowCount));
     }
     prevChunkCountRef.current = chunkCount;
-  }, [selectedIssue, chunkCount, autoScroll, isStreaming, lineCount, visibleRowCount]);
+  }, [pinnedTask, task?.status, chunkCount, autoScroll, isStreaming, lineCount, visibleRowCount]);
 
   useInput((input, key) => {
     if (focusedPane !== 'detailPane') {
@@ -132,198 +137,146 @@ export function DetailPane(props: DetailPaneProps): ReactNode {
   );
 }
 
-function buildContentLines(issueState: IssueState): string[] {
-  return match(issueState)
-    .with({ view: 'none' }, () => buildNoSelectionLines())
-    .with({ view: 'loading' }, (s) => buildLoadingLines(s.issue))
-    .with({ view: 'failure' }, (s) => buildFailureLines(s.issue, s.crash))
-    .with({ view: 'streaming' }, (s) => buildStreamingLines(s.issue, s.chunks))
-    .with({ view: 'issueDetails' }, (s) => buildIssueDetailsLines(s.issue, s.details))
-    .with({ view: 'issueDetailsWithGuidance' }, (s) =>
-      buildIssueDetailsWithGuidanceLines(s.issue, s.details),
-    )
-    .with({ view: 'prSummary' }, (s) => buildPrSummaryLines(s.issue, s.pr))
-    .with({ view: 'prApproved' }, (s) => buildPrApprovedLines(s.issue, s.pr))
-    .with({ view: 'noPR' }, () => buildNoPRFoundLines())
-    .exhaustive();
+// ---------------------------------------------------------------------------
+// Content View Resolution
+// ---------------------------------------------------------------------------
+
+interface ResolveContentViewParams {
+  task: Task | null;
+  agentStreams: Map<string, string[]>;
+  issueDetailCache: Map<number, CachedIssueDetail>;
+  prDetailCache: Map<number, CachedPRDetail>;
 }
 
-function buildNoSelectionLines(): string[] {
-  return ['No issue selected'];
-}
-
-function buildLoadingLines(issue: Task): string[] {
-  return [`#${issue.issueNumber} ${issue.title}`, 'Loading...'];
-}
-
-function buildNoPRFoundLines(): string[] {
-  return ['No PR found'];
-}
-
-function buildFailureLines(issue: Task, crash: AgentCrash): string[] {
-  const agent = issue.agent;
-  const agentLabel = agent?.type === 'implementor' ? 'Implementor' : 'Reviewer';
-  const lines: string[] = [
-    'Agent Failure',
-    `Issue: #${issue.issueNumber} ${issue.title}`,
-    `Agent: ${agentLabel}`,
-    `Error: ${crash.error}`,
-  ];
-  if (agent?.sessionID) {
-    lines.push(`Session: ${agent.sessionID}`);
-  }
-  if (agent?.branchName) {
-    lines.push(`Branch: ${agent.branchName}`);
-  }
-  if (agent?.logFilePath) {
-    lines.push(`Log: ${buildOSC8Link(`file://${agent.logFilePath}`, agent.logFilePath)}`);
-  }
-  lines.push('Press Enter in the issue list to retry.');
-  return lines;
-}
-
-function buildStreamingLines(issue: Task, chunks: string[]): string[] {
-  const agentLabel = issue.agent?.type === 'implementor' ? 'Implementor' : 'Reviewer';
-  return [`${agentLabel} output for #${issue.issueNumber}`, ...chunks];
-}
-
-function buildIssueDetailsLines(issue: Task, details: CachedIssueDetail): string[] {
-  const lines: string[] = [
-    `#${issue.issueNumber} ${issue.title}`,
-    `Labels: ${details.labels.join(', ')}`,
-  ];
-  if (details.stale) {
-    lines.push('(Refreshing...)');
-  }
-  lines.push('');
-  lines.push(...details.body.split('\n'));
-  return lines;
-}
-
-function buildIssueDetailsWithGuidanceLines(issue: Task, details: CachedIssueDetail): string[] {
-  const statusDisplay = issue.statusLabel === 'needs-refinement' ? 'Needs Refinement' : 'Blocked';
-  const lines: string[] = [
-    `#${issue.issueNumber} ${issue.title}`,
-    statusDisplay,
-    `Labels: ${details.labels.join(', ')}`,
-  ];
-  if (details.stale) {
-    lines.push('(Refreshing...)');
-  }
-  lines.push('');
-  lines.push(...details.body.split('\n'));
-  return lines;
-}
-
-function buildPrSummaryLines(issue: Task, pr: CachedPRDetail): string[] {
-  const taskPR = issue.prs.find((p) => p.number !== undefined);
-  const prNumber = taskPR?.number ?? 0;
-  const ciStatus = taskPR?.ciStatus ?? null;
-  const lines: string[] = [
-    `PR #${prNumber}: ${pr.title}`,
-    `Issue: #${issue.issueNumber} ${issue.title}`,
-    `Changed files: ${pr.changedFilesCount}`,
-    `CI: ${ciStatus ?? 'unknown'}`,
-  ];
-  if (ciStatus === 'failure' && pr.failedCheckNames) {
-    lines.push('CI: FAILURE');
-    for (const checkName of pr.failedCheckNames) {
-      lines.push(`  - ${checkName}`);
-    }
-  }
-  if (pr.stale) {
-    lines.push('(Refreshing...)');
-  }
-  return lines;
-}
-
-function buildPrApprovedLines(issue: Task, pr: CachedPRDetail): string[] {
-  const taskPR = issue.prs.find((p) => p.number !== undefined);
-  const prNumber = taskPR?.number ?? 0;
-  const ciStatus = taskPR?.ciStatus ?? null;
-  const lines: string[] = [
-    'Ready to Merge',
-    `PR #${prNumber}: ${pr.title}`,
-    `Issue: #${issue.issueNumber} ${issue.title}`,
-    `Changed files: ${pr.changedFilesCount}`,
-    `CI: ${ciStatus ?? 'unknown'}`,
-  ];
-  if (ciStatus === 'failure' && pr.failedCheckNames) {
-    lines.push('CI: FAILURE');
-    for (const checkName of pr.failedCheckNames) {
-      lines.push(`  - ${checkName}`);
-    }
-  }
-  if (pr.stale) {
-    lines.push('(Refreshing...)');
-  }
-  return lines;
-}
-
-function resolveIssueState(params: ResolveIssueStateParams): IssueState {
-  const { issue, selectedIssue, agentStreams, issueDetailCache, prDetailCache } = params;
-  if (selectedIssue === null || !issue) {
+function resolveContentView(params: ResolveContentViewParams): ContentView {
+  if (params.task === null) {
     return { view: 'none' };
   }
 
-  if (issue.agent?.crash) {
-    return { view: 'failure', issue, crash: issue.agent.crash };
-  }
+  const task = params.task;
 
-  if (issue.agent?.running) {
-    const chunks = agentStreams.get(issue.agent.sessionID) ?? [];
-    return { view: 'streaming', issue, chunks };
-  }
-
-  const firstPR = issue.prs[0];
-
-  return match(issue.statusLabel)
-    .with(P.union('pending', 'unblocked', 'needs-changes'), (): IssueState => {
-      const details = issueDetailCache.get(issue.issueNumber);
-      if (!details) {
-        return { view: 'loading', issue };
-      }
-      return { view: 'issueDetails', issue, details };
+  return match(task.status)
+    .with('ready-to-implement', 'needs-refinement', 'blocked', (): ContentView => {
+      const detail = params.issueDetailCache.get(task.issueNumber) ?? null;
+      return { view: 'issueDetail', task, detail };
     })
-    .with('review', (): IssueState => {
-      if (firstPR) {
-        const pr = prDetailCache.get(firstPR.number);
-        if (pr) {
-          return { view: 'prSummary', issue, pr };
-        }
-      }
-      if (issue.prs.length === 0) {
-        return { view: 'noPR', issue };
-      }
-      return { view: 'loading', issue };
+    .with('agent-implementing', 'agent-reviewing', (): ContentView => {
+      const sessionID = task.agent?.sessionID;
+      const lines = sessionID ? (params.agentStreams.get(sessionID) ?? []) : [];
+      return { view: 'agentStream', task, lines };
     })
-    .with(P.union('needs-refinement', 'blocked'), (): IssueState => {
-      const details = issueDetailCache.get(issue.issueNumber);
-      if (!details) {
-        return { view: 'loading', issue };
-      }
-      return { view: 'issueDetailsWithGuidance', issue, details };
+    .with('ready-to-merge', (): ContentView => {
+      const prDetails: PrSummaryEntry[] = task.prs.map((pr) => ({
+        prNumber: pr.number,
+        detail: params.prDetailCache.get(pr.number) ?? null,
+        ciStatus: pr.ciStatus,
+      }));
+      return { view: 'prSummary', task, prDetails };
     })
-    .with('approved', (): IssueState => {
-      if (firstPR) {
-        const pr = prDetailCache.get(firstPR.number);
-        if (pr) {
-          return { view: 'prApproved', issue, pr };
-        }
+    .with('agent-crashed', (): ContentView => {
+      if (task.agent === null) {
+        return { view: 'none' };
       }
-      if (issue.prs.length === 0) {
-        return { view: 'noPR', issue };
-      }
-      return { view: 'loading', issue };
+      return { view: 'crashDetail', task, agent: task.agent };
     })
-    .otherwise((): IssueState => {
-      const details = issueDetailCache.get(issue.issueNumber);
-      if (!details) {
-        return { view: 'loading', issue };
-      }
-      return { view: 'issueDetails', issue, details };
-    });
+    .exhaustive();
 }
+
+// ---------------------------------------------------------------------------
+// Content Line Builders
+// ---------------------------------------------------------------------------
+
+function buildContentLines(contentView: ContentView): string[] {
+  return match(contentView)
+    .with({ view: 'none' }, () => buildNoTaskLines())
+    .with({ view: 'issueDetail' }, (cv) => buildIssueDetailLines(cv.task, cv.detail))
+    .with({ view: 'agentStream' }, (cv) => buildAgentStreamLines(cv.task, cv.lines))
+    .with({ view: 'prSummary' }, (cv) => buildPrSummaryLines(cv.task, cv.prDetails))
+    .with({ view: 'crashDetail' }, (cv) => buildCrashDetailLines(cv.task, cv.agent))
+    .exhaustive();
+}
+
+function buildNoTaskLines(): string[] {
+  return ['No task selected'];
+}
+
+function buildIssueDetailLines(task: Task, detail: CachedIssueDetail | null): string[] {
+  const lines: string[] = [`#${task.issueNumber} ${task.title}`];
+
+  if (detail === null) {
+    lines.push('Loading...');
+    return lines;
+  }
+
+  lines.push(`Labels: ${detail.labels.join(', ')}`);
+  if (detail.stale) {
+    lines.push('(Refreshing...)');
+  }
+  lines.push('');
+  lines.push(...detail.body.split('\n'));
+  return lines;
+}
+
+function buildAgentStreamLines(task: Task, lines: string[]): string[] {
+  const agentLabel = task.agent?.type === 'implementor' ? 'Implementor' : 'Reviewer';
+  return [`${agentLabel} output for #${task.issueNumber}`, ...lines];
+}
+
+function buildPrSummaryLines(task: Task, prDetails: PrSummaryEntry[]): string[] {
+  if (prDetails.length === 0) {
+    return [`#${task.issueNumber} ${task.title}`, 'No linked PRs'];
+  }
+
+  const lines: string[] = [];
+
+  for (const entry of prDetails) {
+    if (entry.detail === null) {
+      lines.push(`PR #${entry.prNumber}: Loading...`);
+    } else {
+      lines.push(`PR #${entry.prNumber}: ${entry.detail.title}`);
+      lines.push(`Changed files: ${entry.detail.changedFilesCount}`);
+      lines.push(`CI: ${entry.ciStatus ?? 'unknown'}`);
+
+      if (entry.ciStatus === 'failure' && entry.detail.failedCheckNames) {
+        for (const checkName of entry.detail.failedCheckNames) {
+          lines.push(`  - ${checkName}`);
+        }
+      }
+
+      if (entry.detail.stale) {
+        lines.push('(Refreshing...)');
+      }
+    }
+  }
+
+  return lines;
+}
+
+function buildCrashDetailLines(_task: Task, agent: TaskAgent): string[] {
+  const agentLabel = agent.type === 'implementor' ? 'Implementor' : 'Reviewer';
+  const lines: string[] = [`Agent: ${agentLabel}`];
+
+  if (agent.crash) {
+    lines.push(`\x1b[31mError: ${agent.crash.error}\x1b[0m`);
+  }
+
+  lines.push(`Session: ${agent.sessionID}`);
+
+  if (agent.branchName) {
+    lines.push(`Branch: ${agent.branchName}`);
+  }
+
+  if (agent.logFilePath) {
+    lines.push(`Log: ${buildOSC8Link(`file://${agent.logFilePath}`, agent.logFilePath)}`);
+  }
+
+  lines.push('Press [d] to retry');
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function truncateLine(line: string, maxWidth: number): string {
   if (maxWidth <= 0) {

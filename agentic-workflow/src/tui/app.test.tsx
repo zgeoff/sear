@@ -81,7 +81,7 @@ test('it renders the two-pane layout after startup completes', async () => {
   await vi.waitFor(() => {
     const frame = lastFrame();
     expect(frame).toContain('No issues tracked');
-    expect(frame).toContain('No issue selected');
+    expect(frame).toContain('No task selected');
   });
 });
 
@@ -105,7 +105,7 @@ test('it renders both panes on initial startup', async () => {
 
   const frame = lastFrame();
   expect(frame).toContain('No issues tracked');
-  expect(frame).toContain('No issue selected');
+  expect(frame).toContain('No task selected');
 });
 
 test('it shows placeholder content in the issue list pane', async () => {
@@ -117,7 +117,7 @@ test('it shows placeholder content in the issue list pane', async () => {
 test('it shows placeholder content in the detail pane', async () => {
   const { lastFrame } = await setupStartedTest();
 
-  expect(lastFrame()).toContain('No issue selected');
+  expect(lastFrame()).toContain('No task selected');
 });
 
 // ---------------------------------------------------------------------------
@@ -151,12 +151,11 @@ test('it moves focus forward through the pane cycle when Tab is pressed', async 
     expect(lastFrame()).toContain('#1');
   });
 
-  // Select the first issue while focus is on issue list (detail pane shows selected issue)
+  // Navigate in the issue list while focus is on task list
   stdin.write('j');
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    expect(frame).not.toContain('No issue selected');
     expect(frame).toContain('#1 First');
   });
 
@@ -202,12 +201,11 @@ test('it toggles focus back when Tab is pressed again', async () => {
     expect(lastFrame()).toContain('#1');
   });
 
-  // Select the first issue while focus is on issue list (detail pane shows selected issue)
+  // Navigate in the issue list while focus is on task list
   stdin.write('j');
 
   await vi.waitFor(() => {
     const frame = lastFrame() ?? '';
-    expect(frame).not.toContain('No issue selected');
     expect(frame).toContain('#1 First');
   });
 
