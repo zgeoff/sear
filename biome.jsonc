@@ -492,6 +492,7 @@
     "includes": [
       "**",
       "!**/.claude/**/*.json",
+      "!**/.agents/**/*.json",
       "!**/.pnp.cjs",
       "!**/.pnp.loader.mjs",
       "!**/.yarn/sdks",

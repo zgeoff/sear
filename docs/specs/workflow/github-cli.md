@@ -303,5 +303,5 @@ The script requires these commands on `PATH`:
 
 - [GitHub App authentication docs](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app)
 - [GitHub App installation token docs](https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app)
-- [GitHub CLI Workflow skill](../../../.claude/skills/github-workflow/SKILL.md)
+- [GitHub CLI Workflow skill](../../../.agents/skills/github-workflow/SKILL.md)
 - [Development protocol](./workflow.md)
